@@ -1,0 +1,27 @@
+{
+  "_comment": "Append the moment anything enters the repo. Reconstructing this in the last week is how teams end up guessing, and a guess is what turns properly credited work into a plagiarism question.",
+  "libraries": [
+    {
+      "name": "three.js",
+      "url": "https://threejs.org",
+      "licence": "MIT",
+      "used_for": "Rendering, scene graph, math types"
+    },
+    {
+      "name": "Rapier (@dimforge/rapier3d-compat)",
+      "url": "https://rapier.rs",
+      "licence": "Apache-2.0",
+      "used_for": "Collision detection, rigid body integration, raycasts. Vehicle dynamics are our own - see the design document, section 2."
+    },
+    {
+      "name": "Vite",
+      "url": "https://vite.dev",
+      "licence": "MIT",
+      "used_for": "Development server and production build"
+    }
+  ],
+  "models": [],
+  "textures": [],
+  "audio": [],
+  "learned_from": []
+}
