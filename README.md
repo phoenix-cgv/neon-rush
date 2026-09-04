@@ -3,6 +3,11 @@
 Three.js + Rapier. Physics and mechanics module — see the design document
 for the reasoning behind the architecture.
 
+> **New to the project? Read [GETTING-STARTED.md](GETTING-STARTED.md) first.**
+> It covers setup, the conventions that are not negotiable, how to add a
+> level, and the failures that have already cost someone a day. This file
+> is the reference you come back to; that one is the path in.
+
 ## Run it
 
 ```
