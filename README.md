@@ -332,5 +332,6 @@ because the game is served from `/~student/neon-rush/`, not a domain root.
 
 **Filenames must be lowercase-with-hyphens.** Ubuntu is case-sensitive:
 `Car.glb` works on every laptop in the team and 404s on the server.
-#   n e o n - r u s h  
+#   n e o n - r u s h 
+ 
  
