@@ -251,6 +251,28 @@ export const CAR = {
   wallGripFactor: 0.9,
   wallImpactScrub: 0.16, // max fraction of along-wall speed lost on impact
   wallImpactRef: 22, // m/s of closing speed that counts as a full-force hit
+
+  // --- accumulated damage ---------------------------------------------
+  // Added after the M10 freeze. These are NEW constants, not changes to
+  // frozen ones, so nothing already tuned moves.
+  //
+  // Damage is permanent until repaired. A handicap you simply wait out is
+  // not a cost, so recovery is a pickup you have to go and collect —
+  // which is a decision, and sometimes the wrong line.
+  //
+  // There is deliberately NO steering penalty. Steering authority is
+  // already reduced at speed (steerSpeedFactor 0.62, itself reverted from
+  // a value that made the car unable to make its own corners), and the
+  // circuit's tightest corner needs close to full lock. Taking more away
+  // can make a corner impossible, which reads as broken rather than hard.
+  damageRef: 14, // m/s of closing speed for a full-strength hit
+  damageGain: 0.34, // damage added by one reference-strength hit
+  damageLanding: 0.16, // damage added by a maximally bad landing
+  // Damage does not decay. Repair is a pickup on the road, so recovering
+  // costs you a line rather than costing you nothing but patience.
+  repairPickup: 0.45, // condition restored by one repair pickup
+  boostPickup: 65, // boost charge restored by one speed pickup
+  damagePowerLoss: 0.15, // engine force lost at damage = 1. Set to 0 to disable.
   wallSlideScrub: 0.06, // per second, while still rubbing along
   // How horizontal a contact normal must be to count as a wall. 0.55
   // accepted anything more than 33 degrees off vertical, which caught the

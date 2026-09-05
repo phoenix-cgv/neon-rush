@@ -16,6 +16,7 @@ export const DEFAULTS = {
   // presentation
   quality: "high", // high | medium | low
   minimap: true,
+  healthBar: true,
   telemetry: true,
   // input
   bindings: null, // null = use DEFAULT_BINDINGS

@@ -39,7 +39,9 @@ export class Race {
     this.cars = [];
 
     const names = Object.keys(PERSONALITIES);
-    const colours = [0x1d7f8c, 0xc0463a, 0xd9a13c, 0x6f4a9c, 0x3f8f4e, 0xb8532f];
+    // The player is white so damage reads on it; the opponents keep strong
+    // hues so the field is still separable at a glance on the minimap.
+    const colours = [0xeef1f2, 0xc0463a, 0xd9a13c, 0x6f4a9c, 0x3f8f4e, 0x1d7f8c];
 
     for (let i = 0; i <= opponents; i++) {
       // Grid: rows back from the line, staggered left and right.

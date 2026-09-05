@@ -136,6 +136,7 @@ export function buildSprint(RAPIER, world, scene) {
     title: "Sprint",
     track,
     opponents: 0, // solo: learn the car before racing anyone
+    pickups: { repair: 5, boost: 7 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [80, 95, 25], fog: [0xa9c6d2, 300, 1200], sky: 0xa9c6d2 },

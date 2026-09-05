@@ -12,6 +12,9 @@ import { Minimap, MINIMAP_LAYER, MAP_WORLD_LAYER } from "./ui/minimap.js";
 import { Menu } from "./ui/menu.js";
 import { Save, QUALITY } from "./core/save.js";
 import { Ghost } from "./core/ghost.js";
+import { HealthBar } from "./ui/health.js";
+import { Pickups } from "./core/pickups.js";
+import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCircuit } from "./levels/circuit.js";
@@ -120,6 +123,10 @@ const cameraRig = new CameraRig(camera);
 const input = new Input();
 const debug = new DebugOverlay(scene);
 const minimap = new Minimap(scene);
+const health = new HealthBar();
+// One shared pool for the whole field — smoke is one draw call however
+// many cars are smoking, and it is kept off the minimap layer.
+const smoke = new Smoke(scene, MINIMAP_LAYER);
 
 // --- settings ----------------------------------------------------------
 function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
@@ -136,6 +143,7 @@ function applyPresentation() {
   // These two were in DEFAULTS but never read back, so the toggles
   // persisted a preference the game then ignored on the next load.
   minimap.enabled = Save.get("minimap") !== false;
+  health.setVisible(Save.get("healthBar") !== false);
   debug.setVisible(Save.get("telemetry") !== false);
 }
 
@@ -174,6 +182,7 @@ const ORDER = ["sprint", "storm", "circuit", "testbed"];
 let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
 let ghost = null;
+let pickups = null;
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
@@ -200,6 +209,7 @@ function loadLevel(name) {
   race = null;
   ghost?.dispose();
   ghost = null;
+  pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
   // race.dispose() is a no-op for it — so that car's rigid body survived
@@ -225,6 +235,7 @@ function loadLevel(name) {
     // race.cars, so it cannot affect standings, slipstream or respawn
     // slot searches.
     ghost = new Ghost(RAPIER, world, scene, level.track, name, (level.opponents ?? 0) === 0);
+    pickups = new Pickups(level.track, scene, level.pickups ?? {});
     ghost.restart(vehicle);
     cameraRig.snapTo(vehicle.state);
   } else {
@@ -350,6 +361,9 @@ function frame(now) {
       // so they run after the solver, not before it.
       race.postStep(WORLD.fixedDt);
       ghost?.postStep();
+      // Orbs are collected by the FIELD, not by the ghost: a replay must
+      // not change the world it is replaying into.
+      pickups?.update(WORLD.fixedDt, race.cars);
       if (progress?.justCompletedLap) {
         ghost?.completeLap(progress.lastLapTime, vehicle);
       }
@@ -366,8 +380,14 @@ function frame(now) {
     carRig.sync(vehicle.state);
   }
   ghost?.render(alpha);
+  pickups?.render();
+  // Render-frame, not fixed-step: smoke changes nothing in the
+  // simulation, so it must not cost a physics step or stutter at high
+  // frame rates.
+  smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
 
   const state = vehicle.state;
+  health.update(state.damage);
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);
@@ -400,7 +420,8 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer,
+  minimap, menu, Save, input, renderer, health, smoke,
+  get pickups() { return pickups; },
   get ghost() { return ghost; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),

@@ -230,6 +230,7 @@ export function buildStorm(RAPIER, world, scene) {
     title: "Storm Ridge",
     track,
     opponents: 2,
+    pickups: { repair: 7, boost: 5 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [-40, 70, -55], fog: [0x6c7684, 150, 720], sky: 0x6c7684 },

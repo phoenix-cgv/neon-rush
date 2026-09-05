@@ -24,6 +24,7 @@ const _linvel = new THREE.Vector3();
 const _angvel = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
+const _quat2 = new THREE.Quaternion(); // scratch for world -> car space
 const _up = new THREE.Vector3();
 
 const FORWARD = new THREE.Vector3(0, 0, -1);
@@ -167,6 +168,13 @@ export class Vehicle {
     this.beached = 0; // seconds stationary with no wheel on the ground
     this.lastLanding = 0; // misalignment of the last landing, radians
     this.landingPenalty = 0; // 0..1, how bad it was — drives camera shake
+    this.damage = 0; // 0..1, accumulated crash damage — heals while clean
+    // A counter rather than a boolean, so the rig can tell a NEW impact
+    // from the same one still being reported. A boolean loses an impact
+    // that lands and clears between two render frames.
+    this.impactSeq = 0;
+    this.impactLocal = new THREE.Vector3(); // hit direction in car space
+    this.impactForce = 0; // 0..1, how hard the last one was
     this.steerAngle = 0;
     this.boostCharge = 0;
     this.boosting = false;
@@ -472,6 +480,22 @@ export class Vehicle {
       // the wall head-on costs the most; grazing it costs almost nothing.
       this.lastWallImpact = Math.abs(into);
       const severity = clamp(Math.abs(into) / CAR.wallImpactRef, 0, 1);
+      // Damage uses its own, lower reference than the speed penalty: a hit
+      // hard enough to be worth scrubbing speed for should already leave a
+      // mark, rather than the paint staying pristine after a big one.
+      const bite = clamp(Math.abs(into) / CAR.damageRef, 0, 1);
+      this.damage = clamp(this.damage + bite * CAR.damageGain, 0, 1);
+
+      // Publish WHERE it was hit, in the car's own frame, so the rig can
+      // put the dent on the panel that actually met the wall. The rig has
+      // no idea where the barrier was; only the physics does.
+      if (bite > 0.05) {
+        const q = body.rotation();
+        _quat2.set(q.x, q.y, q.z, q.w).invert();
+        this.impactLocal.copy(this.wallNormal).applyQuaternion(_quat2);
+        this.impactForce = bite;
+        this.impactSeq++;
+      }
       keep = 1 - CAR.wallImpactScrub * severity;
     } else {
       // Rubbing along: a slow bleed, so a long scrape costs lap time
@@ -551,6 +575,10 @@ export class Vehicle {
    */
   #landing(controls) {
     this.landingPenalty *= 0.9; // decays, so the camera settles
+    // Damage does NOT heal on its own. It is repaired by driving through a
+    // repair pickup, which turns recovery into a line you have to take
+    // rather than a timer you wait out — the same reason the boost strips
+    // on Sprint are offset instead of sitting on the racing line.
 
     // Touchdown is not the same as "a wheel ray found ground".
     //
@@ -645,6 +673,7 @@ export class Vehicle {
       1
     );
     this.landingPenalty = severity;
+    this.damage = clamp(this.damage + severity * CAR.damageLanding, 0, 1);
 
     // Scrub speed rather than teleport or stop: the player keeps control,
     // they just lose the corner.
@@ -812,7 +841,14 @@ export class Vehicle {
     // rear tyre against a ~5 kN budget), leaving zero lateral grip, so
     // boosting mid-corner sent rear slip from 11 to 64 degrees and spun
     // the car every time.
-    return (controls.throttle * CAR.engineForce * falloff) / this.drivenCount;
+    // A damaged car makes less power. Only the engine is affected — not
+    // grip and not steering — so the car still handles predictably and the
+    // penalty is paid in lap time rather than in control.
+    const condition = 1 - this.damage * CAR.damagePowerLoss;
+    return (
+      (controls.throttle * CAR.engineForce * falloff * condition) /
+      this.drivenCount
+    );
   }
 
   // -------------------------------------------------------------------
@@ -1050,6 +1086,7 @@ export class Vehicle {
       s: this.s,
       lateralOffset: this.lateralOffset,
       landingPenalty: this.landingPenalty,
+      damage: this.damage,
       beached: this.beached,
       scrapingWall: this.scrapingWall || this.againstWall,
       againstWall: this.againstWall,
@@ -1059,6 +1096,9 @@ export class Vehicle {
       driftFactor: this.driftFactor,
       boostCharge: this.boostCharge,
       boosting: this.boosting,
+      impactSeq: this.impactSeq,
+      impactLocal: this.impactLocal,
+      impactForce: this.impactForce,
       wheels: this.wheels,
     };
   }
@@ -1072,6 +1112,20 @@ export class Vehicle {
    * replay diverges slowly, which is far harder to spot than diverging
    * immediately.
    */
+  /** Repair, from a pickup. Returns how much condition was actually given. */
+  repair(amount) {
+    const before = this.damage;
+    this.damage = Math.max(0, this.damage - amount);
+    return before - this.damage;
+  }
+
+  /** Top up boost charge, from a pickup. */
+  refillBoost(amount) {
+    const before = this.boostCharge;
+    this.boostCharge = Math.min(CAR.boostCapacity, this.boostCharge + amount);
+    return this.boostCharge - before;
+  }
+
   captureState() {
     const t = this.body.translation();
     const q = this.body.rotation();
@@ -1094,6 +1148,9 @@ export class Vehicle {
       wallAssist: this.wallAssist,
       beached: this.beached,
       dragScale: this.dragScale,
+      // Damage scales engine force, so a replay that did not restore it
+      // would drive with different power than the recording did.
+      damage: this.damage,
       spin: this.wheels.map((w) => w.spinAngle),
     };
   }
@@ -1117,6 +1174,7 @@ export class Vehicle {
     this.wallAssist = k.wallAssist;
     this.beached = k.beached;
     this.dragScale = k.dragScale;
+    this.damage = k.damage ?? 0;
     k.spin.forEach((v, i) => (this.wheels[i].spinAngle = v));
     this.prevPos.set(k.t[0], k.t[1], k.t[2]);
     this.prevQuat.set(k.q[0], k.q[1], k.q[2], k.q[3]);
@@ -1138,6 +1196,7 @@ export class Vehicle {
     this.wallAssist = 0;
     this.beached = 0;
     this.landingPenalty = 0;
+    this.damage = 0;
     this.steerAngle = 0;
     this.boostCharge = CAR.boostCapacity;
     this.boosting = false;

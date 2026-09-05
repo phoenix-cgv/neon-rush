@@ -68,6 +68,7 @@ export function buildCircuit(RAPIER, world, scene) {
     title: "Neon Circuit",
     track,
     opponents: 5,
+    pickups: { repair: 6, boost: 6 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [70, 90, 30], fog: [0x9fbcc9, 260, 1100], sky: 0x9fbcc9 },

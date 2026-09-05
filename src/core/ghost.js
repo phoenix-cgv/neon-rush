@@ -80,17 +80,22 @@ export class Ghost {
     // Translucent, and it never writes depth: a solid car you cannot hit
     // reads as a bug, and one that occludes the track you are trying to
     // drive is worse than not having it.
+    const fade = (m) => {
+      const c = m.clone();
+      c.transparent = true;
+      c.opacity = OPACITY;
+      c.depthWrite = false;
+      return c;
+    };
     this.rig.root.traverse((o) => {
       if (!o.material) return;
-      const mats = Array.isArray(o.material) ? o.material : [o.material];
-      o.material = mats.map((m) => {
-        const c = m.clone();
-        c.transparent = true;
-        c.opacity = OPACITY;
-        c.depthWrite = false;
-        return c;
-      });
-      if (!Array.isArray(o.material)) o.material = o.material[0];
+      // Preserve the ARITY. A single-material mesh must stay single: an
+      // array material is drawn per geometry group, and the car rig's
+      // merged geometries have no groups, so wrapping one material in an
+      // array renders the ghost as nothing at all.
+      o.material = Array.isArray(o.material)
+        ? o.material.map(fade)
+        : fade(o.material);
       o.castShadow = false;
       o.renderOrder = 2;
     });

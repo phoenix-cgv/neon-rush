@@ -51,6 +51,7 @@ design decisions in here only make sense once you have felt the car.
 | `R` | reset to spawn |
 | `G` | toggle the telemetry overlay and force vectors |
 | `M` | toggle the minimap |
+| `G` | telemetry overlay (the condition bar follows `Save.healthBar`) |
 | `L` | next level: Sprint → Storm Ridge → Neon Circuit → testbed |
 | `Esc` | pause / options — quality, assists, mouse look, key rebinding |
 
@@ -358,6 +359,29 @@ likely you are to hit them.
   the driver looks past. Screenshot the level; do not assume that because
   an object was added it can be seen.
 
+### Performance
+
+- **A light at zero intensity is not free.** Twelve headlight SpotLights
+  were built up front at intensity 0, waiting for a night level. three.js
+  does not care that a light is dark: every light is uniform data and a
+  loop iteration in *every* lit material's fragment shader. They cost
+  2.95 ms of a 12.4 ms render pass — a quarter of the frame on lights that
+  emitted nothing. Build lights on demand.
+- **Authoring granularity is not drawing granularity.** The car is modelled
+  as 38 separate boxes and cylinders carrying 936 triangles between them —
+  about 25 triangles a draw call. That is the right way to *author* it and
+  the wrong way to *draw* it: six cars were 228 of the scene's 253 meshes
+  and over half the render pass. Merging by material at build time took
+  draw calls from 356 to 170 and meshes per car from 38 to 14, with no
+  visual change. Profile draw calls before triangles.
+- **Merging changes material arity, and three.js is unforgiving about it.**
+  An array material is drawn per geometry group; merged geometries have
+  their groups cleared, so wrapping a single material in an array renders
+  *nothing*. That silently made the ghost car invisible.
+- **`renderer.info.render` resets on every `render()` call.** Reading it
+  after a timing loop gives you the last frame drawn, not the one you
+  meant — which is how a draw-call count of 44 turned out to be the
+  cars-hidden figure.
 ### Testing
 
 - **A/B self-comparison cannot catch a wrong timestep** — see §7. A test
@@ -365,7 +389,168 @@ likely you are to hit them.
 
 ---
 
-## 9. The ghost car
+## 9. Crash damage
+
+Hit things and the car gets scruffier and slower. Damage is `0..1`, lives
+on the vehicle, and is published in `vehicle.state.damage`.
+
+- **Earned** on the first frame of a wall strike (scaled by closing speed)
+  and on a bad landing. A continuous scrape does *not* keep adding damage —
+  only a new contact does, or brushing a barrier for a second would total
+  the car.
+- **Permanent until repaired.** Damage does not decay. A handicap you wait
+  out costs patience rather than skill; repair is a green orb on the road,
+  so recovering costs you a line — and the orbs are deliberately off the
+  racing line, which makes taking one a decision rather than a gift.
+- **Costs power only.** At `damage = 1` the engine loses 15%
+  (`damagePowerLoss`). Grip and steering are untouched, so the car still
+  handles predictably and the penalty is paid in lap time.
+- **No steering penalty, deliberately.** Steering authority is already cut
+  at speed (`steerSpeedFactor` 0.62, itself reverted from a value that made
+  the car unable to make its own corners), and the circuit's tightest
+  corner needs close to full lock. Taking more away can make a corner
+  *impossible*, which reads as broken rather than hard.
+
+### What you see
+
+Three cues, because one is never enough at chase-camera distance:
+
+- **Scratches.** Each car owns a 256² canvas used as the body's colour
+  map. It starts as flat paint, and every impact draws a burst of gouges
+  into it — a dark streak with a light edge, so it reads as bare metal
+  rather than dirt. They are cumulative, and because three multiplies map
+  by colour they keep working as the paint darkens. Every car ends up
+  scarred differently.
+- **Rounded panels.** The painted surfaces are filleted boxes, not boxes:
+  every vertex is clamped into the shape shrunk by the corner radius and
+  pushed back out to exactly that radius, so flat faces stay flat while
+  edges become quarter-cylinders. This is a DAMAGE decision as much as a
+  styling one — on a flat panel a dent barely changes the shading, because
+  the normal was constant and stays roughly constant; on a curved one it
+  breaks the highlight running along the flank, which the eye catches
+  immediately. Body panels use `BODY_SEG = 6` (1764 vertices) so there is
+  something to round with and something to bend.
+- **Dents.** Real vertex deformation. The vehicle publishes the contact
+  normal in the car's own frame (`state.impactLocal`), so the dent lands on
+  the panel that actually met the wall — a side-on hit creases the flank, a
+  nose-on hit folds the nose. Body panels are subdivided (`SEG = 3`, 576
+  specifically so there is something to bend: a 24-vertex box can
+  only fold at its corners. Subdividing costs triangles, which is the
+  resource this car has most of, and does not change draw calls at all.
+- **Dead headlights** past a third damage. The one cue that still reads at
+  distance, and the only one that works in a dark level.
+
+The shell is always drawn as `pristine + dentField × shown`, never eased
+toward pristine in place. That matters: driven by the frame-to-frame change
+in damage, a respawn that zeroed damage in one step unbent the car once and
+stopped, leaving **0.064 m of permanent crease**. Chasing a target
+converges by construction. Once the car is genuinely clean the dent field
+is forgotten too, or the first light knock after a respawn would restore
+every dent the car ever had.
+
+### Pickups
+
+`src/core/pickups.js`. Levels opt in with a `pickups: { repair, boost }`
+count in their returned description.
+
+| Orb | Effect | Constant |
+|---|---|---|
+| Green | Repairs `0.45` of condition | `CAR.repairPickup` |
+| Blue | Restores `65` boost charge | `CAR.boostPickup` |
+
+Placed in TRACK space (`s` along the centreline plus a lateral offset),
+not world space — the same coordinate everything else here uses, so they
+survive a change to the spline instead of needing re-authoring. They
+alternate sides and sit 2.6–4.4 m off centre, because an orb on the
+racing line is a free gift and one a metre off it is a choice.
+
+Collection is a proximity test in that same space, not a sensor collider.
+A sensor would be woken, broad-phased and solved by Rapier every step for
+something that is two subtractions and a compare, and it would need
+collision groups to stop the ghost car collecting orbs it cannot see. They
+return after 12 s, so a second lap is not a barren one, and only the field
+collects them — a replay must not change the world it is replaying into.
+
+Two InstancedMeshes, one per type: a lap's worth of orbs costs two draw
+calls, and they are kept off the minimap layer because at 260 m span a
+ring of dots hides the road the map exists to show.
+### Smoke
+
+`src/vehicle/smoke.js`. Above `THRESHOLD = 0.18` damage the exhaust starts
+smoking, and it thickens and darkens the worse the car gets. Measured
+across the range:
+
+| Damage | Live particles | Linear luma |
+|---|---|---|
+| 0.15 | 0 | not drawn at all |
+| 0.35 | 11 | 0.45 — pale haze |
+| 0.60 | 24 | 0.28 |
+| 0.85 | 46 | 0.12 |
+| 1.00 | 65 | 0.09 — dark grey |
+
+Peak opacity is 0.33, and the dirty end stops at dark grey rather than
+black. The first version went to 0x0e1013 at 0.74 alpha and was wrong: a
+near-black particle over a dark road is a hole in the picture rather than
+a plume, and at that density it stopped reading as smoke and started
+reading as a rendering fault. Both ends stay desaturated — a coloured tint
+reads as fire or as a power-up, not as a failing engine. Below the
+threshold nothing is drawn and `points.visible` is false, so an undamaged
+field costs no draw call.
+
+Three decisions worth keeping:
+
+- **One pool for the whole field.** Every damaged car emits into the same
+  particle array, so the effect is a single draw call however many cars
+  are smoking — the same reasoning as the pickup orbs and the map blips.
+- **Updated on the render frame, not the fixed step.** Smoke changes
+  nothing in the simulation, so stepping it at 60 Hz would be wasted work
+  at high frame rates and would stutter. It is also therefore absent from
+  `captureState` and cannot desynchronise a replay.
+- **Emission scales with SPEED as well as damage.** Not for realism: a
+  stationary car has no relative wind to carry the smoke away, so it piles
+  up in place and swallows the car whole — measured, it hid the very
+  bodywork the effect exists to comment on.
+- **Particles fade out near the camera** (`smoothstep(1.8, 5.5, dist)` in
+  the vertex shader). This is what stops the effect blinding the player.
+  Smoke is emitted at the car and drifts backwards, which is straight at a
+  chase camera seven metres behind it, and a puff two metres from the lens
+  covers most of the screen however small it is in world terms. Fading it
+  over that last stretch keeps the trail fully visible where the player is
+  looking and removes it exactly where it was in the way.
+
+Per-particle alpha needs a custom `ShaderMaterial`; `PointsMaterial` only
+has one opacity for the whole system, and fading each puff independently
+is most of what stops it looking like a sprite sheet. The round falloff is
+computed from `gl_PointCoord` rather than sampled from a texture — no
+image to load, and it stays crisp at any size.
+### The condition bar
+
+`src/ui/health.js` — plain DOM at the top of the screen, green through
+amber to red. You spend the race looking at the *back* of your own car from
+six metres, which is where a crease in the nose is hardest to see; the bar
+is the readable version of the same number. It writes to the DOM only when
+the value actually moves, and toggles with the rest of the HUD via
+`Save.healthBar`.
+
+The player's car is **white** so that damage reads: scratches are dark
+gouges and dents show by their shading, both far more legible on a pale
+panel than on the original teal, where a crease just looked like another
+shadow. Opponents keep strong hues so the field stays separable.
+
+Damage stops short of turning the car black on purpose — colour is how you
+pick yourself out of a six-car pack. The knobs are `SCORCH` and the lerp
+factors in `CarRig.#applyDamage`, `DENT_MAX`, and the depth in `#dent`.
+
+It is **geometric and material, not part-based**: the draw-call merge (§8)
+bakes the body into one geometry, so a wing cannot be dropped on its own —
+but that same merge is what makes dents possible, because the shell
+deforms as one surface instead of one box sliding out of line with its
+neighbours.
+
+`damage` is in `captureState`, because it scales engine force — a replay
+that did not restore it would drive with different power than the recording
+did. Set `damagePowerLoss: 0` to keep the looks and drop the handicap.
+## 10. The ghost car
 
 Your best lap, replayed alongside you. The recording is six bytes of
 **controls** per frame (a 50 s lap is about 17 KB), not a list of
@@ -395,7 +580,7 @@ on the Circuit, straight through a barrier.
 
 ---
 
-## 10. Deploying to the department server
+## 11. Deploying to the department server
 
 ```bash
 npm run build     # -> dist/
