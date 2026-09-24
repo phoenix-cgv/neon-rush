@@ -185,7 +185,7 @@ than about 4.2 m at full lock. The three levels:
 |---|---|---|---|---|---|
 | 1 | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
 | 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | solo | banked climb, guardrails, tunnel |
-| 3 | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 3-lap race: start lights, results; grass costs grip |
+| 3 | Grand Prix | `grandprix` | 16.2 m — 54 km/h | 6 cars | 3-lap race: start lights, results; grass costs grip; hills, banking, esses |
 | — | Testbed (development only) | `testbed` | n/a | solo | slalom, crest, ramp |
 
 **The maps are modelled, not generated.** All three are Blender exports

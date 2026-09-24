@@ -37,7 +37,7 @@
       "licence": "Original work",
       "used_for": "Official map 2 - full circuit. Loaded by src/levels/grandprix.js",
       "path": "blender/grandprix/",
-      "modified": "Final corner rebuilt, road ribbon regenerated, scenery cleared from the track, gravel trap and Grass colour fixed by blender/grandprix/fix_grandprix.py"
+      "modified": "Rebuilt by blender/grandprix/fix_grandprix.py: Turn 1 hairpin and right-hander, hills and crest, esses, banked corners, terrain, crowds, floodlights, bridge"
     },
     {
       "name": "Mountain Track (assets/maps/MountainTrack.glb)",

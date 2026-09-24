@@ -6,13 +6,15 @@ import { buildArmco } from "./armco.js";
 // OFFICIAL MAP 3 — Grand Prix
 //
 // A full-size permanent circuit, modelled in Blender
-// (assets/maps/GrandPrix.glb, fixed by blender/grandprix/fix_grandprix.py):
-// 2.7 km, pit straight with garages and a start gantry, grandstands,
-// gravel traps and tyre walls. Long straights and mostly fast sweepers,
-// closing with a diagonal run down the west side into one slow R30 left
-// onto the pit straight — the one corner that punishes arriving flat
-// out. It finishes 70 m before the line, so the whole grid lines up on
-// straight road.
+// (assets/maps/GrandPrix.glb, rebuilt by blender/grandprix/fix_grandprix.py):
+// 2.8 km with pit straight, garages, start gantry, four grandstands full
+// of spectators, gravel, continuous tyre walls and floodlights. The lap:
+// a 1 km opening straight downhill into Turn 1, a hard stop for an R16
+// left hairpin (boards at 300/200/100 m) and a banked R45 right; up the
+// back straight to a blind +10 m crest under a sponsor bridge; the esses,
+// left-right-left at R40 under the Esses stand; a banked R90 left onto a
+// long diagonal; and the banked R30 final corner, which finishes 70 m
+// before the line so the whole grid lines up on straight, level road.
 //
 // The soft wall sits 1.4 m out on the grass verge, just inside the tyre
 // walls. It was first set 4 m out, which put the tyre walls inside the
@@ -47,7 +49,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     decals: /^(RacingLine|EdgeLine|StartFinishLine|ApexKerbs)/,
     overlays: /^(Road|Verge|PitLane|GravelTrap|GrassPatch|Lake)/,
     minimap: /^(Road|Verge|PitLane|EdgeLine|ApexKerbs|StartFinishLine)/,
-    // Road edge 7 m; the nearest tyre-wall face is at 9.4 m, and the car
+    // Road edge 7 m; the nearest tyre-wall face is at 10.3 m, and the car
     // is 0.85 m either side of its centre.
     wallLimit: 8.4,
     track: { checkpointSpacing: 150 },
