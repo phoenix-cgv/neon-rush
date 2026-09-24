@@ -97,6 +97,18 @@ PIT_END = 760.0                  # the pit lane and garages stay level
 T1_DROP = -4.0
 CREST = (320.0, 203.0)           # B: the crest, on the back straight
 CREST_H = 10.0
+# The crest is a jump: a kicker added on top of the rounded hill - 60 m
+# rising 4 % into a sharp lip, 50 m falling 4.8 % after it, with rounded
+# ends so the dips either side stay gentle. Above about 90 km/h the car
+# leaves the road at the lip; at 200 km/h it flies ~55 m.
+JUMP_UP, JUMP_DOWN = 0.04, -0.048         # extra grade either side of the lip
+JUMP_UP_LEN, JUMP_DOWN_LEN = 60.0, 50.0
+JUMP_LIP = 6.0                            # metres over which the grade turns over
+JUMP_EASE = 20.0                          # metres to round each end
+# The tunnel: part of the diagonal between corner D and the final corner
+TUNNEL_FROM, TUNNEL_TO = 150.0, 350.0     # metres after corner D's apex
+TUNNEL_WALL = 10.2                        # inner face, from the centre line
+TUNNEL_ROOF = 7.5                         # above the road at the centre
 DIP_H, ESSES_H = 3.0, 6.0
 BANK_T1_RIGHT, BANK_D, BANK_FINAL = 6.0, 8.0, 4.5     # degrees at the apex
 TERRAIN_SPACING = 10.0
@@ -391,6 +403,20 @@ assert all(b[0] > a[0] for a, b in zip(HEIGHT_KNOTS, HEIGHT_KNOTS[1:])), HEIGHT_
 height = cosine_profile(HEIGHT_KNOTS)
 H = height(new.s)
 
+# B: add the kicker, defined by its extra grade and integrated to a height
+s_c = new.s[i_crest]
+rel_fine = np.arange(-JUMP_UP_LEN - JUMP_EASE, JUMP_DOWN_LEN + JUMP_EASE + 0.25, 0.25)
+e = JUMP_EASE / 2
+g_up = JUMP_UP * smoothstep(-JUMP_UP_LEN - e, -JUMP_UP_LEN + e, rel_fine)
+g_dn = JUMP_DOWN * (1 - smoothstep(JUMP_DOWN_LEN - e, JUMP_DOWN_LEN + e, rel_fine))
+lip = np.clip((rel_fine + JUMP_LIP / 2) / JUMP_LIP, 0, 1)            # 0 before the lip, 1 after
+g_bump = g_up * (1 - lip) + g_dn * lip
+bump = np.concatenate([[0.0], np.cumsum((g_bump[1:] + g_bump[:-1]) / 2 * np.diff(rel_fine))])
+bump -= np.linspace(0, bump[-1], len(bump))                          # back to exactly 0 at the end
+rel = (new.s - s_c + L / 2) % L - L / 2
+H = H + np.interp(rel, rel_fine, bump, left=0.0, right=0.0)
+jump_takeoff = math.sqrt(9.81 * JUMP_LIP / (JUMP_UP - JUMP_DOWN)) * 3.6   # km/h to leave the road
+
 # ---------------------------------------------------------------- banking
 def bank_zone(i_peak, amp):
     """Bank one corner, outside edge up: amp degrees at the apex, in proportion
@@ -406,6 +432,19 @@ def bank_zone(i_peak, amp):
     return out
 
 bank_deg = bank_zone(i_rh, BANK_T1_RIGHT) + bank_zone(i_d, BANK_D) + bank_zone(i_final, BANK_FINAL)
+# Ease it in and out over ~30 m: a quick change of bank drops the inside
+# edge away like a small crest and a car hops over it. Never let the easing
+# lean a ring the wrong way.
+peak_amp = {i: bank_deg[i] for i in (i_rh, i_d, i_final)}
+bank_deg = smooth_closed(bank_deg[:, None], 8, 2)[:, 0]
+for i, amp in peak_amp.items():                          # keep each corner's banking at its apex
+    zone = np.sign(bank_deg) == np.sign(amp)
+    top = np.abs(bank_deg[max(0, i - 15):i + 15]).max()
+    if top > 0:
+        bank_deg[zone & (np.abs(np.arange(N) - i) < 60)] *= abs(amp) / top
+bank_deg[np.sign(bank_deg) != np.sign(curv)] = 0.0                   # never lean out of a bend
+straight = np.abs(curv) < 1 / 500.0
+bank_deg[straight] = np.clip(bank_deg[straight], -1.8, 1.8)          # <= 2 deg on the straights
 TANB = np.tan(np.radians(bank_deg))                         # z rises by lat * TANB (right +)
 
 def plane_z(i, lat):
@@ -890,9 +929,10 @@ for off in (-6.0, 6.0):
 FLOOD = make_mat("FloodlightGlow", (1.0, 0.95, 0.82), 0.3, emit=12.0)
 POLE = make_mat("FloodlightPole", (0.35, 0.36, 0.38), 0.4, 0.8)
 lights = MeshBuilder()
+tunnel_s0, tunnel_s1 = new.s[i_d] + TUNNEL_FROM, new.s[i_d] + TUNNEL_TO
 tower_s = [120.0, 330.0, 540.0,
            new.s[i_crest] - 150.0, new.s[i_crest] + 150.0,
-           new.s[i_d] + 150.0, new.s[i_d] + 330.0]
+           new.s[i_d] + 80.0, tunnel_s1 + 60.0]
 tower_count = 0
 for k, s in enumerate(tower_s):
     for side in ((1,) if s < PIT_END else (1, -1)):
@@ -921,10 +961,70 @@ for side in (-1, 1):
     b = p - np.array([math.cos(head), math.sin(head)]) * side * 1.55
     add_box("SponsorBridgeBanner", (b[0], b[1], deck_bottom + 0.9), (0.1, 28.0, 1.5), head, BRIDGE_BANNER)
 
+# ---------------------------------------------------------------- the tunnel
+TUNNEL_CONC = make_mat("TunnelConcrete", (0.3, 0.3, 0.32), 0.85)
+TUNNEL_DARK = make_mat("TunnelRoof", (0.07, 0.07, 0.08), 0.9)
+TUNNEL_GLOW = make_mat("TunnelLights", (1.0, 0.78, 0.45), 0.3, emit=8.0)
+t_idx = [i for i in range(N) if tunnel_s0 <= new.s[i] <= tunnel_s1]
+INNER = [(-TUNNEL_WALL, -0.4), (-TUNNEL_WALL, 5.2), (-8.0, 6.6), (-4.0, 7.3), (0.0, TUNNEL_ROOF),
+         (4.0, 7.3), (8.0, 6.6), (TUNNEL_WALL, 5.2), (TUNNEL_WALL, -0.4)]
+OUTER = [(-46.0, None), (-20.0, 4.8), (-12.0, 8.2), (-5.0, 8.8), (0.0, 9.0),
+         (5.0, 8.8), (12.0, 8.2), (20.0, 4.8), (46.0, None)]     # None: 0.5 m into the ground
+
+def tunnel_point(i, lat, zrel):
+    p, _ = new.at(new.s[i], lat)
+    if zrel is None:
+        return (p[0], p[1], float(ground_below(p[None])[0]) - 0.5)
+    return (p[0], p[1], ROAD_Z + H[i] + zrel)
+
+def sweep(name, idx, profile, material, inward):
+    """Loft a cross-section along rings idx. inward: faces point at the road."""
+    verts, faces = [], []
+    k = len(profile)
+    for i in idx:
+        verts += [tunnel_point(i, la, zr) for la, zr in profile]
+    for r in range(len(idx) - 1):
+        for c in range(k - 1):
+            a = r * k + c
+            f = (a, a + k, a + k + 1, a + 1)
+            faces.append(f if inward else f[::-1])
+    return replace_mesh(name, verts, faces, [material], smooth=False)
+
+sweep("TunnelWall", t_idx, INNER[:2], TUNNEL_CONC, True)
+sweep("TunnelWall.001", t_idx, INNER[-2:], TUNNEL_CONC, True)
+sweep("TunnelRoof", t_idx, INNER[1:-1], TUNNEL_DARK, True)
+sweep("TunnelHill", t_idx, OUTER[::-1], grass, True)            # right to left: faces up
+for end, i in (("Entry", t_idx[0]), ("Exit", t_idx[-1])):
+    verts = [tunnel_point(i, la, zr) for la, zr in INNER] + [tunnel_point(i, la, zr) for la, zr in OUTER]
+    k = len(INNER)
+    faces = [(c, c + 1, k + c + 1, k + c) for c in range(k - 1)]
+    replace_mesh(f"TunnelPortal{end}", verts, faces if end == "Exit" else [f[::-1] for f in faces],
+                 [TUNNEL_CONC], smooth=False)
+tl = MeshBuilder()
+for i in t_idx[2:-2:4]:                                          # a light strip every 8 m
+    p, head, _ = frame(i)
+    tl.box((p[0], p[1], ROAD_Z + H[i] + TUNNEL_ROOF - 0.12), (3.0, 0.5, 0.1), head, 0)
+    for side in (-1, 1):
+        q = p + new.right[i] * side * (TUNNEL_WALL - 0.08)
+        tl.box((q[0], q[1], ROAD_Z + H[i] + 1.0), (3.0, 0.1, 0.25), head, 0)
+tl.build("TunnelLights", [TUNNEL_GLOW])
+
+# nothing under the hill: trees, rocks, posts and the like on the tunnel's footprint go
+TUNNEL_PARTS = ("Tunnel",)
+for o in list(objs):
+    if o.type != 'MESH' or o.name.startswith(FLAT_OK + TUNNEL_PARTS + ("Stand",)):
+        continue
+    q = np.array(o.matrix_world.translation[:2])
+    if o.name.startswith(("TeamFlags", "TrackBanners", "FloodlightTowers")):
+        continue
+    j, lat, _ = new.locate(q[None])
+    if tunnel_s0 - 6 <= new.s[j[0]] <= tunnel_s1 + 6 and abs(lat[0]) <= 47.0:
+        bpy.data.objects.remove(o, do_unlink=True)
+
 # ---------------------------------------------------------------- clearance
 removed = []
 for o in list(objs):
-    if o.type != 'MESH' or o.name.startswith(FLAT_OK):
+    if o.type != 'MESH' or o.name.startswith(FLAT_OK + ("Tunnel",)):
         continue
     V = world_verts(o)
     j, lat, _ = new.locate(V[:, :2])
@@ -967,7 +1067,9 @@ print(f" Turn 1 hairpin      R{1 / curv[i_hp]:.1f} at {new.s[i_hp]:.0f} m ({new.
       f"right-hander R{-1 / curv[i_rh]:.1f}")
 print(f" esses               " + ", ".join(f"R{1 / curv[i]:+.0f} at {new.s[i]:.0f} m" for i in es_peaks[:3]))
 print(f" corner D            R{1 / curv[i_d]:.0f} at {new.s[i_d]:.0f} m; final corner R{1 / curv[i_final]:.1f}")
-print(f" crest               {H[i_crest]:.1f} m at {new.s[i_crest]:.0f} m; height {H.min():.1f} to {H.max():.1f} m")
+print(f" crest / jump        {H[i_crest]:.1f} m at {new.s[i_crest]:.0f} m, airborne above {jump_takeoff:.0f} km/h; "
+      f"height {H.min():.1f} to {H.max():.1f} m")
+print(f" tunnel              {tunnel_s0:.0f}-{tunnel_s1:.0f} m ({tunnel_s1 - tunnel_s0:.0f} m), walls {TUNNEL_WALL} m out, roof {TUNNEL_ROOF} m up")
 print(f" banking             {bank_deg.min():.1f} to {bank_deg.max():.1f} deg")
 print(f" furniture moved     {moved} objects; tyre wall blocks {tyres}; floodlight towers {tower_count}")
 print(f" crowd               {crowd_count} spectators")

@@ -134,9 +134,23 @@ check("2. Grade <= 7 %", np.abs(grade).max() <= 0.07,
       f"max {np.abs(grade).max() * 100:.1f} % at {dense_s[np.abs(grade).argmax()]:.0f} m")
 zz = np.convolve(np.concatenate([z[-20:], z, z[:20]]), np.ones(9) / 9, mode="same")[20:-20]
 d2 = (np.roll(zz, -15) - 2 * zz + np.roll(zz, 15)) / 15.0 ** 2
-crest_r = 1 / max(-d2.min(), 1e-9)
-check("2. Vertical radius >= 250 m at every crest", crest_r >= 250,
-      f"tightest crest R{crest_r:.0f} m at {dense_s[d2.argmin()]:.0f} m; height {z.min() - z[0]:+.1f} to {z.max() - z[0]:+.1f} m")
+# The crest under the bridge is a deliberate jump: find it by its lip
+bridge = objs.get("SponsorBridgeDeck")
+i_lip = int(np.argmin(np.linalg.norm(P[:, :2] - centre_of(bridge)[:2], axis=1))) if bridge else -1
+off_jump = np.abs(((dense_s - dense_s[i_lip] + length / 2) % length) - length / 2) > 40 if i_lip >= 0 else np.ones(M, bool)
+crest_r = 1 / max(-d2[off_jump].min(), 1e-9)
+check("2. Vertical radius >= 250 m at every crest (except the jump)", crest_r >= 250,
+      f"tightest crest R{crest_r:.0f} m at {dense_s[off_jump][d2[off_jump].argmin()]:.0f} m; height {z.min() - z[0]:+.1f} to {z.max() - z[0]:+.1f} m")
+if i_lip >= 0:
+    g_up = (z[i_lip - 5] - z[i_lip - 45]) / 40.0
+    g_dn = (z[(i_lip + 45) % M] - z[(i_lip + 5) % M]) / 40.0
+    lip = np.array([(z[(i_lip + d + 1) % M] - 2 * z[(i_lip + d) % M] + z[(i_lip + d - 1) % M]) for d in range(-6, 7)])
+    r_lip = 1 / max(-lip.min(), 1e-9)
+    takeoff = math.sqrt(9.81 * r_lip) * 3.6
+    under = min((world_verts(bridge)[:, 2] - z[i_lip]).min(), 99)
+    check("B. Jump at the crest: ramp up, sharp lip, landing downslope, clear of the bridge",
+          g_up > 0.02 and g_dn < -0.04 and takeoff < 120 and under >= 7,
+          f"up {g_up * 100:.1f} %, down {g_dn * 100:.1f} %, lip R{r_lip:.0f} m: airborne above ~{takeoff:.0f} km/h; bridge {under:.1f} m above the lip")
 flat = (dense_s <= 400) | (dense_s >= length - 70)
 check("2. Last 70 m and first 400 m flat", np.abs(z[flat] - z[0]).max() <= 0.02,
       f"within {np.abs(z[flat] - z[0]).max() * 100:.1f} cm")
@@ -243,6 +257,42 @@ for side in (-1, 1):
             gaps.append(f"{side:+d} {b0:.0f}-{a1:.0f} m")
 check("5. Tyre walls >= 10 m from the centre, no gaps between blocks", inner_min >= 10 and not gaps,
       f"{len(walls)} blocks, nearest {inner_min:.1f} m" + (", gaps " + ", ".join(gaps[:5]) if gaps else ""))
+
+# ---- Tunnel
+t_walls = [o for o in objs if o.name.startswith("TunnelWall")]
+t_roof = objs.get("TunnelRoof")
+if t_walls and t_roof:
+    wl = min(np.abs(locate(world_verts(o)[:, :2])[1]).min() for o in t_walls)
+    rv = world_verts(t_roof)
+    idx, rlat = locate(rv[:, :2])
+    over = np.abs(rlat) <= 4.5                 # over the road, not where the arch meets the walls
+    roof_up = (rv[over, 2] - P[idx[over], 2]).min()
+    span = dense_s[idx]
+    t0, t1 = span.min(), span.max()
+    shell = [BVHTree.FromObject(o, depsgraph) for o in t_walls + [t_roof]]
+    shell_inv = [o.matrix_world.inverted() for o in t_walls + [t_roof]]
+    open_rays = rays = 0
+    for i in range(M):
+        if not (t0 + 12 <= dense_s[i] <= t1 - 12) or i % 6:
+            continue
+        for ang in range(0, 360, 30):
+            d = np.array([math.cos(math.radians(ang)), math.sin(math.radians(ang))])
+            if abs(np.dot(d, tt[i])) > 0.5:
+                continue                        # looking along the tunnel, out of the mouth
+            for elev in (0.0, 0.6):
+                rays += 1
+                o_ = Vector((P[i, 0], P[i, 1], P[i, 2] + 1.5))
+                dv = Vector((d[0], d[1], elev)).normalized()
+                if all(tr.ray_cast(inv @ o_, (inv.to_3x3() @ dv).normalized(), 60.0)[0] is None
+                       for tr, inv in zip(shell, shell_inv)):
+                    open_rays += 1
+    lights = objs.get("TunnelLights")
+    check("Tunnel: walls >= 10 m out, roof >= 6.5 m over the road, closed, lit",
+          wl >= 10 and roof_up >= 6.5 and open_rays == 0 and lights is not None,
+          f"{t0:.0f}-{t1:.0f} m ({t1 - t0:.0f} m); walls {wl:.1f} m out; roof {roof_up:.1f} m up; "
+          f"{open_rays}/{rays} side rays escape; lights {'yes' if lights else 'no'}")
+else:
+    check("Tunnel", False, "missing")
 
 # ---- Clearance
 ALLOWED = ("Road", "Verge_", "EdgeLine", "RacingLine", "ApexKerbs", "StartFinishLine", "PitLane",
