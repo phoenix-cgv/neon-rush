@@ -15,6 +15,7 @@
 #     (bollards, traffic lights, signs, grass tufts, pedestrians, buildings
 #     and trees could all land closer, some on the road).
 #   - The start gantry spans the road at the start line (s = 0).
+#   - No parked cars: the game runs live traffic instead.
 #   - The ground relief stays below the road (it reached 15 cm above it);
 #     re-running does not pile up
 #     duplicate collections.
@@ -32,7 +33,6 @@ CITY_SCALE=1.0
 ROAD_WIDTH=14.0
 BUILDING_COUNT=180
 TREE_COUNT=80
-CAR_COUNT=40
 CROWD_COUNT=200
 DETAIL_LEVEL=1.5          # >1 scales extra street-detail density (lamps, grass, furniture)
 SEED=42
@@ -53,7 +53,7 @@ for block in (bpy.data.meshes, bpy.data.materials, bpy.data.lights,
 
 # ---------- collections ----------
 names=["CITY_ROAD","ROAD_MARKINGS","BUILDINGS","SIDEWALKS","STREET_PROPS",
-    "STREET_FURNITURE","SIGNAGE","VEHICLES","VEGETATION","LIGHTS","CAMERAS",
+    "STREET_FURNITURE","SIGNAGE","VEGETATION","LIGHTS","CAMERAS",
     "CROWD","GROUND"]
 cols={}
 for n in names:
@@ -179,20 +179,14 @@ MAT_SIGN_FACE=mat("SignFace",(0.9,0.85,0.1,1),.3)
 MAT_BILLBOARD=mat_emit("Billboard",(0.1,0.6,0.9,1),2.0)
 MAT_LAMP_POLE=mat("LampPole",(0.08,0.08,0.09,1),.4,.6)
 MAT_LAMP_GLOW=mat_emit("LampGlow",(1,0.9,0.65,1),5.0)
-MAT_HEADLIGHT=mat_emit("Headlight",(1,1,0.9,1),6.0)
-MAT_TAILLIGHT=mat_emit("Taillight",(1,0.05,0.05,1),5.0)
 MAT_SIGNAL_RED=mat_emit("SignalRed",(1,0.05,0.05,1),5.0)
 MAT_SIGNAL_YEL=mat_emit("SignalYellow",(1,0.75,0.05,1),5.0)
 MAT_SIGNAL_GRN=mat_emit("SignalGreen",(0.05,1,0.15,1),5.0)
-MAT_TIRE=mat("Tire",(0.02,0.02,0.02,1),.85)
 MAT_BENCH_WOOD=mat_bump("BenchWood",(0.35,0.22,0.12,1),.6,0,.1,10)
 MAT_BENCH_METAL=mat("BenchMetal",(0.15,0.15,0.16,1),.35,.7)
 MAT_BIN=mat("Bin",(0.12,0.32,0.18,1),.5,.2)
 MAT_SHELTER_GLASS=mat("ShelterGlass",(0.55,0.7,0.75,1),.1,0)
 MAT_SHELTER_FRAME=mat("ShelterFrame",(0.2,0.2,0.22,1),.4,.6)
-MAT_CAR_COLORS=[mat(f"CarColor{i}",c,.25,.55) for i,c in enumerate([
-    (0.75,0.05,0.05,1),(0.05,0.15,0.55,1),(0.85,0.85,0.85,1),
-    (0.05,0.05,0.05,1),(0.9,0.75,0.05,1),(0.15,0.45,0.15,1),(0.4,0.4,0.42,1)])]
 MAT_SKIN_TONES=[mat(f"Skin{i}",c,.6) for i,c in enumerate([
     (0.87,0.68,0.53,1),(0.62,0.42,0.28,1),(0.94,0.8,0.65,1),(0.42,0.28,0.18,1)])]
 MAT_CLOTHES=[mat(f"Clothes{i}",c,.7) for i,c in enumerate([
@@ -673,32 +667,8 @@ for i in range(6,len(center),furniture_step):
         make_bin((px,py,0))
 
 # ---------- vehicles ----------
-def make_car(loc, angle, color_mat):
-    x,y,z=loc
-    dx,dy=math.cos(angle),math.sin(angle)
-    box("CarBody",(x,y,z+.55),(2.1,.95,.5),color_mat,"VEHICLES",angle)
-    box("CarCabin",(x-dx*.15,y-dy*.15,z+1.05),(1.15,.82,.38),MAT_GLASS,"VEHICLES",angle)
-    for wx,wy in [(1.35,.85),(1.35,-.85),(-1.35,.85),(-1.35,-.85)]:
-        ox=x+wx*dx+wy*(-dy); oy=y+wx*dy+wy*dx
-        cyl("Wheel",.38,.28,(ox,oy,z+.38),MAT_TIRE,"VEHICLES",rotation=(math.pi/2,0,angle))
-    fx=x+dx*2.05-dy*.7; fy=y+dy*2.05+dx*.7
-    box("Headlight",(fx,fy,z+.55),(.15,.25,.15),MAT_HEADLIGHT,"VEHICLES",angle)
-    bx=x-dx*2.05-dy*.7; by=y-dy*2.05+dx*.7
-    box("Taillight",(bx,by,z+.55),(.15,.25,.15),MAT_TAILLIGHT,"VEHICLES",angle)
-
-for i in range(CAR_COUNT):
-    idx=(i*37)%len(center)
-    p=center[idx]; n=center[(idx+1)%len(center)]
-    d=n-p
-    if d.length==0: continue
-    d=d.normalized(); angle=math.atan2(d.y,d.x); rx,ry=-d.y,d.x
-    parked=random.random()<0.5   # kept so the random sequence stays the same
-    side=random.choice([-1,1])
-    # All parked: the game runs live traffic in the lanes (core/traffic.js)
-    # and leaves these props out, but a car in the lane is wrong in Blender too.
-    lane_offset=hw+4.2   # inner wheels 10.2 m from the centre line
-    loc=(p.x+rx*lane_offset*side, p.y+ry*lane_offset*side, KERB_H)
-    make_car(loc, angle, random.choice(MAT_CAR_COLORS))
+# None. The game runs live traffic on this road (src/core/traffic.js); the
+# parked cars this used to add (half of them in the lanes) are gone.
 
 # ---------- crowd ----------
 def make_pedestrian(loc, height_scale=1.0):
@@ -799,7 +769,6 @@ print("Buildings:", len(cols["BUILDINGS"].objects))
 print("Street props:", len(cols["STREET_PROPS"].objects))
 print("Street furniture:", len(cols["STREET_FURNITURE"].objects))
 print("Signage:", len(cols["SIGNAGE"].objects))
-print("Vehicles:", len(cols["VEHICLES"].objects))
 print("Vegetation:", len(cols["VEGETATION"].objects))
 print("Pedestrians:", len(cols["CROWD"].objects))
 print("Cameras:", len(cols["CAMERAS"].objects))
