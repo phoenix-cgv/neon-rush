@@ -175,6 +175,40 @@ function centrelineFromRibbon(pos, { spacing = 6, passes = 3 } = {}) {
   return { points: pts, width: widths[widths.length >> 1], banking };
 }
 
+/**
+ * The pit road, from its ribbon (left/right pairs in the direction of
+ * travel, like the road's) and the named markers beside it: the garage
+ * boxes and the speed-limit lines. Returns world-space edges, and the
+ * centre of each marker's bounds, in the order found.
+ */
+function pitFromMap(root, opts) {
+  const mesh = root.getObjectByName(opts.ribbon ?? "PitLane");
+  if (!mesh?.isMesh) return null;
+  const pos = mesh.geometry.attributes.position.clone().applyMatrix4(mesh.matrixWorld);
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  a.fromBufferAttribute(pos, 0);
+  b.fromBufferAttribute(pos, 1);
+  const stride = a.distanceTo(b) < 1e-5 ? 4 : 2;
+  const left = [];
+  const right = [];
+  for (let i = 0; i + stride / 2 < pos.count; i += stride) {
+    left.push(new THREE.Vector3().fromBufferAttribute(pos, i));
+    right.push(new THREE.Vector3().fromBufferAttribute(pos, i + stride / 2));
+  }
+  const markers = (re) => {
+    const out = [];
+    if (!re) return out;
+    root.traverse((o) => {
+      if (o === root || !re.test(o.name) || (o.parent && o.parent !== root && re.test(o.parent.name))) return;
+      const box = new THREE.Box3().setFromObject(o);
+      if (!box.isEmpty()) out.push(box.getCenter(new THREE.Vector3()));
+    });
+    return out;
+  };
+  return { left, right, boxes: markers(opts.boxes), limits: markers(opts.limits) };
+}
+
 /** World-space position + index arrays of a mesh, for a trimesh collider. */
 function worldTriangles(mesh, lift = 0, flatY = null) {
   const g = mesh.geometry;
@@ -345,7 +379,8 @@ function prepare(gltf, opts) {
   kept.sort((a, b) => a.name.localeCompare(b.name));
   for (const m of kept) group.add(m);
 
-  const map = { group, points, width, banking, surfaces, walls, solids, kept };
+  const pit = opts.pit ? pitFromMap(root, opts.pit) : null;
+  const map = { group, points, width, banking, surfaces, walls, solids, kept, pit };
   prepared.set(gltf, map);
   return map;
 }
@@ -376,6 +411,8 @@ function prepare(gltf, opts) {
  *   softWalls  false when `walls` are the boundary; default true
  *   centreline { spacing, passes } resampling and smoothing, see above
  *   track      extra Track def fields (checkpointSpacing, fallDepth, ...)
+ *   pit        { ribbon, boxes: RegExp, limits: RegExp } — a pit road,
+ *              returned as `pit` for a PitLane (see src/track/pit-lane.js)
  * @returns {{ track: Track, group: THREE.Group, dispose: () => void }}
  */
 export function buildMapTrack(RAPIER, world, scene, gltf, opts) {
@@ -431,6 +468,7 @@ export function buildMapTrack(RAPIER, world, scene, gltf, opts) {
     track,
     group: map.group,
     kept: map.kept, // opts.keep meshes, sorted by name
+    pit: map.pit, // opts.pit: the pit road's edges and markers, or null
     dispose: () => scene.remove(map.group),
   };
 }

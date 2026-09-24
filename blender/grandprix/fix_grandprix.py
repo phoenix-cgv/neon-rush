@@ -120,11 +120,12 @@ NATURAL = ("GrassBlade", "TracksideTree", "TreeTrunk", "TreeRoot", "Crown", "Pin
 REGENERATED = ("Road", "Verge_L", "Verge_R", "EdgeLine_L", "EdgeLine_R", "RacingLine", "ApexKerbs",
                "GroundGrass", "TyreWall")
 FIXED = ("Hill", "Lake", "LakeShore", "Stand")      # stands are placed explicitly
-GROUND_DECALS = ("GravelTrap", "GrassPatch", "PitLane")
+GROUND_DECALS = ("GravelTrap", "GrassPatch")
 # Allowed inside the clearance: flat pieces, the pit wall and gantry legs
 # the game makes solid, and parts well overhead.
 FLAT_OK = ("Road", "Verge", "EdgeLine", "RacingLine", "ApexKerbs", "StartFinishLine", "PitLane",
-           "GroundGrass", "GravelTrap", "GrassPatch", "PitWall", "GantryPillar", "Lake")
+           "GroundGrass", "GravelTrap", "GrassPatch", "PitWall", "GantryPillar", "Lake",
+           "PitApron", "PitBox", "PitLimit", "PitLine")
 
 
 def smoothstep(e0, e1, x):
@@ -447,9 +448,113 @@ straight = np.abs(curv) < 1 / 500.0
 bank_deg[straight] = np.clip(bank_deg[straight], -1.8, 1.8)          # <= 2 deg on the straights
 TANB = np.tan(np.radians(bank_deg))                         # z rises by lat * TANB (right +)
 
+# Inside the final corner the ground stays level past the kerb instead of
+# carrying on down the bank, so the infield is flat enough for the pit road.
+FLAT_INSIDE = np.abs(np.arange(N) - i_final) < 60
+
+def bank_rise(lat, tanb, flat):
+    """Height the banking adds at lateral offset lat (right +)."""
+    lat = np.asarray(lat, float)
+    lat = np.where(flat & (lat * tanb < 0), np.clip(lat, -KERB_OUT, KERB_OUT), lat)
+    return lat * tanb
+
 def plane_z(i, lat):
     """Height of the (extended) road plane at ring i, lateral offset lat (right +)."""
-    return ROAD_Z + H[i] + np.asarray(lat) * TANB[i]
+    return ROAD_Z + H[i] + bank_rise(lat, TANB[i], FLAT_INSIDE[i])
+
+# ---------------------------------------------------------------- pit road (geometry)
+# The pit road is its own road. It peels off the left of the diagonal after
+# the tunnel, cuts across the infield of the final corner on a gentle arc,
+# runs down the left of the pit straight past the garages, and merges back
+# onto the track after them. Where it meets the track its inner edge
+# overlaps the asphalt by 2 m and its outer edge is where the game's wall
+# holds a car, so a car crosses from one to the other without a step.
+PIT_IN, PIT_OUT = -9.0, -16.0          # its edges along the pit straight
+PIT_C, PIT_HALF = (PIT_IN + PIT_OUT) / 2, (PIT_IN - PIT_OUT) / 2
+MERGE_IN, MERGE_OUT = -ROAD_HALF + 2.0, -DRIVABLE   # its edges where it meets the track
+PIT_R = 45.0                            # the arc through the infield
+PIT_TAPER = 70.0                        # metres to peel off / merge back
+PIT_JOIN_BEFORE = 25.0                  # reaches the pit straight this far before the line
+PIT_EXIT_FROM = 740.0                   # starts merging back here, past the last garage
+PIT_WALL_LAT, PIT_WALL_DEPTH, PIT_WALL_H = -7.9, 0.8, 1.2
+
+def unwrap_deg(a):
+    return (a + 180.0) % 360.0 - 180.0
+
+tunnel_end = new.s[i_d] + TUNNEL_TO
+pit_s0 = tunnel_end + 15.0                          # peel-off starts here
+pit_s1 = pit_s0 + PIT_TAPER                         # fully off the track
+pit_join = L - PIT_JOIN_BEFORE
+pit_x0, pit_x1 = PIT_EXIT_FROM, PIT_EXIT_FROM + PIT_TAPER
+
+def taper(s_from, s_to, reverse=False):
+    ss = np.arange(s_from, s_to, 1.0)
+    f = smoothstep(s_from, s_to, ss)
+    if reverse:
+        f = 1 - f
+    e_in = MERGE_IN + (PIT_IN - MERGE_IN) * f
+    e_out = MERGE_OUT + (PIT_OUT - MERGE_OUT) * f
+    c, _ = new.at(ss, (e_in + e_out) / 2)
+    return c, (e_in - e_out) / 2
+
+def s_heading(s):
+    i = ring_index(s)
+    return math.degrees(new.heading[i])
+
+def ring_index(s):
+    return int(round((s % L) / L * N)) % N
+
+a_pts, a_half = taper(pit_s0, pit_s1)
+p_from, _ = new.at(pit_s1, PIT_C)
+p_to, _ = new.at(pit_join, PIT_C)
+h_from = s_heading(pit_s1)
+pit_turn = unwrap_deg(s_heading(pit_join) - h_from)
+pit_segs, pit_free = solve_free(p_from, h_from, [('S', None), ('A', pit_turn, PIT_R), ('S', None)], p_to)
+assert min(pit_free) > 0, ("pit road does not fit", pit_free)
+b_pts = turtle(p_from, h_from, pit_segs, step=1.0)[0]
+c_s = np.arange(pit_join, L + pit_x0, 1.0)
+c_pts, _ = new.at(c_s, np.full(len(c_s), PIT_C))
+d_pts, d_half = taper(pit_x0, pit_x1, reverse=True)
+raw = np.vstack([a_pts, b_pts[1:], c_pts[1:], d_pts])
+raw_half = np.concatenate([a_half, np.full(len(b_pts) - 1, PIT_HALF), np.full(len(c_pts) - 1, PIT_HALF), d_half])
+cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(raw, axis=0), axis=1))])
+pit_u = np.arange(0, cum[-1], 1.0)
+pit_p = np.stack([np.interp(pit_u, cum, raw[:, k]) for k in range(2)], 1)
+pit_half = np.interp(pit_u, cum, raw_half)
+tg = np.gradient(pit_p, axis=0)
+tg /= np.linalg.norm(tg, axis=1)[:, None]
+pit_left = np.stack([-tg[:, 1], tg[:, 0]], 1)
+PIT_LEN = pit_u[-1]
+
+def pit_vertex_z(xy):
+    """The pit road lies on the road plane (and its level extension), like the verge."""
+    j, lat, _ = new.locate(xy)
+    return plane_z(j, np.clip(lat, -VERGE_OUT, VERGE_OUT))
+
+def pit_heights(xy):
+    """Smoothed along the pit road (the nearest ring changes in steps across the
+    infield), exact where the edge lies on the track, 2 cm up off it so the verge
+    never shows through."""
+    z = pit_vertex_z(xy)
+    k = np.ones(15) / 15
+    zs = np.convolve(np.concatenate([np.full(7, z[0]), z, np.full(7, z[-1])]), k, mode="valid")
+    _, lat, _ = new.locate(xy)
+    on_road = np.abs(lat) <= ROAD_HALF + 0.5
+    return np.where(on_road, z, zs + 0.02)
+
+pit_edge_l = pit_p + pit_left * pit_half[:, None]
+pit_edge_r = pit_p - pit_left * pit_half[:, None]
+pit_z_l, pit_z_r = pit_heights(pit_edge_l), pit_heights(pit_edge_r)
+pit_z_c = (pit_z_l + pit_z_r) / 2
+
+def pit_locate(xy):
+    """Nearest pit sample, distance, for many points."""
+    xy = np.atleast_2d(xy)
+    idx = np.empty(len(xy), int)
+    for a in range(0, len(xy), 2048):
+        d2 = ((xy[a:a + 2048, None, :] - pit_p[None]) ** 2).sum(-1)
+        idx[a:a + 2048] = d2.argmin(1)
+    return idx, np.linalg.norm(xy - pit_p[idx], axis=1)
 
 # ---------------------------------------------------------------- ground
 def ground_below(xy):
@@ -470,7 +575,7 @@ def ground_below(xy):
         # never above any stretch of road or verge within reach
         lat_all = (rel * new.right[None]).sum(-1)
         inband = (np.abs(lat_all) <= VERGE_OUT) & (d2 < 35.0 ** 2)
-        cap = ROAD_Z + H[None] + lat_all * TANB[None] - np.where(np.abs(lat_all) <= GROUND_DEEP, 0.33, 0.12)
+        cap = ROAD_Z + H[None] + bank_rise(lat_all, TANB[None], FLAT_INSIDE[None]) - np.where(np.abs(lat_all) <= GROUND_DEEP, 0.33, 0.12)
         cap = np.where(inband, cap, np.inf).min(1)
         out[a:a + 1024] = np.minimum(z, cap)
     return out
@@ -484,6 +589,10 @@ def surface_z(xy):
     return np.where(on_band, band_z, ground_below(xy))
 
 # ---------------------------------------------------------------- move furniture
+# The delivered pit lane (a flat strip joined to nothing) and its pit wall
+# (ten separate blocks) are rebuilt below as a real pit road.
+for o in [o for o in objs if o.name.startswith(("PitLane", "PitWall"))]:
+    bpy.data.objects.remove(o, do_unlink=True)
 moved = 0
 for o in list(objs):
     if o.type != 'MESH' or o.parent or o.name.startswith(REGENERATED + FIXED):
@@ -790,6 +899,117 @@ for (sign, lat_face), mask in WALL_REQUESTS.items():
     for run in runs_of(mask):
         tyres += tyre_run(run[0], run[0] + len(run) - 1, sign, lat_face)
 
+# ---------------------------------------------------------------- pit road (objects)
+PIT_ASPHALT = mat("PitAsphalt")
+pv, pf = [], []
+for a, b, za, zb in zip(pit_edge_l, pit_edge_r, pit_z_l, pit_z_r):
+    pv += [(a[0], a[1], za), (b[0], b[1], zb)]          # pairs (left, right), like the road
+pf = [(2 * r, 2 * r + 1, 2 * r + 3, 2 * r + 2) for r in range(len(pit_p) - 1)]
+replace_mesh("PitLane", pv, pf, [PIT_ASPHALT])
+
+# A solid white line along the pit road's inner edge where it runs beside the
+# track: the line you cross to enter, and the one you cross to rejoin.
+LINE_W = 0.25
+pl_v, pl_f = [], []
+for part in (np.arange(0, int(PIT_TAPER) + 1), np.arange(len(pit_p) - int(PIT_TAPER) - 1, len(pit_p))):
+    base = len(pl_v)
+    for k in part:
+        e = pit_edge_r[k]
+        inner = e + pit_left[k] * LINE_W
+        pl_v += [(inner[0], inner[1], pit_z_r[k] + 0.01), (e[0], e[1], pit_z_r[k] + 0.01)]
+    pl_f += [(base + 2 * r, base + 2 * r + 1, base + 2 * r + 3, base + 2 * r + 2) for r in range(len(part) - 1)]
+replace_mesh("PitLine", pl_v, pl_f, [mat("LineWhite")])
+
+def pit_u_of(xy):
+    k, _ = pit_locate(np.asarray(xy)[None])
+    return int(k[0])
+
+def across_pit(name, k, width, material, dz=0.012):
+    """A painted strip straight across the pit road at sample k."""
+    t = np.array([pit_left[k][1], -pit_left[k][0]])
+    a0, b0 = pit_edge_l[k], pit_edge_r[k]
+    v = [(*(a0 - t * width / 2), pit_z_l[k] + dz), (*(b0 - t * width / 2), pit_z_r[k] + dz),
+         (*(b0 + t * width / 2), pit_z_r[k] + dz), (*(a0 + t * width / 2), pit_z_l[k] + dz)]
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(v, [], [(0, 1, 2, 3)])
+    mesh.materials.append(material)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+# Garages, in pit-road order; a box painted in the working lane in front of each
+garages = sorted([o for o in objs if o.name.startswith("GarageDoor")],
+                 key=lambda o: pit_u_of(np.array(o.matrix_world.translation[:2])))
+BOX_YELLOW = make_mat("PitBoxYellow", (0.95, 0.72, 0.05), 0.5, emit=0.6)
+BOX_LAT, BOX_LEN, BOX_W, BOX_LINE = PIT_OUT + 1.75, 6.0, 3.1, 0.15
+box_s = []
+for g in garages:
+    q = np.array(g.matrix_world.translation[:2])
+    s_g = new.s[new.locate(q[None])[0][0]]
+    box_s.append(s_g)
+    c, right = new.at(s_g, BOX_LAT)
+    head = math.atan2(right[0], -right[1])            # the tangent, from the right vector
+    fwd = np.array([math.cos(head), math.sin(head)])
+    z = float(pit_z_c[pit_u_of(c)]) + 0.012
+    mb = MeshBuilder()
+    for side in (-1, 1):
+        e = c + fwd * side * (BOX_LEN / 2 - BOX_LINE / 2)
+        mb.box((e[0], e[1], z), (BOX_LINE, BOX_W, 0.004), head, 0)
+        e = c + right * side * (BOX_W / 2 - BOX_LINE / 2)
+        mb.box((e[0], e[1], z), (BOX_LEN, BOX_LINE, 0.004), head, 0)
+    mb.build(f"PitBox{len(box_s) - 1}", [BOX_YELLOW])
+
+# The speed limit: a line across the pit road where it starts and where it ends
+limit_from = pit_u_of(new.at(pit_join + 10.0, PIT_C)[0])
+limit_to = pit_u_of(new.at(max(box_s) + 25.0, PIT_C)[0])
+across_pit("PitLimit", limit_from, 0.6, mat("LineWhite"))
+across_pit("PitLimit", limit_to, 0.6, mat("LineWhite"))
+
+# Concrete apron between the pit lane and the garages
+apron_idx = [ring_at(s) for s in np.arange(min(box_s) - 15.0, max(box_s) + 15.0, SAMPLE)]
+av, af = ribbon(PIT_OUT - 3.6, PIT_OUT, 0.02, apron_idx, closed=False)
+replace_mesh("PitApron", av, af, [mat("Concrete")])
+
+# The pit wall: continuous, between the track and the pit lane, from where the
+# entry road arrives to where the exit road leaves; open at both ends.
+wall_mats = [mat("KerbRed"), mat("KerbWhite")]
+inner_lat = PIT_IN - (PIT_IN - MERGE_IN) * smoothstep(pit_x0, pit_x1, np.arange(pit_x0, pit_x1, 0.5))
+wall_to = pit_x0 + 0.5 * int(np.argmax(inner_lat > PIT_WALL_LAT - PIT_WALL_DEPTH / 2 - 0.3))
+wall_from = pit_join - 35.0
+# ...and a short one where the entry road runs beside the diagonal before it
+# turns away across the infield
+j_in, lat_in, _ = new.locate(pit_edge_r[:300])
+beside = (lat_in < PIT_WALL_LAT - PIT_WALL_DEPTH / 2 - 0.3) & (lat_in > -12.0)
+k0 = int(np.argmax(beside))
+k1 = k0 + int(np.argmin(beside[k0:]))                # the first run only
+entry_wall = (new.s[j_in[k0]], new.s[j_in[k1 - 1]])
+pit_wall_blocks = 0
+for s_a, s_b in (entry_wall, (wall_from, L + wall_to)):
+    ss = np.arange(s_a, s_b, 0.5)
+    pts, _ = new.at(ss, np.full(len(ss), PIT_WALL_LAT))
+    arc_len = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    for a in np.arange(0, max(arc_len[-1] - TYRE_LEN, 0) + 0.01, TYRE_STEP):
+        k = min(max(int(np.searchsorted(arc_len, a + TYRE_LEN / 2)), 1), len(pts) - 1)
+        p = pts[k]
+        head = math.atan2(*(pts[k] - pts[k - 1])[::-1])
+        z = float(surface_z(p[None])[0])
+        add_box("PitWall", (p[0], p[1], z + PIT_WALL_H / 2 - 0.05), (TYRE_LEN, PIT_WALL_DEPTH, PIT_WALL_H),
+                head, wall_mats[pit_wall_blocks % 2])
+        pit_wall_blocks += 1
+
+# The gantry's left leg stood where the pit lane now runs: it moves into the
+# pit wall and slims to the wall's width.
+leg = objs.get("GantryPillar.001")
+if leg:
+    V = world_verts(leg)
+    c = V[:, :2].mean(0)
+    j, lat, _ = new.locate(c[None])
+    if lat[0] < 0:
+        target, _ = new.at(new.s[j[0]], PIT_WALL_LAT)
+        k = PIT_WALL_DEPTH / (V[:, :2].max(0) - V[:, :2].min(0)).max()
+        V[:, :2] = target + (V[:, :2] - c) * k
+        set_world_verts(leg, V)
+
 # ---------------------------------------------------------------- stands
 def stand_parts(prefix):
     return [o for o in objs if o.name.startswith(prefix)]
@@ -1036,6 +1256,20 @@ for o in list(objs):
         continue                           # overhead: gantry, bridge deck, lamps
     removed.append((o.name, np.array(o.matrix_world.translation[:2])))
     bpy.data.objects.remove(o, do_unlink=True)
+# ...and nothing standing on the pit road
+PIT_KEEP = FLAT_OK + ("Tunnel", "Garage", "Stand", "TeamFlags", "TrackBanners", "FloodlightTowers")
+for o in list(objs):
+    if o.type != 'MESH' or o.name.startswith(PIT_KEEP):
+        continue
+    V = world_verts(o)
+    lo, hi = V[:, :2].min(0) - 30, V[:, :2].max(0) + 30
+    if not ((pit_p >= lo) & (pit_p <= hi)).all(1).any():
+        continue
+    k, d = pit_locate(V[:, :2])
+    near = d < pit_half[k] + 1.5
+    if near.any() and (V[near, 2] - pit_z_c[k[near]]).min() < 5.0:
+        removed.append((o.name, np.array(o.matrix_world.translation[:2])))
+        bpy.data.objects.remove(o, do_unlink=True)
 # no trees or rocks standing in the gravel
 for o in list(objs):
     if o.type != 'MESH' or not o.name.startswith(NATURAL):
@@ -1073,6 +1307,9 @@ print(f" tunnel              {tunnel_s0:.0f}-{tunnel_s1:.0f} m ({tunnel_s1 - tun
 print(f" banking             {bank_deg.min():.1f} to {bank_deg.max():.1f} deg")
 print(f" furniture moved     {moved} objects; tyre wall blocks {tyres}; floodlight towers {tower_count}")
 print(f" crowd               {crowd_count} spectators")
+print(f" pit road            {PIT_LEN:.0f} m: off at {pit_s0:.0f} m, R{PIT_R:.0f} across the infield, "
+      f"on the straight {pit_join - L:.0f} m, back on at {pit_x1:.0f} m; {len(box_s)} boxes; "
+      f"wall {entry_wall[0]:.0f}-{entry_wall[1]:.0f} m and {wall_from - L:.0f} to {wall_to:.0f} m ({pit_wall_blocks} blocks)")
 print(f" removed             {len(removed)} objects from the {CLEAR:.0f} m clearance: "
       + ", ".join(sorted(set(n_.split('.')[0] for n_, _ in removed))))
 print("=" * 64)

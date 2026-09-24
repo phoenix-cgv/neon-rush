@@ -174,6 +174,8 @@ export class Vehicle {
     this.chassisTouching = false; // body resting on geometry, wheels or not
     this.scrapingWall = false; // chassis against a roughly vertical surface
     this.wasScrapingWall = false;
+    this.pitLane = null; // set by a PitLane on a map that has one
+    this.inPit = false; // on the pit road: the PitLane owns s, offset and walls
     this.wallAssist = 0; // seconds of alignment assist remaining
     this.wallNormal = new THREE.Vector3();
     this.lastWallImpact = 0; // closing speed of the last wall strike, m/s
@@ -330,6 +332,10 @@ export class Vehicle {
 
   #trackPosition() {
     if (!this.track) return;
+    // On the pit road the PitLane keeps s and lateralOffset: projected onto
+    // the track, a car crossing the final corner's infield would read as
+    // somewhere in the corner.
+    if (this.inPit) return;
     // Hint with last step's value: the car cannot teleport, so the search
     // window is a few metres and this stays O(1) however long the track is.
     const r = this.track.project(_pos, this.s);
@@ -355,6 +361,8 @@ export class Vehicle {
    * @returns {number} inward speed at the moment of contact, m/s
    */
   applySoftWall() {
+    // A car on the pit road is held by the pit lane's own edges instead.
+    if (this.pitLane?.constrain(this)) return 0;
     if (!this.track || !this.track.softWalls) return 0;
 
     const t0 = this.body.translation();
@@ -371,6 +379,25 @@ export class Vehicle {
 
     const sign = Math.sign(pr.t);
     const fr = this.track.frameAt(pr.s, _frame);
+    const bite = this.holdInside(over, sign, fr.right);
+    // The car is on the line now, so say so: slipstream and the AI both
+    // read this field later in the same step and would otherwise be told
+    // the car is still buried in the wall.
+    this.lateralOffset = sign * this.track.wallLimit;
+    return bite;
+  }
+
+  /**
+   * The soft wall's constraint, for any line: move the car `over` metres
+   * back across it (it is on the `sign` side of `right`), delete the
+   * velocity going through it, scrub and damp the rest. The PitLane holds
+   * cars on the pit road with the same one.
+   *
+   * @returns {number} inward speed at the moment of contact, m/s
+   */
+  holdInside(over, sign, right) {
+    const t0 = this.body.translation();
+    const fr = { right };
     const firstTouch = !this.againstWall;
     this.againstWall = true;
 
@@ -380,10 +407,6 @@ export class Vehicle {
       { x: t0.x + _tmp2.x, y: t0.y, z: t0.z + _tmp2.z },
       true
     );
-    // The car is on the line now, so say so: slipstream and the AI both
-    // read this field later in the same step and would otherwise be told
-    // the car is still buried in the wall.
-    this.lateralOffset = sign * this.track.wallLimit;
 
     // 2. split the velocity, delete only the part going into the wall
     const lv = this.body.linvel();
@@ -439,7 +462,7 @@ export class Vehicle {
    * so a contact-driven push never fires in the case that needs it most.
    */
   #unstick(controls) {
-    if (!this.track) return;
+    if (!this.track || this.inPit) return; // the pit wall is meant to be there
     const edge = (this.track.pushOffEdge ?? this.track.width * 0.5) - CAR.unstickMargin;
     const off = this.lateralOffset;
     if (Math.abs(off) < edge) return;
@@ -1311,6 +1334,7 @@ export class Vehicle {
     this.wasTouching = true;
     this.wasScrapingWall = false;
     this.againstWall = false; // so the first wall touch after a reset counts
+    this.inPit = false;
     this.touchingCar = false;
     this.velNow.set(0, 0, 0);
     this.velPrev.set(0, 0, 0);

@@ -60,6 +60,10 @@ export class AIController {
     this.blocking = false;
     this.reverseFor = 0; // s left of a nosed-into-the-wall recovery
     this._t = seed * 13.7;
+    // Set by a PitLane on a map with pits: it steers the car in, down the
+    // pit road and out again when the car is badly damaged.
+    this.pit = null;
+    this.pitting = false;
   }
 
   /**
@@ -96,6 +100,8 @@ export class AIController {
     this.targetOffset += (wantOffset - this.targetOffset) * clamp(dt / this.p.reaction, 0, 1);
 
     _aim.copy(_fr.position).addScaledVector(_fr.right, this.targetOffset);
+    const plan = this.pit ? this.pit.aiPlan(this, car, look) : null;
+    if (plan) _aim.copy(plan.aim);
 
     const rot = car.body.rotation();
     _q.set(rot.x, rot.y, rot.z, rot.w);
@@ -131,6 +137,8 @@ export class AIController {
       vmax = Math.min(vmax, t.cornerSpeedAt(car.s + a, 1.4 * this.p.grip));
     }
     vmax = Math.min(vmax, 62);
+    // In the pits the track's corners do not apply; on the way in, both do.
+    if (plan) vmax = car.inPit ? plan.vmax : Math.min(vmax, plan.vmax);
 
     const err = vmax - car.speed;
     c.throttle = err > 0 ? clamp(err * 0.45, 0, 1) : 0;
@@ -139,7 +147,27 @@ export class AIController {
     // Boost on the exit of a corner, where it is worth most and least
     // likely to put the car in a wall.
     c.boost =
-      car.boostCharge > 25 && err > 6 && Math.abs(c.steer) < 0.35 && car.grounded;
+      !plan && car.boostCharge > 25 && err > 6 && Math.abs(c.steer) < 0.35 && car.grounded;
+
+    // Stopping in the box: held on the handbrake, not the brake, which at
+    // a standstill would select reverse.
+    if (plan?.stop) {
+      c.throttle = 0;
+      c.brake = car.speed > 0.8 ? 1 : 0;
+      c.handbrake = car.speed <= 0.8;
+      c.steer = 0;
+      c.pitch = 0;
+      c.roll = 0;
+      return c;
+    }
+    // The recoveries below are judged against the track, which a car on
+    // the pit road is not on.
+    if (car.inPit) {
+      c.handbrake = false;
+      c.pitch = 0;
+      c.roll = 0;
+      return c;
+    }
 
     // Recovery: pointing the wrong way or stopped against something.
     //

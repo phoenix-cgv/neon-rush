@@ -162,10 +162,16 @@ def ground_at(x, y):
     return (g.matrix_world @ hit[0]).z if hit[0] is not None else None
 worst_edge, worst_verge = (1e9, 0), (1e9, 0)
 kr_all = np.array([k[min(int(round(sv)), M - 1)] for sv in s])
+i_fc_ring = int(np.argmax(np.where(np.asarray(s) > length - 200, np.abs(kr_all), 0)))
+near_final = np.abs(np.arange(len(s)) - i_fc_ring) < 60
 for i in range(0, n, 2):
     across = (Rgt[i] - Lft[i]) / 14.0
     for f_, tag in ((-1.0, "edge"), (0.0, "edge"), (1.0, "edge"), (-2.1, "verge"), (2.1, "verge"), (-3.1, "verge"), (3.1, "verge")):
         q = C[i] + across * 7.0 * f_
+        # inside the final corner the verge is level past the kerb (8.8 m)
+        if abs(f_) > 8.8 / 7.0 and f_ * across[2] < 0 and near_final[i]:
+            q = C[i] + across * 7.0 * f_
+            q[2] = (C[i] + across * 8.8 * np.sign(f_))[2]
         if tag == "verge" and abs(kr_all[i]) > 1 / 40.0:
             continue                           # the verge is trimmed inside tight corners
         gz = ground_at(q[0], q[1])
@@ -296,7 +302,8 @@ else:
 
 # ---- Clearance
 ALLOWED = ("Road", "Verge_", "EdgeLine", "RacingLine", "ApexKerbs", "StartFinishLine", "PitLane",
-           "GroundGrass", "PitWall", "GantryPillar", "GravelTrap", "GrassPatch", "Lake")
+           "GroundGrass", "PitWall", "GantryPillar", "GravelTrap", "GrassPatch", "Lake",
+           "PitLine", "PitLimit", "PitBox", "PitApron")
 intruders = []
 for o in objs:
     if o.type != 'MESH' or o.name.startswith(ALLOWED):
@@ -319,6 +326,102 @@ for o in objs:
         gravel.append((o.name, np.abs(lat).min()))
 check("Gravel never under the road", all(gv >= 6.99 for _, gv in gravel),
       ", ".join(f"{nm} from {gv:.1f} m" for nm, gv in gravel))
+
+# ---- Pit road
+def nearest(ref, xy):
+    """Index of the nearest ref point (2D) for each of xy."""
+    xy = np.atleast_2d(xy)
+    out = np.empty(len(xy), int)
+    for a_ in range(0, len(xy), 1024):
+        out[a_:a_ + 1024] = ((xy[a_:a_ + 1024, None, :] - ref[None]) ** 2).sum(-1).argmin(1)
+    return out
+
+def road_lat_z(xy):
+    """Lateral offset (right +) from the road centre and road-plane height there."""
+    i = nearest(C[:, :2], xy)
+    across = (Rgt[i] - Lft[i]) / 14.0
+    lat = ((np.atleast_2d(xy) - C[i, :2]) * across[:, :2]).sum(1) / (across[:, :2] ** 2).sum(1)
+    return i, lat, C[i, 2] + across[:, 2] * lat
+
+pit = objs.get("PitLane")
+if pit and len(pit.data.vertices) > 100:
+    V = world_verts(pit)
+    PL, PR = V[0::2], V[1::2]
+    PC = (PL + PR) / 2
+    pw = np.linalg.norm((PL - PR)[:, :2], axis=1)
+    pseg = np.linalg.norm(np.diff(PC[:, :2], axis=0), axis=1)
+    plen = pseg.sum()
+    _, lat_in, _ = road_lat_z(PR[:, :2])
+    _, lat_out, _ = road_lat_z(PL[:, :2])
+    joined = []
+    for k_ in (0, len(PC) - 1):
+        _, _, zr = road_lat_z(PR[[k_], :2])
+        joined.append((abs(lat_in[k_]), abs(lat_out[k_]), abs(PR[k_, 2] - zr[0])))
+    check("Pit road joined to the track at both ends",
+          all(li <= 6.0 and lo <= 9.3 and dz <= 0.02 for li, lo, dz in joined),
+          "; ".join(f"{nm}: inner edge {li:.1f} m, outer {lo:.1f} m from the centre, {dz * 100:.1f} cm step"
+                    for nm, (li, lo, dz) in zip(("entry", "exit"), joined)))
+    pa, pb, pc_ = PC[:-12, :2], PC[6:-6, :2], PC[12:, :2]
+    pcross = (pb - pa)[:, 0] * (pc_ - pb)[:, 1] - (pb - pa)[:, 1] * (pc_ - pb)[:, 0]
+    pden = np.linalg.norm(pb - pa, axis=1) * np.linalg.norm(pc_ - pb, axis=1) * np.linalg.norm(pc_ - pa, axis=1)
+    pk = np.abs(2 * pcross / pden)
+    grade = np.abs(np.diff(PC[:, 2])) / np.maximum(pseg, 1e-6)
+    low = [ground_at(*q[:2]) for q in PC[::5]]
+    under = min(q[2] - gz for q, gz in zip(PC[::5], low) if gz is not None)
+    lane = (np.abs(lat_in) > 8.5)
+    check("Pit road: >= 6.5 m wide off the track, curves >= R40, grade <= 4 %, ground below",
+          pw[lane].min() >= 6.5 and 1 / pk.max() >= 40 and grade.max() <= 0.04 and under >= 0.05,
+          f"{plen:.0f} m; {pw[lane].min():.1f} m wide; tightest R{1 / pk.max():.0f}; "
+          f"grade {grade.max() * 100:.1f} %; ground {under:.2f} m below")
+
+    walls = [o for o in objs if o.name.startswith("PitWall")]
+    wc = np.array([centre_of(o)[:2] for o in walls])
+    wi, wlat, _ = road_lat_z(wc)
+    # the pit lane proper: beside the track, off it
+    beside = (np.abs(lat_in) >= 8.9) & (np.abs((lat_in + lat_out) / 2) <= 13.0)
+    pi_, _, _ = road_lat_z(PC[beside, :2])
+    si = s[pi_]
+    wall_s = s[wi]
+    def covered(sv):
+        d_ = np.abs((wall_s - sv + length / 2) % length - length / 2)
+        return d_.min() <= 3.0
+    uncovered = [sv for sv in si[::3] if not covered(sv)]
+    # open ends: no wall where the pit road overlaps the track
+    merging = np.abs(lat_in) < 8.3
+    mi, _, _ = road_lat_z(PC[merging, :2])
+    blocked = [sv for sv in s[mi] if covered(sv)]
+    check("Pit wall: continuous beside the pit lane, open where the pit road meets the track",
+          len(walls) > 50 and not uncovered and not blocked and np.abs(wlat).max() < 8.4,
+          f"{len(walls)} blocks {np.abs(wlat).min():.1f}-{np.abs(wlat).max():.1f} m out; "
+          f"{len(uncovered)} lane samples unwalled; {len(blocked)} merge samples walled"
+          + (f" (unwalled at {', '.join(f'{u_:.0f}' for u_ in uncovered[:6])} m)" if uncovered else ""))
+
+    boxes = [o for o in objs if o.name.startswith("PitBox")]
+    doors = [centre_of(o)[:2] for o in objs if o.name.startswith("GarageDoor")]
+    limits = [o for o in objs if o.name.startswith("PitLimit")]
+    box_ok = all(min(np.linalg.norm(centre_of(b_)[:2] - d_) for d_ in doors) < 8.0 for b_ in boxes)
+    check("Garage boxes in front of every garage; speed-limit lines",
+          len(boxes) == len(doors) and box_ok and len(limits) == 2,
+          f"{len(boxes)} boxes for {len(doors)} garages; {len(limits)} limit lines")
+
+    PIT_OK = ALLOWED + ("Garage", "TeamFlags", "TrackBanners", "FloodlightTowers")
+    on_pit = []
+    for o in objs:
+        if o.type != 'MESH' or o.name.startswith(PIT_OK):
+            continue
+        Vo = world_verts(o)
+        lo_, hi_ = Vo[:, :2].min(0) - 12, Vo[:, :2].max(0) + 12
+        if not ((PC[:, :2] >= lo_) & (PC[:, :2] <= hi_)).all(1).any():
+            continue
+        k_ = nearest(PC[:, :2], Vo[:, :2])
+        d_ = np.linalg.norm(Vo[:, :2] - PC[k_, :2], axis=1)
+        near_ = d_ < pw[k_] / 2 + 1.0
+        if near_.any() and (Vo[near_, 2] - PC[k_[near_], 2]).min() < 5.0:
+            on_pit.append(o.name)
+    check("Nothing standing on the pit road", not on_pit,
+          f"{len(on_pit)} objects" + (": " + ", ".join(on_pit[:8]) if on_pit else ""))
+else:
+    check("Pit road", False, "PitLane is not a pit road ribbon")
 
 # ---- 6 / 7. Atmosphere
 crowds = [p for p in ("StandMain_", "StandSweep_", "StandEsses_", "StandStadium_") if (p + "Crowd") in objs]

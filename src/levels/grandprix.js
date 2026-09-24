@@ -1,5 +1,6 @@
 import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import * as THREE from "three";
 import { buildArmco } from "./armco.js";
 
 // ---------------------------------------------------------------------
@@ -15,6 +16,11 @@ import { buildArmco } from "./armco.js";
 // left-right-left at R40 under the Esses stand; a banked R90 left onto a
 // long diagonal; and the banked R30 final corner, which finishes 70 m
 // before the line so the whole grid lines up on straight, level road.
+//
+// The pit lane is a real one (src/track/pit-lane.js): the entry peels off
+// before the final corner, the exit merges back after the garages, there
+// is a 60 km/h limit, and stopping in your box repairs the car and
+// refills the boost. Opponents pit only when badly damaged.
 //
 // The soft wall sits 1.4 m out on the grass verge, just inside the tyre
 // walls. It was first set 4 m out, which put the tyre walls inside the
@@ -35,6 +41,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     surfaces: [
       { match: /^Road$/, friction: 1.0 },
       { match: /^PitLane$/, friction: 1.0 },
+      { match: /^PitApron$/, friction: 1.0 },
       // Leaving the track costs you. Grass holds about two thirds of what
       // asphalt does and drags like rolling off the throttle; gravel holds
       // half and drags like braking. (grip x tyre grip, rolling = extra
@@ -46,30 +53,33 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     solid: /^(PitWall|TyreWall|GantryPillar)/,
     // The five lamps on the start gantry, lit one by one by the race director.
     keep: /^StartLamp\d*$/,
-    decals: /^(RacingLine|EdgeLine|StartFinishLine|ApexKerbs)/,
-    overlays: /^(Road|Verge|PitLane|GravelTrap|GrassPatch|Lake)/,
+    // The pit road overlaps the track where it peels off and rejoins, so it
+    // is drawn over the road like the paint is.
+    decals: /^(RacingLine|EdgeLine|StartFinishLine|ApexKerbs|PitLane|PitLine|PitLimit|PitBox)/,
+    overlays: /^(Road|Verge|PitApron|GravelTrap|GrassPatch|Lake)/,
     minimap: /^(Road|Verge|PitLane|EdgeLine|ApexKerbs|StartFinishLine)/,
     // Road edge 7 m; the nearest tyre-wall face is at 10.3 m, and the car
     // is 0.85 m either side of its centre.
     wallLimit: 8.4,
     track: { checkpointSpacing: 150 },
+    // The pit road and its markers, for the PitLane (src/track/pit-lane.js).
+    pit: { ribbon: "PitLane", boxes: /^PitBox/, limits: /^PitLimit/ },
   });
   const { track } = map;
 
   // A steel barrier exactly where the soft wall stops the car, so the
   // edge is something you can see rather than an invisible wall. The
   // rail's face sits a car's half-width outside the wall line. Left out
-  // along the pit straight (the pit wall and pit lane are there) and at
-  // the gantry's legs.
+  // wherever the pit road runs beside the track (the pit wall is there,
+  // and the pit entry and exit must stay open) and at the gantry's legs.
   const L = track.length;
-  for (const o of buildArmco(track, scene, {
-    offset: 8.4 + 0.85 + 0.1,
-    skip: [
-      { side: -1, s0: 40, s1: 760 },
-      { side: -1, s0: L - 3, s1: 3 },
-      { side: 1, s0: L - 3, s1: 3 },
-    ],
-  })) {
+  const offset = 8.4 + 0.85 + 0.1;
+  const skip = [
+    { side: -1, s0: L - 3, s1: 3 },
+    { side: 1, s0: L - 3, s1: 3 },
+    ...pitSkips(track, map.pit, offset),
+  ];
+  for (const o of buildArmco(track, scene, { offset, skip })) {
     track.objects.push(o); // disposed with the track
   }
 
@@ -83,6 +93,9 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // A proper race: start lights, three laps, a classification.
     race: { laps: 3 },
     startLamps: map.kept,
+    // A real pit stop: 60 km/h limit, repaired and refuelled with boost in
+    // your box in about three seconds; opponents pit when badly damaged.
+    pit: { data: map.pit, limitKmh: 60, repairTime: 3, aiDamage: 0.5 },
     pickups: { repair: 6, boost: 8 },
     spawn: gate.position,
     quaternion: gate.quaternion,
@@ -101,4 +114,44 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     },
     dispose: map.dispose,
   };
+}
+
+/**
+ * Stretches of the track, per side, where the pit road runs within reach
+ * of the armco line: the rail would stand across the pit entry and exit,
+ * or behind the pit wall.
+ */
+function pitSkips(track, pit, offset) {
+  if (!pit) return [];
+  const centres = pit.left.map((a, i) => a.clone().add(pit.right[i]).multiplyScalar(0.5));
+  const halves = pit.left.map((a, i) => Math.hypot(a.x - pit.right[i].x, a.z - pit.right[i].z) / 2);
+  const side = Math.sign(track.project(centres[centres.length >> 1], null).t) || -1;
+  const fr = {};
+  const p = new THREE.Vector3();
+  const out = [];
+  let run = null;
+  const step = 2;
+  for (let s = 0; s <= track.length; s += step) {
+    track.frameAt(s, fr);
+    p.copy(fr.position).addScaledVector(fr.right, side * offset);
+    let near = false;
+    for (let i = 0; i < centres.length; i += 2) {
+      const dx = centres[i].x - p.x;
+      const dz = centres[i].z - p.z;
+      const r = halves[i] + 4;
+      if (dx * dx + dz * dz < r * r) {
+        near = true;
+        break;
+      }
+    }
+    if (near && !run) run = { side, s0: Math.max(0, s - step), s1: s };
+    else if (near) run.s1 = s;
+    else if (run) {
+      run.s1 += step;
+      out.push(run);
+      run = null;
+    }
+  }
+  if (run) out.push({ ...run, s1: track.length });
+  return out;
 }

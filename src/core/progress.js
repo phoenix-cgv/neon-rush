@@ -123,6 +123,22 @@ export class Progress {
       this.falling = 0;
     }
 
+    // --- the pit road ---------------------------------------------------
+    // Off the track by lateral offset, and legitimately so: the pit lane
+    // runs 12 m out. Nothing below applies to a car being serviced in its
+    // box, which is stopped on purpose. Anywhere else on the pit road only
+    // the being-stuck clocks run (a car wedged there still needs rescuing).
+    if (vehicle.inPit) {
+      this.offTrack = 0;
+      this.pinnedFor = 0;
+      if (vehicle.pitService) {
+        this.noProgress = 0;
+        this.sMark = vehicle.s;
+        this.sMarkAge = 0;
+        return null;
+      }
+    }
+
     // --- off track ----------------------------------------------------
     // A kill plane only catches falling. It does not catch a car that has
     // flown over a barrier and come to rest on the grass, or one wedged
@@ -145,7 +161,8 @@ export class Progress {
     if (pinned) this.pinnedFor = (this.pinnedFor ?? 0) + dt;
     else this.pinnedFor = 0;
 
-    if (beyondRunoff || beached || this.pinnedFor > this.pinnedLimit) this.offTrack += dt * 3;
+    if (vehicle.inPit) this.offTrack = 0;
+    else if (beyondRunoff || beached || this.pinnedFor > this.pinnedLimit) this.offTrack += dt * 3;
     else if (stranded) this.offTrack += dt;
     else this.offTrack = Math.max(0, this.offTrack - dt * 2);
 

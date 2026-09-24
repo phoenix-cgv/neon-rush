@@ -6,7 +6,7 @@
 | `Track.py` | The realism pass that ran after `Track2.py` (trees, bushes, grass clumps, materials). Fixed, see below. |
 | `fix_grandprix.py` | Rebuilds `RaceTrack2.blend` into the finished map (below) and leaves the scene open. |
 | `GrandPrix.blend` | The finished map. |
-| `check_grandprix.py` | Checks a `.blend` or `.glb`: 29/29 on `GrandPrix.blend`, 30/30 on the exported `.glb`. |
+| `check_grandprix.py` | Checks a `.blend` or `.glb`: 34/34 on `GrandPrix.blend`, 35/35 on the exported `.glb`. |
 | `../export_glb.py` | Exports the `.blend` to `assets/maps/GrandPrix.glb`, which `src/levels/grandprix.js` loads. |
 
 ## Rebuild
@@ -34,6 +34,7 @@ In Blender: open `RaceTrack2.blend`, run `fix_grandprix.py` from the Text Editor
 | Tunnel | 2,351–2,549 m | 200 m of the diagonal under a hill | walls 10.2 m out, roof 7.3 m up, warm light strips, concrete portals |
 | C · esses | 1,998–2,083 m | Left-right-left in front of the Esses stand | R40 each, 40° each; stand 38 m from the road; gravel outside the middle bend |
 | D | 2,201 m | Fast left onto the diagonal | R90, banked 8° |
+| Pit road | 2,566 m → 810 m | Peels off the left of the diagonal, R45 across the final corner's infield, down the pit straight, merges back after the garages | 1,006 m, 7 m wide; inner edge overlaps the road 2 m at each end; pit wall (red/white, continuous) from −60 to 754 m and 2,623–2,667 m, open at both ends; 9 garage boxes; speed-limit lines; level infield (the final corner's bank stops at the kerb) |
 | E · final corner | 2,708 m (−513, −151) | Slow left onto the pit straight | R29.4, banked 4.5°, ends 70 m before the line; Stadium stand 50 m out |
 
 Height: level to 760 m (the whole pit straight, so the pits and garages stay level), down to −4 m for

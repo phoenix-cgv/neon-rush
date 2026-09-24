@@ -15,6 +15,7 @@ import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
 import { Rockfall } from "./core/rockfall.js";
+import { PitLane } from "./track/pit-lane.js";
 import { RaceDirector } from "./core/race-director.js";
 import { RaceHud } from "./ui/race-hud.js";
 import { Smoke } from "./vehicle/smoke.js";
@@ -229,6 +230,7 @@ let level = null;
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
 let rockfall = null; // falling rocks, on levels that ask for them
+let pits = null; // the pit lane, on maps that have one
 let director = null; // start lights, laps and the flag, on levels that race
 let soloVehicle = null;
 let soloRig = null;
@@ -286,6 +288,8 @@ async function loadLevel(name) {
   traffic = null;
   rockfall?.dispose();
   rockfall = null;
+  pits?.dispose();
+  pits = null;
   pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
@@ -311,6 +315,10 @@ async function loadLevel(name) {
     pickups = new Pickups(level.track, scene, level.pickups ?? {});
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
     if (level.rockfall) rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall);
+    if (level.pit?.data) {
+      pits = new PitLane(level.track, scene, level.pit.data, level.pit);
+      pits.attach(race.cars);
+    }
     if (level.race) {
       director = new RaceDirector(race, { laps: level.race.laps, lamps: level.startLamps ?? [] });
       raceHud.setActive(true);
@@ -456,6 +464,7 @@ function frame(now) {
       // Constraints and progress correct the pose Rapier just produced,
       // so they run after the solver, not before it.
       race.postStep(WORLD.fixedDt);
+      pits?.postStep(WORLD.fixedDt, race.cars);
       pickups?.update(WORLD.fixedDt, race.cars);
       // Best lap per level, shown in the pause menu.
       if (progress?.justCompletedLap) Save.submitLap(levelName, progress.lastLapTime);
@@ -481,6 +490,7 @@ function frame(now) {
 
   const state = vehicle.state;
   health.update(state.damage);
+  pits?.updateHud(vehicle);
   raceHud.update(director, race);
   cameraRig.update(frameDt, state, input.look);
 
@@ -518,6 +528,7 @@ window.__dbg = {
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
+  get pits() { return pits; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
