@@ -202,7 +202,7 @@ def sweep(name, profile, indices, closed, material=None, face_material=None):
     """Loft a cross-section along the road.
 
     profile(i) returns the section's points at sample i. Faces run
-    (i,k) -> (j,k) -> (j,k+1) -> (i,k+1), so a profile that runs from the
+    (i,k+1) -> (i,k) -> (j,k) -> (j,k+1), so a profile that runs from the
     driver's right to left gives faces pointing up, and one that runs up a
     left-hand wall gives faces pointing at the road.
     """
@@ -216,7 +216,10 @@ def sweep(name, profile, indices, closed, material=None, face_material=None):
     for r in range(count if closed else count - 1):
         r2 = (r + 1) % count
         for k in range(rows - 1):
-            faces.append((r * rows + k, r2 * rows + k, r2 * rows + k + 1, r * rows + k + 1))
+            # Starts on the across-road edge, so a glTF export lists each
+            # face as two across pairs (the game's map loader reads the
+            # road ribbon that way). Same winding either way.
+            faces.append((r * rows + k + 1, r * rows + k, r2 * rows + k, r2 * rows + k + 1))
             if face_material:
                 mats.append(face_material(indices[r], k))
     obj = create_mesh_object(name, verts, faces, material)
@@ -340,9 +343,15 @@ check_white = make_material("Start Finish White", (0.92, 0.92, 0.92), roughness=
 sign_blue = make_material("Race Sign Blue", (0.02, 0.18, 0.8), metallic=0.15, roughness=0.3)
 
 # Road: two vertices per sample, [right edge, left edge], faces up
-sweep("Mountain Race Track",
-      lambda i: [surface(i, half_width), surface(i, -half_width)],
-      all_indices, True, asphalt_mat)
+road_obj = sweep("Mountain Race Track",
+                 lambda i: [surface(i, half_width), surface(i, -half_width)],
+                 all_indices, True, asphalt_mat)
+# Smooth shading exports each vertex exactly once, in index order, so the
+# .glb ribbon is clean [right, left] pairs. Flat shading splits vertices
+# per face normal and merges them where neighbours are coplanar, which
+# shifts every pair after that point.
+for poly in road_obj.data.polygons:
+    poly.use_smooth = True
 
 # Edge lines
 LINE_LIFT = 0.02
