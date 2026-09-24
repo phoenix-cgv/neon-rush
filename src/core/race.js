@@ -34,6 +34,10 @@ const PLAYER_PATIENCE = {
 };
 const GRID_STAGGER = 3.2; // lateral offset, alternating
 
+// What every car is given while the field is held on the grid.
+const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
+const titleCase = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+
 const _fwd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
@@ -75,11 +79,15 @@ export class Race {
 
       const progress = new Progress(track, i === 0 ? PLAYER_PATIENCE : {});
       progress.markProgressFrom(s);
+      // Everyone but pole starts behind the line, on lap 0.
+      if (i > 0) progress.startBehindLine();
 
       const isPlayer = i === 0;
       this.cars.push({
         index: i,
         isPlayer,
+        name: isPlayer ? "You" : titleCase(names[(i - 1) % names.length]),
+        colour: colours[i % colours.length],
         vehicle,
         rig,
         progress,
@@ -98,6 +106,19 @@ export class Race {
     for (const c of this.cars) Vehicle.registerChassis(c.vehicle.collider.handle);
 
     this.player = this.cars[0];
+
+    // Set by a RaceDirector during the start lights: every car is held
+    // still and nobody's progress clock runs, so the AI's quick stuck
+    // reset cannot fire on a car that is simply waiting for the lights.
+    this.frozen = false;
+  }
+
+  /**
+   * Hand the player's car to the AI (a cool-down lap after the flag).
+   * The player's controls are ignored from here on.
+   */
+  autopilotPlayer() {
+    this.player.controller = new AIController(this.track, PERSONALITIES.clean, 0);
   }
 
   /**
@@ -110,9 +131,11 @@ export class Race {
     this.#updateSlipstream();
 
     for (const c of this.cars) {
-      const controls = c.isPlayer
-        ? playerControls
-        : c.controller.update(c.vehicle, dt, vehicles);
+      const controls = this.frozen
+        ? HOLD
+        : c.controller
+          ? c.controller.update(c.vehicle, dt, vehicles)
+          : playerControls;
       c.vehicle.step(dt, controls);
     }
   }
@@ -121,6 +144,7 @@ export class Race {
   postStep(dt) {
     for (const c of this.cars) {
       c.vehicle.applySoftWall();
+      if (this.frozen) continue;
       const pc = this.playerControls;
       const trying = !c.isPlayer || !pc || pc.throttle > 0.05 || pc.brake > 0.05;
       if (c.progress.update(dt, c.vehicle, trying) === "respawn") {

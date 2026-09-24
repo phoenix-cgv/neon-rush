@@ -1,5 +1,6 @@
 import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import { buildArmco } from "./armco.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 3 — Grand Prix
@@ -32,11 +33,17 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     surfaces: [
       { match: /^Road$/, friction: 1.0 },
       { match: /^PitLane$/, friction: 1.0 },
-      { match: /^Verge_[LR]$/, friction: 0.8 },
-      { match: /^GravelTrap/, friction: 0.6 },
-      { match: /^GroundGrass$/, friction: 0.7 },
+      // Leaving the track costs you. Grass holds about two thirds of what
+      // asphalt does and drags like rolling off the throttle; gravel holds
+      // half and drags like braking. (grip x tyre grip, rolling = extra
+      // rolling resistance as a fraction of wheel load.)
+      { match: /^Verge_[LR]$/, friction: 0.8, grip: 0.65, rolling: 0.1 },
+      { match: /^GravelTrap/, friction: 0.6, grip: 0.5, rolling: 0.3 },
+      { match: /^GroundGrass$/, friction: 0.7, grip: 0.65, rolling: 0.1 },
     ],
     solid: /^(PitWall|TyreWall|GantryPillar)/,
+    // The five lamps on the start gantry, lit one by one by the race director.
+    keep: /^StartLamp\d*$/,
     decals: /^(RacingLine|EdgeLine|StartFinishLine|ApexKerbs)/,
     overlays: /^(Road|Verge|PitLane|GravelTrap|GrassPatch|Lake)/,
     minimap: /^(Road|Verge|PitLane|EdgeLine|ApexKerbs|StartFinishLine)/,
@@ -47,6 +54,23 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
   });
   const { track } = map;
 
+  // A steel barrier exactly where the soft wall stops the car, so the
+  // edge is something you can see rather than an invisible wall. The
+  // rail's face sits a car's half-width outside the wall line. Left out
+  // along the pit straight (the pit wall and pit lane are there) and at
+  // the gantry's legs.
+  const L = track.length;
+  for (const o of buildArmco(track, scene, {
+    offset: 8.4 + 0.85 + 0.1,
+    skip: [
+      { side: -1, s0: 40, s1: 760 },
+      { side: -1, s0: L - 3, s1: 3 },
+      { side: 1, s0: L - 3, s1: 3 },
+    ],
+  })) {
+    track.objects.push(o); // disposed with the track
+  }
+
   const gate = track.spawnAt(0);
   return {
     name: "grandprix",
@@ -54,6 +78,9 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     title: "Grand Prix",
     track,
     opponents: 5, // the full field: this is the race
+    // A proper race: start lights, three laps, a classification.
+    race: { laps: 3 },
+    startLamps: map.kept,
     pickups: { repair: 6, boost: 8 },
     spawn: gate.position,
     quaternion: gate.quaternion,

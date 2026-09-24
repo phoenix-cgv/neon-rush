@@ -238,6 +238,7 @@ function prepare(gltf, opts) {
   );
 
   const surfaces = [];
+  const kept = []; // meshes the level drives itself (opts.keep), unmerged
   const walls = [];
   const solids = [];
   const buckets = new Map(); // key -> { material, geos[], onMap, cast, layer }
@@ -259,11 +260,24 @@ function prepare(gltf, opts) {
     const name = nodeNameOf(o, root);
     if (opts.exclude?.test(name)) return; // left out of the game entirely
 
+    // Kept whole, with a material of its own, so the level can change it
+    // at runtime (the Grand Prix lights its start lamps one at a time).
+    if (opts.keep?.test(name)) {
+      const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      const mesh = new THREE.Mesh(geo, o.material.clone());
+      mesh.name = name;
+      mesh.castShadow = true;
+      kept.push(mesh);
+      return;
+    }
+
     const surface = opts.surfaces.find((sf) => sf.match.test(name));
     if (surface) {
       surfaces.push({
         ...worldTriangles(o, surface.lift, surface.flatY),
         friction: surface.friction ?? 1.0,
+        grip: surface.grip ?? 1,
+        rolling: surface.rolling ?? 0,
       });
     }
     // Continuous barriers (the Mountain Track's guardrails) collide as the
@@ -328,7 +342,10 @@ function prepare(gltf, opts) {
     group.add(mesh);
   }
 
-  const map = { group, points, width, banking, surfaces, walls, solids };
+  kept.sort((a, b) => a.name.localeCompare(b.name));
+  for (const m of kept) group.add(m);
+
+  const map = { group, points, width, banking, surfaces, walls, solids, kept };
   prepared.set(gltf, map);
   return map;
 }
@@ -338,13 +355,18 @@ function prepare(gltf, opts) {
  *
  * @param {object} gltf       from loadMap()
  * @param {object} opts
- *   surfaces   [{ match: RegExp, friction, lift, flatY }] meshes that are
- *              drivable ground; lift raises the collider (not the mesh), in
- *              metres; flatY collides as a flat sheet at that height
+ *   surfaces   [{ match: RegExp, friction, lift, flatY, grip, rolling }]
+ *              meshes that are drivable ground; lift raises the collider
+ *              (not the mesh), in metres; flatY collides as a flat sheet at
+ *              that height; grip (x tyre grip, default 1) and rolling
+ *              (extra rolling resistance, default 0) make grass and gravel
+ *              cost the driver who runs onto them
  *   roadName   the road ribbon mesh (default "Road")
  *   solid      RegExp of node names that become box colliders
  *   walls      RegExp of meshes that collide as themselves (barriers)
  *   exclude    RegExp of meshes left out entirely (not drawn, not solid)
+ *   keep       RegExp of meshes kept whole (own material) and returned as
+ *              `kept`, for the level to animate
  *   decals     RegExp of paint/lines lying on the road (depth-offset x2)
  *   overlays   RegExp of surfaces lying on the ground (depth-offset x1)
  *   minimap    RegExp of meshes drawn on the minimap
@@ -408,6 +430,7 @@ export function buildMapTrack(RAPIER, world, scene, gltf, opts) {
   return {
     track,
     group: map.group,
+    kept: map.kept, // opts.keep meshes, sorted by name
     dispose: () => scene.remove(map.group),
   };
 }

@@ -71,6 +71,10 @@ export class Track {
     // contact normals at its triangle edges, so a car bottoming out on
     // the road was being charged for a wall impact in the middle of it.
     this.surfaceHandles = new Set();
+    // Per-surface tyre behaviour for modelled maps: collider handle ->
+    // { grip, rolling }. Asphalt isn't listed; a wheel on anything not in
+    // here gets the tyre model exactly as tuned.
+    this.surfaceInfo = new Map();
     this.forceFields = new Map(); // id -> { s0, s1, fn }
     this.#nextId = 1;
 
@@ -335,14 +339,24 @@ export class Track {
    * the generated ribbons — the collider IS the visible surface. Visual
    * only lives with the level; this adds the physics and marks it ground.
    */
-  #buildSurfaceCollider({ positions, indices, friction = 1.0 }) {
+  #buildSurfaceCollider({ positions, indices, friction = 1.0, grip = 1, rolling = 0 }) {
     const body = this.world.createRigidBody(this.RAPIER.RigidBodyDesc.fixed());
     const col = this.world.createCollider(
       this.RAPIER.ColliderDesc.trimesh(positions, indices).setFriction(friction),
       body
     );
     this.surfaceHandles.add(col.handle);
+    if (grip !== 1 || rolling !== 0) this.surfaceInfo.set(col.handle, { grip, rolling });
     this.bodies.push(body);
+  }
+
+  /**
+   * How a tyre behaves on the collider a wheel ray hit: grip multiplies
+   * the tyre's friction budget, rolling is extra rolling resistance (a
+   * fraction of wheel load). Null for asphalt and anything unlisted.
+   */
+  surfaceAt(handle) {
+    return this.surfaceInfo.get(handle) ?? null;
   }
 
   #buildRibbon({ width, lift, color, friction, name, uvScale, keepRef = false }) {

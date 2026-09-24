@@ -91,6 +91,7 @@ Full map:
 | `src/core/progress.js` | Laps, checkpoints, falling, off-track reset |
 | `src/core/race.js` | The field: every car, grid, slipstream, standings, respawn |
 | `src/core/traffic.js` | Civilian traffic: kinematic cars that keep left, both ways |
+| `src/core/race-director.js` | Start lights, lap limit, finishing order (levels with `race: { laps }`) |
 | `src/core/determinism.js` | Replay recordings, **the physics test harness** |
 | `src/core/save.js` | Settings and records in localStorage (never throws) |
 | `src/ai/driver.js` | Opponent controllers and personalities |
@@ -98,9 +99,11 @@ Full map:
 | `src/levels/city.js` | Level 1 — City Track (`assets/maps/CityTrack.glb`) |
 | `src/levels/mountain.js` | Level 2 — Mountain Track (`assets/maps/MountainTrack.glb`) |
 | `src/levels/grandprix.js` | Level 3 — Grand Prix (`assets/maps/GrandPrix.glb`) |
+| `src/levels/armco.js` | Visual steel barrier along the track edge, where a soft wall bites |
 | `src/levels/testbed.js` | Tuning testbed (development only): slalom, crest, ramp, barriers |
 | `src/ui/menu.js` | Pause and options: quality, assists, key rebinding |
 | `src/ui/minimap.js` | Orthographic second camera in a scissored corner |
+| `src/ui/race-hud.js` | Race display: start lights, lap / position / time, results |
 | `src/debug/overlay.js` | Telemetry and force vectors |
 | `assets/credits.json` | **Append the moment anything enters the repo** |
 
@@ -181,8 +184,8 @@ than about 4.2 m at full lock. The three levels:
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
 | 1 | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
-| 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | 6 cars | banked climb, guardrails, tunnel |
-| 3 | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
+| 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | solo | banked climb, guardrails, tunnel |
+| 3 | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 3-lap race: start lights, results; grass costs grip |
 | — | Testbed (development only) | `testbed` | n/a | solo | slalom, crest, ramp |
 
 **The maps are modelled, not generated.** All three are Blender exports
@@ -436,10 +439,18 @@ likely you are to hit them.
 Hit things and the car gets scruffier and slower. Damage is `0..1`, lives
 on the vehicle, and is published in `vehicle.state.damage`.
 
-- **Earned** on the first frame of a wall strike (scaled by closing speed)
-  and on a bad landing. A continuous scrape does *not* keep adding damage —
-  only a new contact does, or brushing a barrier for a second would total
-  the car.
+- **Earned** by every kind of crash, through one formula (`#takeHit` in
+  `vehicle.js`): solid walls and guardrails, the **soft wall** at a
+  modelled map's edge, **other cars** (each car is charged for how hard it
+  was stopped, so a two-car hit is shared), traffic, and a bad landing.
+  A continuous scrape does *not* keep adding damage — only a new contact
+  does, or brushing a barrier for a second would total the car.
+- **Measured over the first 8 steps of a contact** (`IMPACT_STEPS`), as the
+  speed the car lost toward the obstacle. Rapier creates contacts slightly
+  before bodies meet, and resolves the impact inside `world.step()`, so
+  reading one step at contact scored the same crash 0.06 one time and 0.34
+  the next. Also: Rapier can report a contact pair the other way round —
+  honour `flipped`, or the wall normal points away from the wall.
 - **Permanent until repaired.** Damage does not decay. A handicap you wait
   out costs patience rather than skill; repair is a green orb on the road,
   so recovering costs you a line — and the orbs are deliberately off the

@@ -26,6 +26,16 @@ const _pos = new THREE.Vector3();
 const _quat = new THREE.Quaternion();
 const _quat2 = new THREE.Quaternion(); // scratch for world -> car space
 const _up = new THREE.Vector3();
+const _hitDir = new THREE.Vector3(); // toward whatever the car just hit
+
+// Physics steps over which a new contact's impact is measured (~0.13 s).
+// Rapier creates contacts a little before bodies meet, so the step a
+// contact is first reported on is often the step BEFORE the car is
+// actually stopped; charging only that step scored the same crash 0.06
+// one time and 0.34 the next. Summing the speed lost over a short window
+// catches the real impact wherever it lands in it, and ends before
+// sliding along the obstacle can add anything.
+const IMPACT_STEPS = 8;
 
 const FORWARD = new THREE.Vector3(0, 0, -1);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -137,6 +147,10 @@ export class Vehicle {
       steer: 0, // rad
       contact: new THREE.Vector3(),
       normal: new THREE.Vector3(0, 1, 0),
+      // What this wheel is standing on (track.surfaceAt): grass and gravel
+      // on modelled maps. Asphalt leaves both at their neutral values.
+      surfaceGrip: 1,
+      surfaceRolling: 0,
       pointVel: new THREE.Vector3(),
       forceLong: new THREE.Vector3(),
       forceLat: new THREE.Vector3(),
@@ -169,7 +183,17 @@ export class Vehicle {
     this.beached = 0; // seconds stationary with no wheel on the ground
     this.lastLanding = 0; // misalignment of the last landing, radians
     this.landingPenalty = 0; // 0..1, how bad it was — drives camera shake
-    this.damage = 0; // 0..1, accumulated crash damage — heals while clean
+    this.damage = 0; // 0..1, accumulated crash damage — repaired by pickups
+    this.touchingCar = false; // chassis actually in contact with another car
+    // Velocity at the start of this step and the one before. A collision
+    // is resolved inside world.step(), so by the time a contact is seen
+    // here the impact speed has already been taken away; the difference
+    // between these two is how hard the car was actually stopped.
+    this.velNow = new THREE.Vector3();
+    this.velPrev = new THREE.Vector3();
+    // One measuring window per kind of contact (see IMPACT_STEPS).
+    this.wallImpact = { steps: IMPACT_STEPS, lost: 0, charged: 0 };
+    this.carImpact = { steps: IMPACT_STEPS, lost: 0, charged: 0, dir: new THREE.Vector3() };
     // A counter rather than a boolean, so the rig can tell a NEW impact
     // from the same one still being reported. A boolean loses an impact
     // that lands and clears between two render frames.
@@ -233,6 +257,8 @@ export class Vehicle {
     _quat.set(q.x, q.y, q.z, q.w);
     _linvel.set(lv.x, lv.y, lv.z);
     _angvel.set(av.x, av.y, av.z);
+    this.velPrev.copy(this.velNow);
+    this.velNow.copy(_linvel);
     _up.copy(UP).applyQuaternion(_quat);
 
     // Signed forward speed, used everywhere below.
@@ -345,6 +371,7 @@ export class Vehicle {
 
     const sign = Math.sign(pr.t);
     const fr = this.track.frameAt(pr.s, _frame);
+    const firstTouch = !this.againstWall;
     this.againstWall = true;
 
     // 1. put the car back on the legal side of the line
@@ -365,6 +392,9 @@ export class Vehicle {
     let bite = 0;
     if (into > 0) {
       bite = into;
+      // Meeting the wall is a crash like any other, charged once per
+      // contact; sliding along it afterwards costs speed, not condition.
+      if (firstTouch) this.#takeHit(into, _hitDir.copy(fr.right).multiplyScalar(sign));
       _tmp.addScaledVector(fr.right, -sign * into); // now purely along the wall
       // A square-on hit still costs you: charge part of the inward speed
       // against the along-wall speed that survives.
@@ -484,19 +514,7 @@ export class Vehicle {
       // Damage uses its own, lower reference than the speed penalty: a hit
       // hard enough to be worth scrubbing speed for should already leave a
       // mark, rather than the paint staying pristine after a big one.
-      const bite = clamp(Math.abs(into) / CAR.damageRef, 0, 1);
-      this.damage = clamp(this.damage + bite * CAR.damageGain, 0, 1);
-
-      // Publish WHERE it was hit, in the car's own frame, so the rig can
-      // put the dent on the panel that actually met the wall. The rig has
-      // no idea where the barrier was; only the physics does.
-      if (bite > 0.05) {
-        const q = body.rotation();
-        _quat2.set(q.x, q.y, q.z, q.w).invert();
-        this.impactLocal.copy(this.wallNormal).applyQuaternion(_quat2);
-        this.impactForce = bite;
-        this.impactSeq++;
-      }
+      Object.assign(this.wallImpact, { steps: 0, lost: 0, charged: 0 });
       keep = 1 - CAR.wallImpactScrub * severity;
     } else {
       // Rubbing along: a slow bleed, so a long scrape costs lap time
@@ -504,10 +522,72 @@ export class Vehicle {
       keep = 1 - CAR.wallSlideScrub / 60;
     }
 
+    // Damage from how hard the wall actually stopped the car, measured
+    // over the first steps of the contact.
+    this.#measureImpact(this.wallImpact, this.wallNormal, isFirstContact ? Math.abs(into) : 0);
+
     _tmp.multiplyScalar(keep);
     body.setLinvel({ x: _tmp.x, y: lv.y, z: _tmp.z }, true);
 
     this.#alignToVelocity(controls);
+  }
+
+  /**
+   * Charge crash damage for a hit, and tell the rig where it landed.
+   *
+   * One formula for every kind of hit — a solid wall, the soft wall at a
+   * modelled map's edge, another car — so the condition bar means the same
+   * thing everywhere. The soft wall and car contact used to charge
+   * nothing at all: on the City and the Grand Prix, which have no solid
+   * barriers, a car could hit the edge head-on and come away pristine.
+   *
+   * @param {number} closing  speed toward the thing hit, m/s
+   * @param {THREE.Vector3} dir  world direction from the car toward it
+   */
+  /** Speed the car lost toward `dir` across the last physics step, m/s. */
+  #stoppedAlong(dir) {
+    const n = dir.lengthSq() > 1e-9 ? dir.length() : 1;
+    return Math.max(0, (this.velPrev.dot(dir) - this.velNow.dot(dir)) / n);
+  }
+
+  /**
+   * One step of an impact window: add the speed lost toward `dir` this
+   * step, and charge any damage the running total has earned beyond what
+   * is already charged. `floor` is a closing speed known some other way.
+   */
+  #measureImpact(win, dir, floor = 0) {
+    if (win.steps >= IMPACT_STEPS) return;
+    win.steps++;
+    win.lost += this.#stoppedAlong(dir);
+    const closing = Math.max(win.lost, floor);
+    if (closing > win.charged + 0.05) {
+      this.#takeHit(closing, dir, win.charged);
+      win.charged = closing;
+    }
+  }
+
+  /**
+   * @param {number} closing  speed toward the thing hit, m/s
+   * @param {THREE.Vector3} dir  world direction from the car toward it
+   * @param {number} already  closing speed already charged for this hit
+   */
+  #takeHit(closing, dir, already = 0) {
+    const full = clamp(Math.abs(closing) / CAR.damageRef, 0, 1);
+    const bite = full - clamp(already / CAR.damageRef, 0, 1);
+    if (bite <= 0) return 0;
+    this.damage = clamp(this.damage + bite * CAR.damageGain, 0, 1);
+
+    // Publish WHERE it was hit, in the car's own frame, so the rig can
+    // put the dent on the panel that actually met the wall. The rig has
+    // no idea where the barrier was; only the physics does.
+    if (full > 0.05) {
+      const q = this.body.rotation();
+      _quat2.set(q.x, q.y, q.z, q.w).invert();
+      this.impactLocal.copy(dir).normalize().applyQuaternion(_quat2);
+      this.impactForce = full;
+      this.impactSeq++;
+    }
+    return bite;
   }
 
   /**
@@ -594,6 +674,7 @@ export class Vehicle {
     this.scrapingWall = false;
     this.inContactWithCar = false;
     this.wallNormal.set(0, 0, 0);
+    let touchingCarNow = false;
     if (this.world.contactPairsWith) {
       this.world.contactPairsWith(this.collider, (other) => {
         // The road and the runoff are ground by definition, whatever
@@ -602,10 +683,23 @@ export class Vehicle {
         // contact between two dynamic bodies and leave it at that.
         if (Vehicle.isChassis(other.handle)) {
           this.inContactWithCar = true;
+          // Rapier still resolves the contact; this only charges damage,
+          // once per contact, from how fast the two cars were closing.
+          this.world.contactPair?.(this.collider, other, (manifold, flipped) => {
+            if ((manifold.numContacts?.() ?? 0) === 0) return;
+            touchingCarNow = true;
+            const n = manifold.normal?.();
+            if (!n) return;
+            // From this car toward the other. How hard THIS car is stopped
+            // is what it is charged for: in a two-car hit each takes its
+            // own share, as a real crash would.
+            this.carImpact.dir.set(n.x, n.y, n.z);
+            if (flipped) this.carImpact.dir.negate();
+          });
           return;
         }
         const isSurface = this.surfaceHandles?.has(other.handle) ?? false;
-        this.world.contactPair?.(this.collider, other, (manifold) => {
+        this.world.contactPair?.(this.collider, other, (manifold, flipped) => {
           // contactPairsWith iterates BROAD-PHASE candidates, not actual
           // touches. The road trimesh's bounding volume spans the whole
           // circuit, so without this test the chassis counts as touching
@@ -619,15 +713,26 @@ export class Vehicle {
           if (isSurface) return; // bottoming out, not a wall strike
           const nrm = manifold.normal?.();
           if (!nrm) return;
+          // Rapier may report the pair the other way round; `flipped` says
+          // so. Ignoring it pointed the normal away from the wall about
+          // half the time: the dent landed on the wrong side of the car,
+          // and the impact read as zero.
+          const sgn = flipped ? -1 : 1;
           if (Math.hypot(nrm.x, nrm.z) > CAR.wallMinNormal) {
             this.scrapingWall = true;
-            this.wallNormal.x += nrm.x;
-            this.wallNormal.y += nrm.y;
-            this.wallNormal.z += nrm.z;
+            this.wallNormal.x += nrm.x * sgn;
+            this.wallNormal.y += nrm.y * sgn;
+            this.wallNormal.z += nrm.z * sgn;
           }
         });
       });
     }
+    if (touchingCarNow) {
+      if (!this.touchingCar) Object.assign(this.carImpact, { steps: 0, lost: 0, charged: 0 });
+      this.#measureImpact(this.carImpact, this.carImpact.dir);
+    }
+    this.touchingCar = touchingCarNow;
+
     if (this.scrapingWall && this.wallNormal.lengthSq() > 1e-6) {
       this.wallNormal.normalize();
       this.#wallScrape(!this.wasScrapingWall, controls);
@@ -732,6 +837,9 @@ export class Vehicle {
     }
 
     wheel.grounded = true;
+    const surface = hit.handle !== undefined ? this.track?.surfaceAt?.(hit.handle) : null;
+    wheel.surfaceGrip = surface?.grip ?? 1;
+    wheel.surfaceRolling = surface?.rolling ?? 0;
     _normal.copy(hit.normal);
     // A ray can hit a face whose normal points away from us on thin or
     // double-sided geometry; flip it so the spring always pushes up.
@@ -895,6 +1003,8 @@ export class Vehicle {
     // Scraping a wall: let the tyres give up rather than scrub the car to
     // a halt against the barrier.
     if (this.scrapingWall) gripMul *= CAR.wallGripFactor;
+    // Grass and gravel hold less than asphalt.
+    gripMul *= wheel.surfaceGrip;
 
     const lat = -tyreCurve(wheel.slipAngle) * wheel.load * gripMul;
 
@@ -923,6 +1033,12 @@ export class Vehicle {
       lon -= brakeInput * CAR.brakeForce * axleShare * 0.5 * dir;
     }
     lon -= CAR.rollingResistance * wheel.load * Math.sign(vF);
+    // Soft ground drags. Tapered to zero at a standstill like the brakes,
+    // so a car parked on gravel does not buzz back and forth.
+    if (wheel.surfaceRolling > 0) {
+      const dir = Math.abs(vF) > CAR.brakeCreepSpeed ? Math.sign(vF) : vF / CAR.brakeCreepSpeed;
+      lon -= wheel.surfaceRolling * wheel.load * dir;
+    }
 
     // --- the friction circle -----------------------------------------
     // A tyre has ONE budget of grip; turning and accelerating spend from
@@ -1071,7 +1187,7 @@ export class Vehicle {
     const toi = hit.timeOfImpact !== undefined ? hit.timeOfImpact : hit.toi;
     if (toi === undefined) return null;
 
-    return { toi, normal: hit.normal };
+    return { toi, normal: hit.normal, handle: hit.collider?.handle };
   }
 
   // -------------------------------------------------------------------
@@ -1194,6 +1310,12 @@ export class Vehicle {
     this.wasGrounded = true;
     this.wasTouching = true;
     this.wasScrapingWall = false;
+    this.againstWall = false; // so the first wall touch after a reset counts
+    this.touchingCar = false;
+    this.velNow.set(0, 0, 0);
+    this.velPrev.set(0, 0, 0);
+    this.wallImpact.steps = IMPACT_STEPS; // no half-measured hit carried over
+    this.carImpact.steps = IMPACT_STEPS;
     this.wallAssist = 0;
     this.beached = 0;
     this.landingPenalty = 0;

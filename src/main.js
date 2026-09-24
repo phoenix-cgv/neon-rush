@@ -14,6 +14,8 @@ import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
+import { RaceDirector } from "./core/race-director.js";
+import { RaceHud } from "./ui/race-hud.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
@@ -125,6 +127,7 @@ const input = new Input();
 const debug = new DebugOverlay(scene);
 const minimap = new Minimap(scene);
 const health = new HealthBar();
+const raceHud = new RaceHud();
 // One shared pool for the whole field — smoke is one draw call however
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
@@ -188,6 +191,7 @@ let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
+let director = null; // start lights, laps and the flag, on levels that race
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
@@ -237,6 +241,9 @@ async function loadLevel(name) {
   scene.fog = new THREE.Fog(fog[0], fog[1], fog[2]);
   if (level.lit?.sun) SUN_OFFSET.set(...level.lit.sun);
 
+  director?.dispose();
+  director = null;
+  raceHud.setActive(false);
   race?.dispose();
   race = null;
   traffic?.dispose();
@@ -265,6 +272,10 @@ async function loadLevel(name) {
     minimap.build(race.cars);
     pickups = new Pickups(level.track, scene, level.pickups ?? {});
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
+    if (level.race) {
+      director = new RaceDirector(race, { laps: level.race.laps, lamps: level.startLamps ?? [] });
+      raceHud.setActive(true);
+    }
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -333,7 +344,18 @@ function frame(now) {
   if (input.pressed("camera")) cameraRig.cycle();
   if (input.pressed("debug")) Save.set("telemetry", debug.toggle());
   if (input.pressed("map")) Save.set("minimap", minimap.toggle());
-  if (input.pressed("restart")) { progress?.reset(); respawn(); }
+  if (input.pressed("restart")) {
+    if (!director) {
+      progress?.reset();
+      respawn();
+    } else if (director.state === "finished") {
+      loadLevel(levelName); // race again
+    } else if (director.state === "racing") {
+      // Mid-race, R puts you back at your last checkpoint and keeps your
+      // laps: resetting to the grid would throw the race away.
+      respawn(progress.respawnPose());
+    } // during the start lights R does nothing
+  }
   if (input.pressed("level")) {
     loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
   }
@@ -354,6 +376,9 @@ function frame(now) {
     controls = input.update(WORLD.fixedDt, !vehicle.grounded);
 
     if (race) {
+      // Lights before cars: the step the lights go out on is the first
+      // step anyone may move.
+      director?.step(WORLD.fixedDt);
       for (const c of race.cars) c.vehicle.savePreviousState();
       // Every car is stepped BEFORE the single solve, so no car sees a
       // world the others have not moved in yet.
@@ -414,6 +439,7 @@ function frame(now) {
 
   const state = vehicle.state;
   health.update(state.damage);
+  raceHud.update(director, race);
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);
@@ -449,6 +475,7 @@ window.__dbg = {
   minimap, menu, Save, input, renderer, health, smoke,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
+  get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
   get vehicle() { return vehicle; },

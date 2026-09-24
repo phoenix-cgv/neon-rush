@@ -85,14 +85,20 @@ export class Progress {
       this.visited.add(next);
       if (next === 0 && this.visited.size >= n) {
         this.lap++;
-        if (this.bestLap === null || this.lapTime < this.bestLap) {
-          this.bestLap = this.lapTime;
+        // Lap 0 is the run from a grid slot behind the line up to it
+        // (startBehindLine). Crossing the line then STARTS lap 1; it does
+        // not complete one. Counting it was how every car on the grid was
+        // credited a 1.7-second lap, and a lap ahead, in the first seconds.
+        if (this.lap >= 2) {
+          if (this.bestLap === null || this.lapTime < this.bestLap) {
+            this.bestLap = this.lapTime;
+          }
+          // Published for one frame, because lapTime is about to be reset
+          // and the caller has no other way to learn what the lap took.
+          // This is what lets a best lap be saved.
+          this.lastLapTime = this.lapTime;
+          this.justCompletedLap = true;
         }
-        // Published for one frame, because lapTime is about to be reset
-        // and the caller has no other way to learn what the lap took.
-        // This is what lets a lap be saved and a ghost recording closed.
-        this.lastLapTime = this.lapTime;
-        this.justCompletedLap = true;
         this.lapTime = 0;
         this.visited.clear();
         this.visited.add(0);
@@ -201,6 +207,15 @@ export class Progress {
       }
     }
     return null;
+  }
+
+  /**
+   * For a car placed behind the start line (a grid slot at negative s):
+   * it is on lap 0 until it reaches the line, where lap 1 begins.
+   */
+  startBehindLine() {
+    this.lap = 0;
+    this.lapTime = 0;
   }
 
   /** Call after teleporting the car, so progress is measured from there. */

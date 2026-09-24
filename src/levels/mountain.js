@@ -62,8 +62,9 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     index: 2,
     title: "Mountain Track",
     track,
-    // The full field: 12 m of road takes the same six cars as the Grand Prix.
-    opponents: 5,
+    // Solo: the mountain is you against the road. Only the Grand Prix is
+    // a race against other cars.
+    opponents: 0,
     pickups: { repair: 4, boost: 5 },
     spawn: gate.position,
     quaternion: gate.quaternion,
