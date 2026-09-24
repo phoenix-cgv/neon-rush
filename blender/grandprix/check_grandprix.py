@@ -1,4 +1,4 @@
-"""Checks a Grand Prix .blend (or the original .glb) for the problems fixed by fix_grandprix.py.
+"""Checks a Grand Prix .blend or .glb against the map's acceptance criteria.
 
 Headless:  python3 check_grandprix.py GrandPrix.blend
            python3 check_grandprix.py RaceTrack2.blend      (the map as delivered)
@@ -7,8 +7,11 @@ Prints one PASS/FAIL line per check and exits non-zero on any FAIL.
 """
 import bpy
 import math
+import os
 import sys
 import numpy as np
+from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 path = sys.argv[-1]
 if path.endswith(".glb"):
@@ -17,6 +20,7 @@ if path.endswith(".glb"):
 elif path.endswith(".blend"):
     bpy.ops.wm.open_mainfile(filepath=path)
 objs = bpy.data.objects
+depsgraph = bpy.context.evaluated_depsgraph_get()
 
 RESULTS = []
 def check(name, ok, detail):
@@ -28,129 +32,286 @@ def world_verts(o):
     co = np.array([v.co for v in o.data.vertices])
     return co @ mw[:3, :3].T + mw[:3, 3] if len(co) else np.zeros((0, 3))
 
-WALL_LIMIT = 8.4
-DRIVABLE = WALL_LIMIT + 0.85
+def centre_of(o):
+    bb = [o.matrix_world @ Vector(c) for c in o.bound_box]
+    return np.array((sum(bb, Vector()) / 8)[:])
+
+CLEAR = 10.0
+
+# ---- Names the game relies on
+need = ["Road", "Verge_L", "Verge_R", "PitLane", "GroundGrass", "RacingLine", "EdgeLine_L", "EdgeLine_R",
+        "StartFinishLine", "ApexKerbs", "StartLamp"] + [f"StartLamp.00{k}" for k in range(1, 5)]
+prefixes = ["GravelTrap", "PitWall", "TyreWall", "GantryPillar"]
+missing = [nm for nm in need if nm not in objs] + [p + "*" for p in prefixes if not any(o.name.startswith(p) for o in objs)]
+check("Names the game relies on", not missing, ", ".join(missing) or "all present, StartLamp to StartLamp.004")
 
 # ---- Road ribbon: vertex pairs (left, right), ring 0 = start line
 road = world_verts(objs["Road"])
-L, R = road[0::2], road[1::2]
-C = (L + R) / 2
+Lft, Rgt = road[0::2], road[1::2]
+C = (Lft + Rgt) / 2
 n = len(C)
 seg = np.linalg.norm(np.roll(C, -1, 0)[:, :2] - C[:, :2], axis=1)
-width = np.linalg.norm(R - L, axis=1)
+width = np.linalg.norm((Rgt - Lft)[:, :2], axis=1)
 s = np.concatenate([[0], np.cumsum(seg)[:-1]])
 length = seg.sum()
 t = np.roll(C, -1, 0)[:, :2] - C[:, :2]
 heading = np.arctan2(t[:, 1], t[:, 0])
 turn = np.degrees((np.roll(heading, -1) - heading + np.pi) % (2 * np.pi) - np.pi)
 area = 0.5 * np.sum(C[:, 0] * np.roll(C[:, 1], -1) - np.roll(C[:, 0], -1) * C[:, 1])
-check("Ribbon", abs(width - 14).max() < 0.01 and area > 0,
+check("Ribbon (14 m wide across, measured flat)", np.abs(width - 14).max() < 0.05 and area > 0 and seg.max() < 2.5,
       f"{n} rings, {length:.0f} m, spacing {seg.min():.2f}-{seg.max():.2f} m, width {width.min():.2f}-{width.max():.2f} m, anticlockwise")
 check("Start line unchanged", np.linalg.norm(C[0, :2] - (-430, -170)) < 0.5,
       f"ring 0 at ({C[0, 0]:.1f}, {C[0, 1]:.1f})")
-# A kink is a turn much sharper than the road either side of it (a facet
-# or a badly joined section), as opposed to a steady corner.
 local = np.array([np.median(turn[[(i + k) % n for k in range(-6, 7)]]) for i in range(n)])
 spike = np.abs(turn - local)
 check("No kinks (turn per ring within 1 deg of the local curve)", spike.max() <= 1.0,
-      f"worst {spike.max():.1f} deg at {s[spike.argmax()]:.0f} m ({C[spike.argmax(), 0]:.0f}, {C[spike.argmax(), 1]:.0f})")
-
-# Folded road: the inside edge must always move forwards
-fold = 0
-for edge in (L, R):
-    e = np.roll(edge, -1, 0)[:, :2] - edge[:, :2]
-    fold += int(((e * t).sum(1) <= 0).sum())
+      f"worst {spike.max():.1f} deg at {s[spike.argmax()]:.0f} m")
+fold = sum(int((((np.roll(e, -1, 0) - e)[:, :2] * t).sum(1) <= 0).sum()) for e in (Lft, Rgt))
 check("Road never folds over itself", fold == 0, f"{fold} backwards edge segments")
 
-# Radius from a smooth resample
+# Curvature from a 1 m resample
 dense_s = np.arange(0, length, 1.0)
-closed = np.vstack([C[:, :2], C[:1, :2]])
+closed = np.vstack([C, C[:1]])
 cum = np.concatenate([[0], np.cumsum(seg)])
-P = np.stack([np.interp(dense_s, cum, closed[:, k]) for k in range(2)], 1)
+P = np.stack([np.interp(dense_s, cum, closed[:, k]) for k in range(3)], 1)
+M = len(P)
 h = 6
-a, b, c = np.roll(P, h, 0), P, np.roll(P, -h, 0)
+a, b, c = np.roll(P[:, :2], h, 0), P[:, :2], np.roll(P[:, :2], -h, 0)
 cross = (b - a)[:, 0] * (c - b)[:, 1] - (b - a)[:, 1] * (c - b)[:, 0]
 den = np.linalg.norm(b - a, axis=1) * np.linalg.norm(c - b, axis=1) * np.linalg.norm(c - a, axis=1)
 k = 2 * cross / den
-tight = np.abs(k).argmax()
-check("Tightest corner >= 25 m", 1 / np.abs(k).max() >= 25,
-      f"R{1 / np.abs(k).max():.1f} at {dense_s[tight]:.0f} m ({P[tight, 0]:.0f}, {P[tight, 1]:.0f}), "
-      f"{math.sqrt(1.4 * 9.81 / np.abs(k).max()) * 3.6:.0f} km/h")
+peaks = [i for i in range(M) if abs(k[i]) > 1 / 250 and abs(k[i]) >= abs(k[i - 1]) and abs(k[i]) >= abs(k[(i + 1) % M])]
+corners = []                                   # one peak per corner
+for i in peaks:
+    if corners and dense_s[i] - dense_s[corners[-1]] < 15 and np.sign(k[i]) == np.sign(k[corners[-1]]):
+        if abs(k[i]) > abs(k[corners[-1]]):
+            corners[-1] = i
+    else:
+        corners.append(i)
+check("Tightest corner >= 15 m", 1 / np.abs(k).max() >= 15,
+      f"R{1 / np.abs(k).max():.1f} at {dense_s[np.abs(k).argmax()]:.0f} m ({P[np.abs(k).argmax(), 0]:.0f}, {P[np.abs(k).argmax(), 1]:.0f}), "
+      f"{math.sqrt(1.4 * 9.81 / np.abs(k).max()) * 3.6:.0f} km/h unbanked")
 near = (dense_s <= 60) | (dense_s >= length - 60)
-r_near = 1 / np.abs(k[near]).max()
-check("Grid and start straight: nothing under R30 within 60 m of the line", r_near >= 30,
-      f"tightest R{r_near:.0f} (grid rows reach 45 m back)")
+check("Grid and start straight: nothing under R30 within 60 m of the line", 1 / np.abs(k[near]).max() >= 30,
+      f"tightest R{1 / np.abs(k[near]).max():.0f}")
 
-# ---- Lateral position of everything relative to the road
+# ---- 1. Turn 1
+t1 = [i for i in corners if 700 < dense_s[i] < 1500 and k[i] > 0]
+i_hp = max(t1, key=lambda i: k[i]) if t1 else int(np.abs(k).argmax())
+r_hp = 1 / k[i_hp]
+j = i_hp
+while abs(k[j]) > 1 / 150:
+    j -= 1                                     # where the hairpin starts to turn
+turn_in = j
+while abs(k[j]) >= 1 / 1000 and dense_s[turn_in] - dense_s[j] < 60:
+    j -= 1                                     # the eased turn-in (the centreline is smoothed)
+straight_end = j
+while abs(k[j]) < 1 / 1000:
+    j -= 1
+straight_len = dense_s[straight_end] - dense_s[j]
+check("1. Turn 1 hairpin R16-20 at the end of a straight >= 250 m", 16 <= r_hp <= 20 and straight_len >= 250,
+      f"R{r_hp:.1f} at {dense_s[i_hp]:.0f} m ({P[i_hp, 0]:.0f}, {P[i_hp, 1]:.0f}); {straight_len:.0f} m straight (R > 1 km), "
+      f"then {dense_s[i_hp] - dense_s[straight_end]:.0f} m to the apex")
+right_after = [i for i in corners if dense_s[i_hp] < dense_s[i] < dense_s[i_hp] + 200 and k[i] < 0]
+check("1. A right-hander R40-50 after the hairpin", bool(right_after) and 40 <= -1 / k[right_after[0]] <= 50,
+      f"R{-1 / k[right_after[0]]:.1f} at {dense_s[right_after[0]]:.0f} m" if right_after else "none within 200 m")
+sweep = objs.get("StandSweep_Base")
+d_sweep = np.linalg.norm(centre_of(sweep)[:2] - P[i_hp, :2]) if sweep else 1e9
+check("1. Sweep stand within 50 m of the hairpin apex", d_sweep <= 50, f"{d_sweep:.0f} m")
+bd = []
+for o in objs:
+    if o.name.split(".")[0] == "BrakeBoard":
+        q = centre_of(o)
+        ii = int(np.argmin(np.linalg.norm(P[:, :2] - q[:2], axis=1)))
+        bd.append((dense_s[turn_in] - dense_s[ii], np.linalg.norm(P[ii, :2] - q[:2])))
+check("1. Brake boards at 300/200/100 m, >= 12 m out", len(bd) == 3 and min(x[1] for x in bd) >= 12,
+      ", ".join(f"{x[0]:.0f} m before turn-in, {x[1]:.1f} m out" for x in sorted(bd, reverse=True)) or "none")
+
+# ---- 2. Hills
+z = P[:, 2]
+grade = (np.roll(z, -5) - np.roll(z, 5)) / 10.0
+check("2. Grade <= 7 %", np.abs(grade).max() <= 0.07,
+      f"max {np.abs(grade).max() * 100:.1f} % at {dense_s[np.abs(grade).argmax()]:.0f} m")
+zz = np.convolve(np.concatenate([z[-20:], z, z[:20]]), np.ones(9) / 9, mode="same")[20:-20]
+d2 = (np.roll(zz, -15) - 2 * zz + np.roll(zz, 15)) / 15.0 ** 2
+crest_r = 1 / max(-d2.min(), 1e-9)
+check("2. Vertical radius >= 250 m at every crest", crest_r >= 250,
+      f"tightest crest R{crest_r:.0f} m at {dense_s[d2.argmin()]:.0f} m; height {z.min() - z[0]:+.1f} to {z.max() - z[0]:+.1f} m")
+flat = (dense_s <= 400) | (dense_s >= length - 70)
+check("2. Last 70 m and first 400 m flat", np.abs(z[flat] - z[0]).max() <= 0.02,
+      f"within {np.abs(z[flat] - z[0]).max() * 100:.1f} cm")
+g = objs["GroundGrass"]
+gtree = BVHTree.FromObject(g, depsgraph)
+g_inv = g.matrix_world.inverted()
+def ground_at(x, y):
+    hit = gtree.ray_cast(g_inv @ Vector((x, y, 500.0)), g_inv.to_3x3() @ Vector((0, 0, -1)), 2000.0)
+    return (g.matrix_world @ hit[0]).z if hit[0] is not None else None
+worst_edge, worst_verge = (1e9, 0), (1e9, 0)
+kr_all = np.array([k[min(int(round(sv)), M - 1)] for sv in s])
+for i in range(0, n, 2):
+    across = (Rgt[i] - Lft[i]) / 14.0
+    for f_, tag in ((-1.0, "edge"), (0.0, "edge"), (1.0, "edge"), (-2.1, "verge"), (2.1, "verge"), (-3.1, "verge"), (3.1, "verge")):
+        q = C[i] + across * 7.0 * f_
+        if tag == "verge" and abs(kr_all[i]) > 1 / 40.0:
+            continue                           # the verge is trimmed inside tight corners
+        gz = ground_at(q[0], q[1])
+        if gz is None:
+            continue
+        top = q[2] - (0.03 if tag == "verge" else 0.0)
+        if tag == "edge" and top - gz < worst_edge[0]:
+            worst_edge = (top - gz, s[i])
+        if tag == "verge" and top - gz < worst_verge[0]:
+            worst_verge = (top - gz, s[i])
+check("2. Ground >= 0.3 m below the road, and under the verge", worst_edge[0] >= 0.3 and worst_verge[0] >= 0.0,
+      f"road {worst_edge[0]:.2f} m at {worst_edge[1]:.0f} m; verge {worst_verge[0]:.2f} m at {worst_verge[1]:.0f} m")
+
+# ---- 3. Esses
+seq = None
+for a_ in range(len(corners) - 2):
+    trio = corners[a_:a_ + 3]
+    rs = [1 / k[i] for i in trio]
+    if [np.sign(r) for r in rs] == [1, -1, 1] and all(35 <= abs(r) <= 50 for r in rs) \
+            and dense_s[trio[2]] - dense_s[trio[0]] < 250:
+        seq = trio
+        break
+esses = objs.get("StandEsses_Base")
+d_es = np.linalg.norm(P[:, :2] - centre_of(esses)[:2], axis=1).min() if esses else 1e9
+check("3. Esses: three bends R35-50, left-right-left", seq is not None,
+      ", ".join(f"R{1 / k[i]:+.0f} at {dense_s[i]:.0f} m" for i in seq) if seq else "not found")
+check("3. Esses stand within 45 m of the road", d_es <= 45, f"{d_es:.0f} m")
+
+# ---- 4. Banking: outside edge up, <= 10 deg, <= 2 deg on straights
+bank = np.degrees(np.arcsin(np.clip((Rgt[:, 2] - Lft[:, 2]) / 14.0, -1, 1)))    # + = right edge higher
+kr = np.array([k[min(int(round(sv)), M - 1)] for sv in s])
+wrong = [(s[i], bank[i]) for i in range(n) if abs(bank[i]) > 0.5 and np.sign(bank[i]) != np.sign(kr[i])]
+straight = np.abs(kr) < 1 / 500
+check("4. Banked rings lean into the corner (outside edge higher)", not wrong,
+      f"{len(wrong)} rings lean out" + (f", first at {wrong[0][0]:.0f} m" if wrong else ""))
+check("4. Bank <= 10 deg, <= 2 deg on straights",
+      np.abs(bank).max() <= 10 and (np.abs(bank[straight]).max() if straight.any() else 0) <= 2,
+      f"max {np.abs(bank).max():.1f} deg; on straights {np.abs(bank[straight]).max():.1f} deg")
+for i in corners:
+    if abs(bank[int(np.searchsorted(s, dense_s[i]) % n)]) > 1:
+        print(f"      banked: R{1 / k[i]:+.0f} at {dense_s[i]:.0f} m, {bank[int(np.searchsorted(s, dense_s[i]) % n)]:+.1f} deg")
+
+# ---- 5. Final corner, stands, kerbs, tyre walls
+fc = [i for i in corners if dense_s[i] > length - 250]
+i_fc = max(fc, key=lambda i: abs(k[i])) if fc else M - 1
+stadium = objs.get("StandStadium_Base")
+d_st = np.linalg.norm(centre_of(stadium)[:2] - P[i_fc, :2]) if stadium else 1e9
+check("5. Final corner ~R30; Stadium stand ~50 m out", 27 <= 1 / abs(k[i_fc]) <= 33 and d_st <= 60,
+      f"R{1 / abs(k[i_fc]):.1f} at {dense_s[i_fc]:.0f} m; stand {d_st:.0f} m from the apex")
+
+tt = np.roll(P[:, :2], -1, 0) - np.roll(P[:, :2], 1, 0)
+tt /= np.linalg.norm(tt, axis=1)[:, None]
+rightv = np.stack([tt[:, 1], -tt[:, 0]], 1)
 def locate(xy):
+    xy = np.atleast_2d(xy)
     idx = np.empty(len(xy), int)
     for a0 in range(0, len(xy), 2048):
-        d2 = ((xy[a0:a0 + 2048, None, :] - P[None]) ** 2).sum(-1)
-        idx[a0:a0 + 2048] = d2.argmin(1)
-    tt = np.roll(P, -1, 0) - np.roll(P, 1, 0)
-    tt /= np.linalg.norm(tt, axis=1)[:, None]
-    right = np.stack([tt[:, 1], -tt[:, 0]], 1)
-    rel = xy - P[idx]
-    return (rel * right[idx]).sum(1), dense_s[idx]
+        d2_ = ((xy[a0:a0 + 2048, None, :] - P[None, :, :2]) ** 2).sum(-1)
+        idx[a0:a0 + 2048] = d2_.argmin(1)
+    return idx, ((xy - P[idx, :2]) * rightv[idx]).sum(1)
 
+kv = world_verts(objs["ApexKerbs"])
+k_idx, k_lat = locate(kv[:, :2])
+miss = []
+for i in corners:
+    for side in (-1, 1):
+        m = (np.sign(k_lat) == side) & (np.abs(((dense_s[k_idx] - dense_s[i] + length / 2) % length) - length / 2) < 5)
+        if not m.any():
+            miss.append(f"{dense_s[i]:.0f} m {'L' if side < 0 else 'R'}")
+check("5. Kerbs on both sides through every corner", not miss,
+      f"{len(corners)} corners" + (": missing at " + ", ".join(miss[:6]) if miss else ""))
+
+walls = [o for o in objs if o.name.startswith("TyreWall")]
+spans = []
+inner_min = 1e9
+for o in walls:
+    V = world_verts(o)
+    idx, lat = locate(V[:, :2])
+    inner_min = min(inner_min, np.abs(lat).min())
+    ss = dense_s[idx]
+    if ss.max() - ss.min() > length / 2:
+        ss = np.where(ss > length / 2, ss - length, ss)
+    spans.append((int(np.sign(np.median(lat))), ss.min(), ss.max()))
+gaps = []
+for side in (-1, 1):
+    sp = sorted((a_, b_) for sd, a_, b_ in spans if sd == side)
+    for (a0, b0), (a1, b1) in zip(sp, sp[1:]):
+        if 0 < a1 - b0 < 12:                   # a real gap, not the space between two runs
+            gaps.append(f"{side:+d} {b0:.0f}-{a1:.0f} m")
+check("5. Tyre walls >= 10 m from the centre, no gaps between blocks", inner_min >= 10 and not gaps,
+      f"{len(walls)} blocks, nearest {inner_min:.1f} m" + (", gaps " + ", ".join(gaps[:5]) if gaps else ""))
+
+# ---- Clearance
 ALLOWED = ("Road", "Verge_", "EdgeLine", "RacingLine", "ApexKerbs", "StartFinishLine", "PitLane",
-           "GroundGrass", "PitWall", "GantryPillar", "GravelTrap", "Lake")
-intruders, overhead_ok = [], 0
+           "GroundGrass", "PitWall", "GantryPillar", "GravelTrap", "GrassPatch", "Lake")
+intruders = []
 for o in objs:
     if o.type != 'MESH' or o.name.startswith(ALLOWED):
         continue
     V = world_verts(o)
-    lat, _ = locate(V[:, :2])
-    inside = np.abs(lat) < DRIVABLE
+    idx, lat = locate(V[:, :2])
+    inside = np.abs(lat) < CLEAR
     if not inside.any():
         continue
-    if V[inside, 2].min() > 5.0:       # gantry banner, lights: overhead
-        overhead_ok += 1
-        continue
-    intruders.append(f"{o.name} ({np.abs(lat).min():.1f} m, {V[inside, 2].max():.1f} m tall)")
-check("Nothing standing in the drivable band", not intruders,
-      f"{len(intruders)} objects within {DRIVABLE:.2f} m of the centre"
-      + (": " + ", ".join(intruders[:8]) + (" ..." if len(intruders) > 8 else "") if intruders else
-         f" ({overhead_ok} overhead gantry parts are above 5 m)"))
+    if (V[inside, 2] - P[idx[inside], 2]).min() > 5.0:
+        continue                               # overhead: gantry, bridge deck, lamps
+    intruders.append(f"{o.name} ({np.abs(lat).min():.1f} m)")
+check(f"Nothing standing within {CLEAR:.0f} m of the centre line", not intruders,
+      f"{len(intruders)} objects" + (": " + ", ".join(intruders[:8]) if intruders else ""))
 
 gravel = []
 for o in objs:
     if o.name.startswith("GravelTrap"):
-        lat, _ = locate(world_verts(o)[:, :2])
+        idx, lat = locate(world_verts(o)[:, :2])
         gravel.append((o.name, np.abs(lat).min()))
-check("Gravel traps clear of the road and kerbs (>= 9 m)", all(g >= 8.99 for _, g in gravel),
-      ", ".join(f"{nm} {g:.1f} m" for nm, g in gravel))
+check("Gravel never under the road", all(gv >= 6.99 for _, gv in gravel),
+      ", ".join(f"{nm} from {gv:.1f} m" for nm, gv in gravel))
 
-walls = []
-for o in objs:
-    if o.name.startswith(("TyreWall", "PitWall", "GantryPillar")):
-        lat, _ = locate(world_verts(o)[:, :2])
-        walls.append((o.name, np.abs(lat).min(), np.abs(lat).max()))
-bad = [w for w in walls if w[1] < 7.2 or w[2] > 25]
-check("Tyre walls, pit wall and gantry legs beside the road (7.2-25 m)", not bad,
-      f"{len(walls)} checked" + (": " + ", ".join(f"{nm} {a:.1f}-{b:.1f} m" for nm, a, b in bad) if bad else
-                                 f", tyre walls {min(w[1] for w in walls if w[0].startswith('TyreWall')):.1f}-"
-                                 f"{max(w[2] for w in walls if w[0].startswith('TyreWall')):.1f} m"))
+# ---- 6 / 7. Atmosphere
+crowds = [p for p in ("StandMain_", "StandSweep_", "StandEsses_", "StandStadium_") if (p + "Crowd") in objs]
+def emissive(m):
+    if not m.node_tree or not m.node_tree.nodes.get("Principled BSDF"):
+        return False
+    b_ = m.node_tree.nodes["Principled BSDF"]
+    return b_.inputs["Emission Strength"].default_value > 0 and \
+        max(tuple(b_.inputs["Emission Color"].default_value)[:3]) > 0 and m.users > 0
+glow = sorted(m.name for m in bpy.data.materials if emissive(m))
+check("6. Spectators in all four stands; glowing boards, screen and floodlights",
+      len(crowds) == 4 and "BigScreen" in objs and any(o.name.startswith("FloodlightTowers") for o in objs) and glow,
+      f"crowds in {len(crowds)} stands; emissive: {', '.join(glow)}")
+legs = [o for o in objs if o.name.startswith("SponsorBridgeLeg")]
+deck = objs.get("SponsorBridgeDeck")
+if legs and deck:
+    leg_lat = min(np.abs(locate(world_verts(o)[:, :2])[1]).min() for o in legs)
+    dv = world_verts(deck)
+    idx, _ = locate(dv[:, :2])
+    under = (dv[:, 2] - P[idx, 2]).min()
+    check("7. Bridge over the crest: legs >= 10 m out, underside >= 7 m up", leg_lat >= 10 and under >= 7,
+          f"legs {leg_lat:.1f} m out, underside {under:.1f} m above the road")
+else:
+    check("7. Bridge over the crest", False, "missing")
 
-kerb = world_verts(objs["ApexKerbs"])
-klat, _ = locate(kerb[:, :2])
-check("Kerbs on the verge edge (7-8.8 m)", np.abs(klat).min() > 6.9 and np.abs(klat).max() < 8.9,
-      f"{np.abs(klat).min():.2f}-{np.abs(klat).max():.2f} m")
-
-# ---- Materials
-white = []
+# ---- Materials and export hygiene
+bad = []
 for m in bpy.data.materials:
-    if not m.node_tree:
+    if not m.node_tree or m.users == 0:
         continue
     bsdf = m.node_tree.nodes.get("Principled BSDF")
     if not bsdf:
         continue
     base = bsdf.inputs["Base Color"]
     if base.is_linked and not any(l.from_node.type == 'TEX_IMAGE' for l in base.links):
-        white.append(f"{m.name} (colour from nodes: exports white)")
+        bad.append(f"{m.name} (colour from nodes: exports white)")
     elif not base.is_linked and tuple(base.default_value)[:3] == (1.0, 1.0, 1.0):
-        white.append(m.name)
-check("Every material has a Base Color", not white, ", ".join(white) or f"{len(bpy.data.materials)} materials")
+        bad.append(m.name)
+check("Every material has a Base Color", not bad, ", ".join(bad) or "ok")
+if path.endswith(".glb"):
+    size = os.path.getsize(path) / 1e6
+    extra = [o.name for o in objs if o.type in ('LIGHT', 'CAMERA')]
+    check("Export: no lights or cameras, under 20 MB", not extra and size < 20, f"{size:.1f} MB, {len(extra)} lights/cameras")
 
 print(f"\n{sum(RESULTS)}/{len(RESULTS)} checks passed")
 if bpy.app.background:
