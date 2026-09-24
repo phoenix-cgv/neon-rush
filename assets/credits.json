@@ -37,10 +37,11 @@
     },
     {
       "name": "Mountain Track (assets/maps/MountainTrack.glb)",
-      "author": "Neon Rush team",
-      "tool": "Blender (Khronos glTF Blender I/O)",
+      "path": "blender/mountain/",
+      "author": "Neon Rush team (procedural, mountain_track.py)",
+      "tool": "Blender 5.2 (Khronos glTF Blender I/O)",
       "licence": "Original work",
-      "used_for": "Official map 3 - mountain climb. Loaded by src/levels/mountain.js"
+      "used_for": "Official map 3 - mountain climb: road, rails, kerbs, tunnel, terrain and scenery, generated in Blender from blender/mountain/mountain_track.py. Loaded by src/levels/mountain.js"
     }
   ],
   "textures": [],
