@@ -18,6 +18,12 @@ export class Progress {
       stuckLimit = 4,
       progressWindow = 6, // s allowed without advancing
       progressDistance = 18, // m of forward progress that counts as racing
+      pinnedLimit = 2.5, // s scraping a wall at a crawl before it counts
+      beachedLimit = 1.2, // s resting on the body before it counts
+      // Only count "not moving" while the driver is TRYING to move. A
+      // player who stops on purpose (waiting behind traffic, looking
+      // around) is not stuck; resetting them for it is just annoying.
+      requireIntent = false,
     } = {}
   ) {
     this.track = track;
@@ -27,6 +33,9 @@ export class Progress {
     this.stuckLimit = stuckLimit;
     this.progressWindow = progressWindow;
     this.progressDistance = progressDistance;
+    this.pinnedLimit = pinnedLimit;
+    this.beachedLimit = beachedLimit;
+    this.requireIntent = requireIntent;
     this.reset();
   }
 
@@ -50,10 +59,12 @@ export class Progress {
   }
 
   /**
+   * @param {boolean} trying  is the driver asking the car to move (throttle,
+   *          or brake held to reverse)? Only read when requireIntent is set.
    * @returns {null | "respawn"} — the caller does the actual teleport, so
    *          this stays free of physics.
    */
-  update(dt, vehicle) {
+  update(dt, vehicle, trying = true) {
     this.justRespawned = false;
     // One step only. Left set, every step after the first lap read as
     // another lap finished, and the ghost recorder restarted 60 times a
@@ -119,7 +130,7 @@ export class Progress {
     // Beached on the chassis counts too: a car resting on its body has no
     // wheels on the ground, so no tyre forces, so no way to drive out of
     // it however long the player holds the throttle.
-    const beached = (vehicle.beached ?? 0) > 1.2;
+    const beached = (vehicle.beached ?? 0) > this.beachedLimit;
 
     // Pinned against a barrier: still on the road by lateral offset, all
     // four wheels down, but scraping a wall and going nowhere. None of
@@ -128,7 +139,7 @@ export class Progress {
     if (pinned) this.pinnedFor = (this.pinnedFor ?? 0) + dt;
     else this.pinnedFor = 0;
 
-    if (beyondRunoff || beached || this.pinnedFor > 2.5) this.offTrack += dt * 3;
+    if (beyondRunoff || beached || this.pinnedFor > this.pinnedLimit) this.offTrack += dt * 3;
     else if (stranded) this.offTrack += dt;
     else this.offTrack = Math.max(0, this.offTrack - dt * 2);
 
@@ -146,6 +157,17 @@ export class Progress {
     // grounded, not scraping, not beached. Rather than adding a fourth
     // special case, measure the thing that actually matters. If the car
     // has stopped going anywhere, it is stuck, whatever the reason.
+    // A driver who isn't asking to move is parked, not stuck: hold the
+    // clocks below at zero until they are.
+    const idle = this.requireIntent && !trying;
+    if (idle) {
+      this.noProgress = 0;
+      this.pinnedFor = 0;
+      this.sMark = vehicle.s;
+      this.sMarkAge = 0;
+      return null;
+    }
+
     this.noProgress = vehicle.speed < 1.5 ? this.noProgress + dt : 0;
     if (this.noProgress > this.stuckLimit) {
       this.noProgress = 0;

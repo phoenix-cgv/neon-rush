@@ -18,6 +18,20 @@ import { AIController, PERSONALITIES } from "../ai/driver.js";
 // ---------------------------------------------------------------------
 
 const GRID_SPACING = 9; // metres between rows on the starting grid
+
+// The player's automatic reset is far more patient than the AI's. An AI
+// car that stops is always stuck, and a quick reset keeps the race going;
+// a player who stops usually meant to, and being teleported for waiting
+// behind traffic is infuriating. Falling off the map still resets at once,
+// and R resets whenever the player likes.
+const PLAYER_PATIENCE = {
+  requireIntent: true, // stopped on purpose never counts
+  stuckLimit: 10, // s trying to move at a crawl (AI: 4)
+  progressWindow: 15, // s trying without getting 18 m further (AI: 6)
+  offTrackLimit: 6, // off-course clock (AI: 3), so ~2 s beyond the runoff
+  pinnedLimit: 6, // s grinding against a wall (AI: 2.5)
+  beachedLimit: 3, // s on its body with no wheel down (AI: 1.2)
+};
 const GRID_STAGGER = 3.2; // lateral offset, alternating
 
 const _fwd = new THREE.Vector3();
@@ -59,7 +73,7 @@ export class Race {
       const rig = new CarRig(colours[i % colours.length]);
       scene.add(rig.root);
 
-      const progress = new Progress(track);
+      const progress = new Progress(track, i === 0 ? PLAYER_PATIENCE : {});
       progress.markProgressFrom(s);
 
       const isPlayer = i === 0;
@@ -91,6 +105,7 @@ export class Race {
    * runs world.step() afterwards, once, for the whole field.
    */
   step(dt, playerControls) {
+    this.playerControls = playerControls; // read by postStep for the player's intent
     const vehicles = this.cars.map((c) => c.vehicle);
     this.#updateSlipstream();
 
@@ -106,7 +121,9 @@ export class Race {
   postStep(dt) {
     for (const c of this.cars) {
       c.vehicle.applySoftWall();
-      if (c.progress.update(dt, c.vehicle) === "respawn") {
+      const pc = this.playerControls;
+      const trying = !c.isPlayer || !pc || pc.throttle > 0.05 || pc.brake > 0.05;
+      if (c.progress.update(dt, c.vehicle, trying) === "respawn") {
         const pose = this.#clearRespawn(c);
         c.vehicle.reset(pose.position, 0);
         c.vehicle.body.setRotation(
