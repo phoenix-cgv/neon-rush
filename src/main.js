@@ -14,6 +14,7 @@ import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
+import { Rockfall } from "./core/rockfall.js";
 import { RaceDirector } from "./core/race-director.js";
 import { RaceHud } from "./ui/race-hud.js";
 import { Smoke } from "./vehicle/smoke.js";
@@ -191,6 +192,7 @@ let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
+let rockfall = null; // falling rocks, on levels that ask for them
 let director = null; // start lights, laps and the flag, on levels that race
 let soloVehicle = null;
 let soloRig = null;
@@ -248,6 +250,8 @@ async function loadLevel(name) {
   race = null;
   traffic?.dispose();
   traffic = null;
+  rockfall?.dispose();
+  rockfall = null;
   pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
@@ -272,6 +276,7 @@ async function loadLevel(name) {
     minimap.build(race.cars);
     pickups = new Pickups(level.track, scene, level.pickups ?? {});
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
+    if (level.rockfall) rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall);
     if (level.race) {
       director = new RaceDirector(race, { laps: level.race.laps, lamps: level.startLamps ?? [] });
       raceHud.setActive(true);
@@ -305,6 +310,7 @@ function respawn(pose = null) {
   if (level.track) vehicle.setTrack(level.track, vehicle.s);
   progress?.markProgressFrom(vehicle.s);
   traffic?.clearAround(p.position);
+  rockfall?.clearAround(p.position);
   cameraRig.snapTo(vehicle.state);
 }
 
@@ -408,6 +414,7 @@ function frame(now) {
 
     // Traffic moves on the same step, before the same single solve.
     traffic?.step(WORLD.fixedDt, race ? race.cars : []);
+    rockfall?.step(WORLD.fixedDt, race ? race.cars : []);
 
     world.step();
 
@@ -431,6 +438,7 @@ function frame(now) {
     carRig.sync(vehicle.state);
   }
   traffic?.render(alpha);
+  rockfall?.render(alpha);
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
@@ -475,6 +483,7 @@ window.__dbg = {
   minimap, menu, Save, input, renderer, health, smoke,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
+  get rockfall() { return rockfall; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),

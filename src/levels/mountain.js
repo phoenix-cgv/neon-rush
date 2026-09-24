@@ -58,6 +58,20 @@ export function buildMountain(RAPIER, world, scene, gltf) {
 
   const gate = track.spawnAt(0);
   return {
+    // Falling rocks where there is a real slope above the road (measured:
+    // the ground 25 m to one side is 25-50 m above it). Not in the tunnel
+    // (683-821 m), not on the viaduct (1,018-1,160 m), not on the downhill
+    // face (about 340-1,000 m, where the ground falls away), and clear of
+    // the start line. The uphill side is found from the terrain.
+    rockfall: {
+      zones: [
+        { s0: 190, s1: 290 },
+        { s0: 1180, s1: 1290 },
+        { s0: 1320, s1: 1420 },
+      ],
+      ground: map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)),
+      signOffset: 7.4, // just beyond the rail
+    },
     name: "mountain",
     index: 2,
     title: "Mountain Track",

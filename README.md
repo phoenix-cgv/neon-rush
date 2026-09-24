@@ -91,6 +91,7 @@ Full map:
 | `src/core/progress.js` | Laps, checkpoints, falling, off-track reset |
 | `src/core/race.js` | The field: every car, grid, slipstream, standings, respawn |
 | `src/core/traffic.js` | Civilian traffic: kinematic cars that keep left, both ways |
+| `src/core/rockfall.js` | Mountain hazard: boulders that fall onto the road ahead of the car |
 | `src/core/race-director.js` | Start lights, lap limit, finishing order (levels with `race: { laps }`) |
 | `src/core/determinism.js` | Replay recordings, **the physics test harness** |
 | `src/core/save.js` | Settings and records in localStorage (never throws) |
@@ -184,7 +185,7 @@ than about 4.2 m at full lock. The three levels:
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
 | 1 | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
-| 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | solo | banked climb, guardrails, tunnel |
+| 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | solo | banked climb, tunnel, falling rocks |
 | 3 | Grand Prix | `grandprix` | 16.2 m — 54 km/h | 6 cars | 3-lap race: start lights, results; grass costs grip; hills, banking, esses |
 | — | Testbed (development only) | `testbed` | n/a | solo | slalom, crest, ramp |
 
@@ -222,6 +223,16 @@ checkpoints, AI, pickups and minimap work unchanged. Things to know:
   `Tunnel_Wall`).
 - three.js turns spaces in names into underscores: match `Guardrail_Left`,
   not `Guardrail Left`.
+
+**The Mountain's rockfall** (`src/core/rockfall.js`, configured in
+`mountain.js`) is the model for a hazard: every rock is readable. There is a
+warning sign on each zone's approach, a trickle of stones and an on-screen
+"ROCKFALL" a second before a boulder, it always lands well ahead of the car
+(chosen from its speed) on the uphill half of the road, and it only becomes
+solid once it has settled and nothing is where it would be. Which side is
+uphill is measured from the terrain, so regenerating the map keeps the zones
+right. Zones go only where there is a slope above the road: not in the
+tunnel, on the viaduct, or on the downhill face.
 
 Two lessons from the old Storm Ridge level (removed; it is in git
 history) for anyone building a hazard:
