@@ -86,7 +86,19 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     pickups: { repair: 6, boost: 8 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [80, 95, 25], fog: [0xa9c6d2, 320, 1400], sky: 0xa9c6d2 },
+    // Dusk: a low, warm sun raking across the track, a violet-blue sky
+    // fading to orange at the horizon, and less fill light, so the
+    // floodlights, sponsor boards, bridge banner and big screen (emissive
+    // in the map) carry the scene.
+    lit: {
+      sun: [-90, 28, 60],
+      sunColor: 0xffa15a,
+      sunIntensity: 2.2,
+      hemi: [0x7a7fb0, 0x3a2c30, 1.1],
+      sky: { top: 0x1f2d63, horizon: 0xf2a066, bottom: 0x2e2a33 },
+      fog: [0xb88a80, 260, 1300],
+      exposure: 1.0,
+    },
     dispose: map.dispose,
   };
 }
