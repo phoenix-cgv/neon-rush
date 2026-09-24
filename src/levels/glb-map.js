@@ -257,6 +257,7 @@ function prepare(gltf, opts) {
   root.traverse((o) => {
     if (!o.isMesh) return;
     const name = nodeNameOf(o, root);
+    if (opts.exclude?.test(name)) return; // left out of the game entirely
 
     const surface = opts.surfaces.find((sf) => sf.match.test(name));
     if (surface) {
@@ -343,6 +344,7 @@ function prepare(gltf, opts) {
  *   roadName   the road ribbon mesh (default "Road")
  *   solid      RegExp of node names that become box colliders
  *   walls      RegExp of meshes that collide as themselves (barriers)
+ *   exclude    RegExp of meshes left out entirely (not drawn, not solid)
  *   decals     RegExp of paint/lines lying on the road (depth-offset x2)
  *   overlays   RegExp of surfaces lying on the ground (depth-offset x1)
  *   minimap    RegExp of meshes drawn on the minimap

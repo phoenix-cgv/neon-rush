@@ -14,6 +14,7 @@ import { Save, QUALITY } from "./core/save.js";
 import { Ghost } from "./core/ghost.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
+import { Traffic } from "./core/traffic.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
@@ -193,6 +194,7 @@ let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
 let ghost = null;
 let pickups = null;
+let traffic = null; // civilian traffic, on levels that ask for it
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
@@ -246,6 +248,8 @@ async function loadLevel(name) {
   race = null;
   ghost?.dispose();
   ghost = null;
+  traffic?.dispose();
+  traffic = null;
   pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
@@ -273,6 +277,7 @@ async function loadLevel(name) {
     // slot searches.
     ghost = new Ghost(RAPIER, world, scene, level.track, name, (level.opponents ?? 0) === 0);
     pickups = new Pickups(level.track, scene, level.pickups ?? {});
+    if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
     ghost.restart(vehicle);
     cameraRig.snapTo(vehicle.state);
   } else {
@@ -302,6 +307,7 @@ function respawn(pose = null) {
   }
   if (level.track) vehicle.setTrack(level.track, vehicle.s);
   progress?.markProgressFrom(vehicle.s);
+  traffic?.clearAround(p.position);
   cameraRig.snapTo(vehicle.state);
 }
 
@@ -393,6 +399,9 @@ function frame(now) {
     // reacting to a world the others had not moved in yet.
     ghost?.step(WORLD.fixedDt, controls);
 
+    // Traffic moves on the same step, before the same single solve.
+    traffic?.step(WORLD.fixedDt, race ? race.cars : []);
+
     world.step();
 
     if (race) {
@@ -419,6 +428,7 @@ function frame(now) {
     carRig.sync(vehicle.state);
   }
   ghost?.render(alpha);
+  traffic?.render(alpha);
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
@@ -462,6 +472,7 @@ window.__dbg = {
   minimap, menu, Save, input, renderer, health, smoke,
   get pickups() { return pickups; },
   get ghost() { return ghost; },
+  get traffic() { return traffic; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
   get vehicle() { return vehicle; },

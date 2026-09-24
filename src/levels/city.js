@@ -6,9 +6,9 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // OFFICIAL MAP 1 — City Track
 //
 // A street circuit through a city block, generated in Blender by
-// citytrack.py (assets/maps/CityTrack.glb): 1.25 km, 14 m of road between
-// kerbs, lamps, traffic lights, parked cars and a crowd along the
-// pavements. Two hairpins, opened out to about 14 m radius in this
+// citytrack.py (assets/maps/CityTrack.glb): 1.23 km, 14 m of road between
+// kerbs, lamps, traffic lights and a crowd along the pavements, and live
+// traffic on the road instead of rival racers. Two hairpins, opened out to about 14 m radius in this
 // version (they were 3 m and 5 m, tighter than the car can turn, and
 // folded the pavement over the road).
 //
@@ -38,6 +38,9 @@ export function buildCity(RAPIER, world, scene, gltf) {
       { match: /^CityGround$/, friction: 0.7, flatY: 0 },
     ],
     decals: /^(Line|CentreDash|CrosswalkBar|Manhole|Puddle|RoadPatch)/,
+    // The model's parked cars. The city's cars are live traffic instead
+    // (core/traffic.js), and parked ones beside it read as more of it.
+    exclude: /^(CarBody|CarCabin|Wheel|Headlight|Taillight)/,
     overlays: /^(Road|KerbLeft|KerbRight|Pavement|GreenIsland|TreePit)/,
     minimap: /^(Road|KerbLeft|KerbRight|Pavement)/,
     // Road edge 7 m, kerb to 7.35, pavement from 9 to 12; nothing standing
@@ -57,9 +60,12 @@ export function buildCity(RAPIER, world, scene, gltf) {
     index: 1,
     title: "City Track",
     track,
-    // Three, not five: 14 m between kerbs and two hairpins do not fit a
-    // six-car field without the respawn logic doing most of the racing.
-    opponents: 3,
+    // No racers here: the city is a solo run against the clock through
+    // live traffic, keeping left, both ways. Seven cars going the race
+    // direction and six coming the other way on a 1.23 km lap is one
+    // every ~95 m: busy, not gridlocked.
+    opponents: 0,
+    traffic: { sameWay: 7, oncoming: 6, lane: 3.5, cruise: [11, 15] },
     pickups: { repair: 4, boost: 5 },
     spawn: gate.position,
     quaternion: gate.quaternion,
