@@ -71,13 +71,13 @@ function nodeNameOf(mesh, root) {
  * Pull the centreline out of the road ribbon: midpoint of each vertex
  * pair, resampled to even arc length, then lightly smoothed.
  *
- * Resampled because the exports are wildly uneven — 0.26 m between
- * samples in the city's hairpins, 42 m down the Grand Prix straights —
- * and the spline's centripetal fit is only as good as its input spacing.
- * Smoothed because the modelled ribbon has small kinks (the Grand Prix's
- * last corner zig-zags where the curve closes) that are invisible on the
- * asphalt but read as a spike in curvature, and the AI brakes on
- * curvature.
+ * Resampled because exports can be wildly uneven — 0.26 m between
+ * samples in the city's hairpins, 42 m down the straights of the first
+ * Grand Prix export — and the spline's centripetal fit is only as good as
+ * its input spacing. Smoothed because a modelled ribbon can have small
+ * kinks that are invisible on the asphalt but read as a spike in
+ * curvature, and the AI brakes on curvature. (The Grand Prix and Mountain
+ * ribbons are now generated evenly every 2 m and 1.84 m; see blender/.)
  *
  * Two ribbon layouts occur. Smooth-shaded exports store each ring as a
  * left/right pair (0,1 | 2,3 ...). Flat-shaded ones duplicate every

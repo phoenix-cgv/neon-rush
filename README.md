@@ -181,7 +181,7 @@ deliberately graded by their tightest corner:
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
 | A | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
-| B | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
+| B | Grand Prix | `grandprix` | 29.4 m — 72 km/h | 6 cars | 2.7 km full circuit |
 | C | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | 6 cars | banked climb, guardrails, tunnel |
 | 1 | Sprint | `sprint` | 42.9 m — 87 km/h | solo | boost strips |
 | 2 | Storm Ridge | `storm` | 34.1 m — 78 km/h | 2 cars | crosswind, updraft, chicanes |
