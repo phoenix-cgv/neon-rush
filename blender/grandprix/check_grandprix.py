@@ -1,7 +1,8 @@
 """Checks a Grand Prix .blend (or the original .glb) for the problems fixed by fix_grandprix.py.
 
 Headless:  python3 check_grandprix.py GrandPrix.blend
-           python3 check_grandprix.py GrandPrix_original.glb      (the "before")
+           python3 check_grandprix.py RaceTrack2.blend      (the map as delivered)
+           python3 check_grandprix.py ../../assets/maps/GrandPrix.glb
 Prints one PASS/FAIL line per check and exits non-zero on any FAIL.
 """
 import bpy
@@ -142,8 +143,12 @@ for m in bpy.data.materials:
     if not m.node_tree:
         continue
     bsdf = m.node_tree.nodes.get("Principled BSDF")
-    if bsdf and not bsdf.inputs["Base Color"].is_linked and \
-            tuple(bsdf.inputs["Base Color"].default_value)[:3] == (1.0, 1.0, 1.0):
+    if not bsdf:
+        continue
+    base = bsdf.inputs["Base Color"]
+    if base.is_linked and not any(l.from_node.type == 'TEX_IMAGE' for l in base.links):
+        white.append(f"{m.name} (colour from nodes: exports white)")
+    elif not base.is_linked and tuple(base.default_value)[:3] == (1.0, 1.0, 1.0):
         white.append(m.name)
 check("Every material has a Base Color", not white, ", ".join(white) or f"{len(bpy.data.materials)} materials")
 

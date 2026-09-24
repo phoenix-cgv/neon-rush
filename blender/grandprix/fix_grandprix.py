@@ -1,13 +1,16 @@
-"""Grand Prix map fixes, applied to the original export.
+"""Grand Prix map fixes, applied to the map as delivered.
 
-The Grand Prix was delivered as a .glb only (GrandPrix_original.glb, kept
-next to this script as the source). This script imports it, fixes it and
-leaves the fixed scene open; build it with
+RaceTrack2.blend is the map as delivered (the base generator, Track2.py,
+was not kept; Track.py is the realism pass that ran after it). This
+script fixes it and leaves the fixed scene open. Headless:
 
     python3 -c "import bpy; exec(open('fix_grandprix.py').read()); \
         bpy.ops.wm.save_as_mainfile(filepath='GrandPrix.blend')"
     python3 check_grandprix.py GrandPrix.blend
     python3 ../export_glb.py GrandPrix.blend ../../assets/maps/GrandPrix.glb
+
+In Blender: open RaceTrack2.blend, run this script in the Text Editor,
+then File > Save As GrandPrix.blend (it works on the open file).
 
 What it changes:
   1. The final corner. The west straight used to jog right and then turn
@@ -25,7 +28,9 @@ What it changes:
      a rock, trees on the moved section) is removed.
   5. Gravel traps no longer run under the road (one reached 0.4 m past
      the centreline, 2 cm below the asphalt).
-  6. The Grass material gets a real Base Color (it exported as white).
+  6. The Grass material gets a plain Base Color. Its colour came from a
+     noise -> colour ramp node chain, which glTF cannot carry, so it
+     exported as white. The noise bump is kept for Blender renders.
 
 Race direction, start line (ring 0 at -430, -170), gantry, pits and the
 rest of the lap are unchanged.
@@ -38,7 +43,7 @@ from mathutils import Matrix, Vector
 
 HERE = os.path.dirname(os.path.abspath(bpy.context.space_data.text.filepath)) \
     if bpy.context.space_data and getattr(bpy.context.space_data, "text", None) else os.getcwd()
-SOURCE = os.path.join(HERE, "GrandPrix_original.glb")
+SOURCE = os.path.join(HERE, "RaceTrack2.blend")
 
 ROAD_Z = 0.06
 ROAD_HALF = 7.0
@@ -143,8 +148,8 @@ class Centreline:
 
 
 # ---------------------------------------------------------------- import
-bpy.ops.wm.read_factory_settings(use_empty=True)
-bpy.ops.import_scene.gltf(filepath=SOURCE)
+if os.path.basename(bpy.data.filepath) != "RaceTrack2.blend":
+    bpy.ops.wm.open_mainfile(filepath=SOURCE)
 objs = bpy.data.objects
 
 def world_verts(o):
