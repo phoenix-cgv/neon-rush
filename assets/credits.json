@@ -20,7 +20,29 @@
       "used_for": "Development server and production build"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "name": "City Track (assets/maps/CityTrack.glb)",
+      "author": "Neon Rush team",
+      "tool": "Blender 5.2 (Khronos glTF Blender I/O)",
+      "licence": "Original work",
+      "used_for": "Official map 1 - street circuit. Loaded by src/levels/city.js"
+    },
+    {
+      "name": "Grand Prix (assets/maps/GrandPrix.glb)",
+      "author": "Neon Rush team",
+      "tool": "Blender 5.2 (Khronos glTF Blender I/O)",
+      "licence": "Original work",
+      "used_for": "Official map 2 - full circuit. Loaded by src/levels/grandprix.js"
+    },
+    {
+      "name": "Mountain Track (assets/maps/MountainTrack.glb)",
+      "author": "Neon Rush team",
+      "tool": "Blender (Khronos glTF Blender I/O)",
+      "licence": "Original work",
+      "used_for": "Official map 3 - mountain climb. Loaded by src/levels/mountain.js"
+    }
+  ],
   "textures": [],
   "audio": [],
   "learned_from": []

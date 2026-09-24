@@ -27,6 +27,10 @@ const _aim = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _pos = new THREE.Vector3();
 const _fr = {};
+const _here = {};
+
+// 1 / 15 m. Corners tighter than this get the near-field scan below.
+const TIGHT_CURVATURE = 1 / 15;
 
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -54,6 +58,7 @@ export class AIController {
     };
     this.targetOffset = this.p.lineOffset;
     this.blocking = false;
+    this.reverseFor = 0; // s left of a nosed-into-the-wall recovery
     this._t = seed * 13.7;
   }
 
@@ -112,6 +117,19 @@ export class AIController {
     for (let a = 0; a <= 70; a += 10) {
       vmax = Math.min(vmax, t.cornerSpeedAt(car.s + look + a, 1.4 * this.p.grip));
     }
+    // ...except a hairpin, which that scan cannot see. It starts beyond
+    // the lookahead (9 m + speed), so a corner closer than that drops out
+    // of view and the AI comes off the brakes into the apex; and its 10 m
+    // steps skip a corner that is only 8 m of arc. Neither matters on a
+    // sweeper, but the City Track's hairpins are exactly that, and every
+    // car arrived at 40 km/h against a 24 km/h limit. So tight corners
+    // are also looked for from the car itself, every 2 m (the spline's own
+    // spacing). Only tight ones: the procedural levels have nothing under
+    // 27 m radius, so their AI pace is unchanged.
+    for (let a = 0; a <= look + 70; a += 2) {
+      if (t.curvatureAt(car.s + a) < TIGHT_CURVATURE) continue;
+      vmax = Math.min(vmax, t.cornerSpeedAt(car.s + a, 1.4 * this.p.grip));
+    }
     vmax = Math.min(vmax, 62);
 
     const err = vmax - car.speed;
@@ -124,11 +142,38 @@ export class AIController {
       car.boostCharge > 25 && err > 6 && Math.abs(c.steer) < 0.35 && car.grounded;
 
     // Recovery: pointing the wrong way or stopped against something.
-    const wrongWay = _fwd.dot(_fr.tangent) < -0.2;
+    //
+    // Judged against the track direction where the car IS, not at the
+    // lookahead. Through a hairpin the lookahead point is already round
+    // the apex, where the tangent points back the way the car came — the
+    // City Track's 4 m hairpin read every car taking it correctly as
+    // driving the wrong way, and they reversed out of the corner forever.
+    t.frameAt(car.s, _here);
+    const wrongWay = _fwd.dot(_here.tangent) < -0.2;
     if (wrongWay && car.speed < 8) {
       c.brake = 1; // reverse out
       c.throttle = 0;
       c.steer = clamp(-Math.sign(car.lateralOffset), -1, 1);
+    }
+
+    // Nosed into the wall. Coming out of a hairpin wide, a car can meet
+    // the wall pointing at it; throttle then drives it in, the soft wall
+    // cancels the motion and damps the yaw, and it sits there until the
+    // progress backstop respawns it. Back out instead, steering so the
+    // nose swings back toward the track (in reverse, steering toward the
+    // wall turns the nose away from it), and keep going long enough to
+    // actually turn.
+    const side = Math.sign(car.lateralOffset);
+    const facingOut = _fwd.dot(_here.right) * side;
+    if (car.speed < 1.5 && Math.abs(car.lateralOffset) > t.wallLimit - 1.2 && facingOut > 0.3) {
+      this.reverseFor = 1.4;
+    }
+    if (this.reverseFor > 0) {
+      this.reverseFor -= dt;
+      c.brake = 1;
+      c.throttle = 0;
+      c.boost = false;
+      c.steer = side;
     }
 
     c.handbrake = false;

@@ -20,6 +20,9 @@ import { buildTestbed } from "./levels/testbed.js";
 import { buildCircuit } from "./levels/circuit.js";
 import { buildSprint } from "./levels/sprint.js";
 import { buildStorm } from "./levels/storm.js";
+import { buildCity } from "./levels/city.js";
+import { buildGrandPrix } from "./levels/grandprix.js";
+import { buildMountain } from "./levels/mountain.js";
 
 // ---------------------------------------------------------------------
 // M1-M4.
@@ -172,13 +175,20 @@ applyPresentation();
 // The three game levels, in order, plus the tuning testbed — which is a
 // development tool rather than a level and deliberately sits after them
 // in the cycle.
+//
+// The official maps come first and are modelled in Blender (assets/maps);
+// their builders carry a preload() that fetches the .glb, and loadLevel
+// awaits it before building. The procedural levels follow them.
 const LEVELS = {
-  sprint: buildSprint, // 1 — learn the car and the boost economy
-  storm: buildStorm, //   2 — crosswind, downdraft, chicanes
-  circuit: buildCircuit, // 3 — the race, five opponents
+  city: buildCity, //         official map 1 — street circuit, hairpins
+  grandprix: buildGrandPrix, // official map 2 — the full circuit, five opponents
+  mountain: buildMountain, // official map 3 — banked climb, guardrails
+  sprint: buildSprint, // learn the car and the boost economy
+  storm: buildStorm, //   crosswind, downdraft, chicanes
+  circuit: buildCircuit, // the race, five opponents
   testbed: buildTestbed,
 };
-const ORDER = ["sprint", "storm", "circuit", "testbed"];
+const ORDER = ["city", "grandprix", "mountain", "sprint", "storm", "circuit", "testbed"];
 let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
 let ghost = null;
@@ -187,9 +197,36 @@ let soloVehicle = null;
 let soloRig = null;
 let progress = null;
 const requested = new URLSearchParams(location.search).get("level");
-let levelName = ORDER.includes(requested) ? requested : "sprint";
+let levelName = ORDER.includes(requested) ? requested : "city";
+// Set while a map file is being fetched. The current level keeps running
+// meanwhile; a second request is ignored rather than racing the first.
+let loading = null;
+const loadingNote = document.createElement("div");
+loadingNote.style.cssText =
+  "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);" +
+  "font:600 18px system-ui,sans-serif;color:#fff;background:rgba(10,16,22,.72);" +
+  "padding:12px 20px;border-radius:8px;pointer-events:none;display:none;z-index:10";
+document.body.appendChild(loadingNote);
 
-function loadLevel(name) {
+async function loadLevel(name) {
+  if (loading) return;
+  let asset;
+  if (LEVELS[name].preload) {
+    loading = name;
+    loadingNote.textContent = `Loading ${name}…`;
+    loadingNote.style.display = "block";
+    try {
+      asset = await LEVELS[name].preload();
+    } catch (err) {
+      console.error(`[loadLevel] could not load map "${name}"`, err);
+      loadingNote.textContent = `Could not load ${name} — see console`;
+      setTimeout(() => (loadingNote.style.display = "none"), 4000);
+      loading = null;
+      return;
+    }
+    loading = null;
+    loadingNote.style.display = "none";
+  }
   if (level) {
     level.track?.dispose?.();
     level.dispose?.(); // levels without a Track clean up their own bodies
@@ -199,7 +236,7 @@ function loadLevel(name) {
     }
   }
   levelName = name;
-  level = LEVELS[name](RAPIER, world, scene);
+  level = LEVELS[name](RAPIER, world, scene, asset);
 
   const fog = level.lit?.fog ?? [0x8fb4c4, 180, 620];
   scene.fog = new THREE.Fog(fog[0], fog[1], fog[2]);
@@ -268,7 +305,9 @@ function respawn(pose = null) {
   cameraRig.snapTo(vehicle.state);
 }
 
-loadLevel(levelName);
+await loadLevel(levelName);
+// A map that failed to download must not leave the game with no level.
+if (!level) await loadLevel("sprint");
 
 renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});

@@ -409,7 +409,7 @@ export class Vehicle {
    */
   #unstick(controls) {
     if (!this.track) return;
-    const edge = this.track.width * 0.5 - CAR.unstickMargin;
+    const edge = (this.track.pushOffEdge ?? this.track.width * 0.5) - CAR.unstickMargin;
     const off = this.lateralOffset;
     if (Math.abs(off) < edge) return;
 

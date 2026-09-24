@@ -36,15 +36,27 @@ export class Track {
     this.def = def;
 
     this.width = def.width ?? 16;
+    // A modelled map (see levels/glb-map.js) brings its own road, kerbs and
+    // ground as `surfaces`, and none of the generated ribbons, kerbs,
+    // markings or barriers are built: the model is what you see, so the
+    // model is what you drive on.
+    this.modelled = Array.isArray(def.surfaces);
     // Where the soft wall bites. The visual barriers are drawn here too,
     // so what stops you is exactly what you can see.
-    this.wallLimit = (def.width ?? 16) * 0.5 + 0.9;
+    this.wallLimit = def.wallLimit ?? (def.width ?? 16) * 0.5 + 0.9;
+    // Where the un-stick push engages. On a generated track the barrier
+    // sits 0.9 m off the road edge, so this is the road edge. A modelled
+    // map puts its (soft) wall out on the pavement or verge, and keying
+    // the push to the road edge there would shove every car back onto
+    // the tarmac whenever it put a wheel on the grass.
+    this.pushOffEdge = this.wallLimit - 0.9;
     // Off by default. The walls are real geometry again now that they are
     // seamless; the soft-wall constraint stays available as a fallback for
     // any level where solid barriers prove troublesome.
     this.softWalls = def.softWalls === true;
     this.runoffHalfWidth =
-      def.runoff === false ? this.width * 0.5 : (this.width * (def.runoffWidth ?? 3.2)) * 0.5;
+      def.runoffHalfWidth ??
+      (def.runoff === false ? this.width * 0.5 : (this.width * (def.runoffWidth ?? 3.2)) * 0.5);
     this.spline = new TrackSpline(def.points, {
       closed: def.closed ?? true,
       spacing: def.spacing ?? 2,
@@ -61,6 +73,13 @@ export class Track {
     this.surfaceHandles = new Set();
     this.forceFields = new Map(); // id -> { s0, s1, fn }
     this.#nextId = 1;
+
+    if (this.modelled) {
+      for (const surf of def.surfaces) this.#buildSurfaceCollider(surf);
+      this.#buildCheckpoints(def.checkpointSpacing ?? 140);
+      this.#measureCorners();
+      return;
+    }
 
     // Runoff first, so the road sits on top of it. A wide grass ribbon
     // swept from the same spline means leaving the road is a mistake you
@@ -102,13 +121,18 @@ export class Track {
    * wall that stops the car dead, and it is invisible in the source too,
    * so it gets checked at build time instead.
    */
-  #checkRibbonWidth() {
+  #measureCorners() {
     let minR = Infinity;
     for (let i = 0; i < this.spline.curvature.length; i++) {
       const k = this.spline.curvature[i];
       if (k > 1e-9) minR = Math.min(minR, 1 / k);
     }
     this.minCornerRadius = minR;
+    return minR;
+  }
+
+  #checkRibbonWidth() {
+    const minR = this.#measureCorners();
     const innerRadius = minR - this.runoffHalfWidth;
     if (innerRadius < 12) {
       console.warn(
@@ -149,7 +173,33 @@ export class Track {
   cornerSpeedAt(s, mu = 1.4, g = 9.81) {
     const k = this.curvatureAt(s);
     if (k < 1e-5) return Infinity;
-    return Math.sqrt((mu * g) / k);
+    const bank = this.#bankIntoTurn(s);
+    if (bank === 0) return Math.sqrt((mu * g) / k);
+    // Banked curve: v^2 = g R (sin b + mu cos b) / (cos b - mu sin b),
+    // b positive when the road leans INTO the corner. With b = 0 it is the
+    // flat formula above. A modelled map can lean the other way — the
+    // Mountain Track's first corner is a 6 m hairpin with its inside
+    // edge 6 m higher than its outside — and there the car has half the
+    // grip the flat formula promises.
+    const c = Math.cos(bank);
+    const sn = Math.sin(bank);
+    const den = c - mu * sn;
+    if (den <= 1e-3) return Infinity; // steep enough to hold any speed
+    return Math.sqrt(Math.max(0, (g * (sn + mu * c)) / (k * den)));
+  }
+
+  /** Bank at s, signed so that positive leans into the corner. */
+  #bankIntoTurn(s) {
+    const i = Math.round(this.spline.wrapS(s) / this.spline.step) % this.spline.bank.length;
+    const bank = this.spline.bank[i];
+    if (bank === 0) return 0;
+    // Which way the corner turns: along the change in tangent, seen
+    // against the right vector. The spline's bank tips its right side
+    // DOWN when positive, which leans into a RIGHT-hand corner.
+    _v.copy(this.frameAt(s - 2, _fr).tangent);
+    const f = this.frameAt(s + 2, _fr);
+    const turnsRight = f.tangent.dot(f.right) - _v.dot(f.right) > 0;
+    return turnsRight ? bank : -bank;
   }
 
   /** How far below the road you have to be to count as fallen. */
@@ -278,6 +328,22 @@ export class Track {
   // -------------------------------------------------------------------
   // Geometry
   // -------------------------------------------------------------------
+
+  /**
+   * A drivable surface supplied by a modelled map: world-space vertices
+   * and indices lifted straight from the mesh that is drawn, so — as with
+   * the generated ribbons — the collider IS the visible surface. Visual
+   * only lives with the level; this adds the physics and marks it ground.
+   */
+  #buildSurfaceCollider({ positions, indices, friction = 1.0 }) {
+    const body = this.world.createRigidBody(this.RAPIER.RigidBodyDesc.fixed());
+    const col = this.world.createCollider(
+      this.RAPIER.ColliderDesc.trimesh(positions, indices).setFriction(friction),
+      body
+    );
+    this.surfaceHandles.add(col.handle);
+    this.bodies.push(body);
+  }
 
   #buildRibbon({ width, lift, color, friction, name, uvScale, keepRef = false }) {
     const sp = this.spline;

@@ -24,7 +24,7 @@ npm run dev
 ```
 
 Open http://localhost:5173. You should be sitting on the start line of
-**Sprint** with the engine idling. If you see a black screen, open the
+the **City Track** with the engine idling. If you see a black screen, open the
 browser console first — the game logs nothing on a healthy boot, so
 anything there is the problem.
 
@@ -52,7 +52,7 @@ design decisions in here only make sense once you have felt the car.
 | `G` | toggle the telemetry overlay and force vectors |
 | `M` | toggle the minimap |
 | `G` | telemetry overlay (the condition bar follows `Save.healthBar`) |
-| `L` | next level: Sprint → Storm Ridge → Neon Circuit → testbed |
+| `L` | next level: City Track → Grand Prix → Mountain Track → Sprint → Storm Ridge → Neon Circuit → testbed |
 | `Esc` | pause / options — quality, assists, mouse look, key rebinding |
 
 In the air, `W`/`S` become pitch and `A`/`D` become roll.
@@ -71,6 +71,7 @@ Start from the thing you have been asked to work on.
 | I am working on… | Start here |
 |---|---|
 | A new level or track layout | `src/levels/common.js`, then copy `sprint.js` |
+| A map modelled in Blender | `src/levels/glb-map.js`, then copy `city.js` (§5) |
 | Hazards and obstacles | `src/track/track.js` — the level-author API (§5) |
 | Car handling / feel | `src/vehicle/config.js` — **constants only, see §6** |
 | Opponent behaviour | `src/ai/driver.js` |
@@ -94,6 +95,10 @@ Full map:
 | `src/core/determinism.js` | Replay, ghost recordings, **the physics test harness** |
 | `src/core/save.js` | Settings and records in localStorage (never throws) |
 | `src/ai/driver.js` | Opponent controllers and personalities |
+| `src/levels/glb-map.js` | Modelled maps: .glb → merged meshes + Track (centreline, colliders) |
+| `src/levels/city.js` | Official map 1 — City Track (`assets/maps/CityTrack.glb`) |
+| `src/levels/grandprix.js` | Official map 2 — Grand Prix (`assets/maps/GrandPrix.glb`) |
+| `src/levels/mountain.js` | Official map 3 — Mountain Track (`assets/maps/MountainTrack.glb`) |
 | `src/levels/common.js` | Shared level furniture: scatter, gantry, markers, `polarPoints` |
 | `src/levels/sprint.js` | Level 1 — wide and fast, boost strips |
 | `src/levels/storm.js` | Level 2 — crosswind, updraft, chicanes |
@@ -174,10 +179,41 @@ deliberately graded by their tightest corner:
 
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
+| A | City Track | `city` | 3.2 m hairpin — 24 km/h | 4 cars | street circuit, hairpins |
+| B | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
+| C | Mountain Track | `mountain` | 6.2 m, 33° off-camber — 18 km/h | 4 cars | banked climb, guardrails |
 | 1 | Sprint | `sprint` | 42.9 m — 87 km/h | solo | boost strips |
 | 2 | Storm Ridge | `storm` | 34.1 m — 78 km/h | 2 cars | crosswind, updraft, chicanes |
 | 3 | Neon Circuit | `circuit` | 27.7 m — 70 km/h | 5 cars | racing |
 | — | Testbed | `testbed` | n/a | solo | slalom, crest, ramp |
+
+**The official maps are modelled, not generated.** `city` and
+`grandprix` are Blender exports in `assets/maps/`, turned into a Track by
+`src/levels/glb-map.js`. The contract with the modeller is one road mesh
+(`Road` unless the level names another): a single closed ribbon with its
+vertices in left/right pairs along the lap (flat-shaded exports that
+duplicate each vertex are detected). The centreline, `s`, the width, the start line (first pair) and
+the direction of travel (pair order) are all recovered from it, so
+checkpoints, AI, pickups, ghost and minimap work unchanged. Things to know:
+
+- The level lists which meshes are drivable (`surfaces`, trimesh colliders
+  made from the same vertices that are drawn) and which are solid
+  (`solid`, oriented boxes). Everything else is visual only.
+- Walls are **soft** (`wallLimit`), not barrier geometry: the city's
+  hairpins are tighter than half the road width, and a swept barrier
+  crumples on the inside of them.
+- Meshes are merged per material at load (3339 and 4124 nodes → a few
+  dozen draw calls). Re-export freely; nothing is hand-placed in code.
+- A material exported without a colour renders white — fix it in
+  Blender or with `materialColors` in the level.
+- Banking is read from the ribbon and `cornerSpeedAt` accounts for it.
+  **Check the sign of the tilt**: the first Mountain Track export leans
+  every corner the wrong way (inside edge higher), which halves the grip
+  in the hairpins and slides cars into the rails.
+- Real barriers go in `walls` (collide as their own mesh) with
+  `softWalls: false`, as on the Mountain Track.
+- three.js turns spaces in names into underscores: match `Guardrail_Left`,
+  not `Guardrail Left`.
 
 Two things to copy from Storm Ridge when you build a hazard:
 

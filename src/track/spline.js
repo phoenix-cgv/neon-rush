@@ -40,7 +40,7 @@ function projectOnSegment(p, a, b) {
 export class TrackSpline {
   /**
    * @param {THREE.Vector3[]} points control points
-   * @param {{closed?: boolean, spacing?: number, banking?: number[]}} opts
+   * @param {{closed?: boolean, spacing?: number, banking?: number[] | ((u: number) => number)}} opts
    */
   constructor(points, { closed = true, spacing = 2, banking = null } = {}) {
     // "centripetal" avoids the cusps and overshoot that the uniform
@@ -85,7 +85,11 @@ export class TrackSpline {
       this.tan[i] = t;
       this.right[i] = right;
       this.up[i] = up;
-      if (banking) this.bank[i] = banking[i % banking.length] || 0;
+      // An array is indexed by sample; a function takes the fraction of
+      // the lap, which is what a modelled map can supply without knowing
+      // how many samples the spline will end up with.
+      if (typeof banking === "function") this.bank[i] = banking(i / this.count) || 0;
+      else if (banking) this.bank[i] = banking[i % banking.length] || 0;
     }
 
     // Curvature by finite difference of the tangents: kappa = |dT/ds|.

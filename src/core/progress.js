@@ -55,6 +55,10 @@ export class Progress {
    */
   update(dt, vehicle) {
     this.justRespawned = false;
+    // One step only. Left set, every step after the first lap read as
+    // another lap finished, and the ghost recorder restarted 60 times a
+    // second.
+    this.justCompletedLap = false;
     this.lapTime += dt;
 
     const s = vehicle.s;
