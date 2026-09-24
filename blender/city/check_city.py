@@ -98,14 +98,18 @@ check("Kerb face meets the road; pavement continuous at kerb height", not proble
 # Ground under the road and pavement band (after modifiers)
 g = objs["CityGround"]
 gtree = BVHTree.FromObject(g, depsgraph)
+g_inv = g.matrix_world.inverted()
 worst = (1e9, None)
 for i in range(0, len(P), 3):
     for off in (-12, -9, -7.2, -3, 0, 3, 7.2, 9, 12):
         q = P[i] + left[i] * off
         top_z = 0.0 if abs(off) <= 7 else 0.12
-        hit = gtree.ray_cast(Vector((q[0], q[1], 5.0)), Vector((0, 0, -1)), 20.0)
-        if hit[0] is not None and top_z - hit[0].z < worst[0]:
-            worst = (top_z - hit[0].z, q)
+        # BVHTree.FromObject works in the object's local space
+        hit = gtree.ray_cast(g_inv @ Vector((q[0], q[1], 5.0)), g_inv.to_3x3() @ Vector((0, 0, -1)), 50.0)
+        if hit[0] is not None:
+            z = (g.matrix_world @ hit[0]).z
+            if top_z - z < worst[0]:
+                worst = (top_z - z, q)
 check("Ground stays under the road and pavement (>= 5 cm)", worst[0] >= 0.05,
       f"min clearance {worst[0] * 100:.1f} cm at ({worst[1][0]:.0f}, {worst[1][1]:.0f})")
 

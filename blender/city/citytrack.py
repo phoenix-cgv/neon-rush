@@ -16,8 +16,8 @@
 #     and trees could all land closer, some on the road).
 #   - The start gantry spans the road at the start line (s = 0).
 #   - No parked cars: the game runs live traffic instead.
-#   - The ground relief stays below the road (it reached 15 cm above it);
-#     re-running does not pile up
+#   - The ground relief is +-5 cm (it was +-27 cm on ground 12 cm below the
+#     road); re-running does not pile up
 #     duplicate collections.
 # Extends the original citytrack.py with: procedural bump materials, a Nishita
 # sky + matching sun, lit streetlamps, traffic lights, crosswalks, bollards,
@@ -67,9 +67,49 @@ def link(obj,col):
         if c!=cols[col]:
             c.objects.unlink(obj)
 
+# Objects are built from mesh data directly, not with bpy.ops.mesh.primitive_*:
+# each operator call re-evaluates the whole scene, so with ~5000 objects a
+# build took over half an hour. Each object still gets its own mesh copy, so
+# giving it a material doesn't touch any other object.
+import bmesh
+_PRIM_CACHE={}
+_PRIM_NAMES={'cube':'Cube','cylinder':'Cylinder','cone':'Cone','sphere':'Sphere'}
+
+def _prim_mesh(kind, vertices=32, radius=1.0, radius1=1.0, radius2=0.0, depth=2.0):
+    key=(kind,vertices,radius,radius1,radius2,depth)
+    if key not in _PRIM_CACHE:
+        bm=bmesh.new()
+        if kind=='cube':
+            bmesh.ops.create_cube(bm,size=2)                 # like primitive_cube_add: -1..1
+        elif kind=='cylinder':
+            bmesh.ops.create_cone(bm,cap_ends=True,cap_tris=False,segments=vertices,
+                                  radius1=radius,radius2=radius,depth=depth)
+        elif kind=='cone':
+            bmesh.ops.create_cone(bm,cap_ends=True,cap_tris=False,segments=vertices,
+                                  radius1=radius1,radius2=radius2,depth=depth)
+        else:
+            # 16 x 8, as the shipped map used: 32 x 16 quadrupled the file's vertex count
+            bmesh.ops.create_uvsphere(bm,u_segments=16,v_segments=8,radius=radius)
+        me=bpy.data.meshes.new(_PRIM_NAMES[kind])
+        bm.to_mesh(me); bm.free()
+        _PRIM_CACHE[key]=me
+    return _PRIM_CACHE[key].copy()
+
+def add_prim(kind, location, name=None, **shape):
+    obj=bpy.data.objects.new(name or _PRIM_NAMES[kind], _prim_mesh(kind, **shape))
+    obj.location=location
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
+def add_light(kind, location, name=None):
+    data=bpy.data.lights.new(name or kind.title(), kind)
+    obj=bpy.data.objects.new(name or kind.title(), data)
+    obj.location=location
+    bpy.context.scene.collection.objects.link(obj)
+    return obj
+
 def box(name, location, dimensions, material, collection="STREET_PROPS", rotation=0):
-    bpy.ops.mesh.primitive_cube_add(location=location)
-    obj=bpy.context.object
+    obj=add_prim('cube',location)
     obj.name=name
     obj.scale=(dimensions[0]/2,dimensions[1]/2,dimensions[2]/2)
     obj.rotation_euler[2]=rotation
@@ -78,8 +118,7 @@ def box(name, location, dimensions, material, collection="STREET_PROPS", rotatio
     return obj
 
 def cyl(name, radius, depth, location, material, collection, rotation=(0,0,0), vertices=14):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius, depth=depth, location=location)
-    obj=bpy.context.object
+    obj=add_prim('cylinder',location,vertices=vertices,radius=radius,depth=depth)
     obj.name=name
     obj.rotation_euler=rotation
     obj.data.materials.append(material)
@@ -87,8 +126,7 @@ def cyl(name, radius, depth, location, material, collection, rotation=(0,0,0), v
     return obj
 
 def cone_obj(name, radius1, radius2, depth, location, material, collection, rotation=(0,0,0)):
-    bpy.ops.mesh.primitive_cone_add(radius1=radius1, radius2=radius2, depth=depth, location=location)
-    obj=bpy.context.object
+    obj=add_prim('cone',location,radius1=radius1,radius2=radius2,depth=depth)
     obj.name=name
     obj.rotation_euler=rotation
     obj.data.materials.append(material)
@@ -96,8 +134,7 @@ def cone_obj(name, radius1, radius2, depth, location, material, collection, rota
     return obj
 
 def sphere_obj(name, radius, location, material, collection):
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, location=location)
-    obj=bpy.context.object
+    obj=add_prim('sphere',location,radius=radius)
     obj.name=name
     obj.data.materials.append(material)
     link(obj,collection)
@@ -250,7 +287,7 @@ terrain_tex=bpy.data.textures.new("TerrainNoise",type='CLOUDS')
 terrain_tex.noise_scale=28
 mod_disp=ground.modifiers.new("Terrain","DISPLACE")
 mod_disp.texture=terrain_tex
-mod_disp.strength=0.1    # +-5 cm about GROUND_Z (was 0.55: up to 15 cm ABOVE the road)
+mod_disp.strength=0.1    # +-5 cm about GROUND_Z (was 0.55: +-27 cm, enough to reach the road)
 mod_disp.mid_level=0.5
 
 def ribbon(name, profile, material, collection):
@@ -352,10 +389,10 @@ for i in range(0,len(center),27):
     off=random.uniform(-hw*.5,hw*.5)
     px=p.x+rx*off; py=p.y+ry*off
     if random.random()<0.5:
-        box("RoadPatch",(px,py,.003),(random.uniform(2,4),random.uniform(1.5,3),.004),
+        box("RoadPatch",(px,py,.004),(random.uniform(2,4),random.uniform(1.5,3),.004),
             MAT_PATCH,"CITY_ROAD",angle)
     else:
-        box("Puddle",(px,py,.004),(random.uniform(1.5,3),random.uniform(1,2),.004),
+        box("Puddle",(px,py,.006),(random.uniform(1.5,3),random.uniform(1,2),.004),
             MAT_PUDDLE,"CITY_ROAD",angle)
 
 # ---------- crosswalks + traffic lights + pedestrian signage ----------
@@ -404,8 +441,7 @@ def make_gantry(idx):
     box("GantrySign",(front.x,front.y,7.2),(2*(hw+5.6)-1.0,.15,.8),MAT_BILLBOARD,"STREET_PROPS",angle)
     for lx in (-10,0,10):
         lp=p+r*lx-d*1.0
-        bpy.ops.object.light_add(type='SPOT', location=(lp.x,lp.y,7.6))
-        sp=bpy.context.object
+        sp=add_light('SPOT',(lp.x,lp.y,7.6))
         sp.data.energy=3000
         sp.rotation_euler=(math.radians(150),0,0)
         sp.data.spot_size=math.radians(60)
@@ -457,8 +493,7 @@ for i in range(BUILDING_COUNT):
     else:
         sx,sy,sz=20,20,random.uniform(8,15)
 
-    bpy.ops.mesh.primitive_cube_add(location=(x,y,sz/2))
-    b=bpy.context.object
+    b=add_prim('cube',(x,y,sz/2))
     b.scale=(sx/2,sy/2,sz/2)
     b.rotation_euler[2]=random.uniform(-0.12,0.12)
     b.data.materials.append(random.choice(MAT_BUILDINGS))
@@ -473,8 +508,7 @@ for i in range(BUILDING_COUNT):
             continue
         window_mat=MAT_WINDOW_LIT if random.random()<0.58 else MAT_WINDOW_COOL
         for side in (-1,1):
-            bpy.ops.mesh.primitive_cube_add(location=(x+side*(sx/2+.035),y,z))
-            window=bpy.context.object
+            window=add_prim('cube',(x+side*(sx/2+.035),y,z))
             window.scale=(.035,max(.22,sy*.28),.55)
             window.rotation_euler[2]=b.rotation_euler[2]
             window.data.materials.append(window_mat)
@@ -484,16 +518,13 @@ for i in range(BUILDING_COUNT):
     # uniform, especially on the taller buildings.
     if sz>35:
         for unit in range(1+random.randint(0,2)):
-            bpy.ops.mesh.primitive_cube_add(
-                location=(x+random.uniform(-sx*.25,sx*.25),
-                          y+random.uniform(-sy*.25,sy*.25),sz+.8))
-            roof_unit=bpy.context.object
+            roof_unit=add_prim('cube',
+                (x+random.uniform(-sx*.25,sx*.25),
+                 y+random.uniform(-sy*.25,sy*.25),sz+.8))
             roof_unit.scale=(.8,.65,.8)
             roof_unit.data.materials.append(MAT_CONC)
             link(roof_unit,"BUILDINGS")
-        bpy.ops.mesh.primitive_cylinder_add(radius=.08,depth=4,
-                                            location=(x,y,sz+3))
-        antenna=bpy.context.object
+        antenna=add_prim('cylinder',(x,y,sz+3),radius=.08,depth=4)
         antenna.data.materials.append(MAT_WINDOW_COOL)
         link(antenna,"BUILDINGS")
 
@@ -523,13 +554,11 @@ for i in range(BUILDING_COUNT):
     # Low-rise blocks become shops with colored awnings and a brighter base.
     if sz<22:
         awning=MAT_AWNINGS[i%len(MAT_AWNINGS)]
-        bpy.ops.mesh.primitive_cube_add(location=(x,y-sy/2-.12,2.5))
-        shop=bpy.context.object
+        shop=add_prim('cube',(x,y-sy/2-.12,2.5))
         shop.scale=(sx*.38,.12,.65)
         shop.data.materials.append(awning)
         link(shop,"BUILDINGS")
-        bpy.ops.mesh.primitive_cube_add(location=(x,y-sy/2-.04,.85))
-        storefront=bpy.context.object
+        storefront=add_prim('cube',(x,y-sy/2-.04,.85))
         storefront.scale=(sx*.42,.08,.55)
         storefront.data.materials.append(MAT_WINDOW_COOL)
         link(storefront,"BUILDINGS")
@@ -550,16 +579,13 @@ for i in range(TREE_COUNT):
     species=random.random()
     if species<0.65:
         # broadleaf: layered canopy cones
-        bpy.ops.mesh.primitive_cylinder_add(vertices=10,radius=.28,depth=3.4,location=(x,y,1.7))
-        trunk=bpy.context.object
+        trunk=add_prim('cylinder',(x,y,1.7),vertices=10,radius=.28,depth=3.4)
         trunk.data.materials.append(MAT_TREE_TRUNK)
         link(trunk,"VEGETATION")
         for level,(z,radius,height) in enumerate(((3.2,2.2,2.8),(4.8,1.8,2.5),(6.2,1.25,2.2))):
-            bpy.ops.mesh.primitive_cone_add(vertices=10,radius1=radius,
-                                            radius2=.15,depth=height,
-                                            location=(x+random.uniform(-.15,.15),
-                                                      y+random.uniform(-.15,.15),z))
-            leaf=bpy.context.object
+            leaf=add_prim('cone',(x+random.uniform(-.15,.15),
+                                  y+random.uniform(-.15,.15),z),
+                          vertices=10,radius1=radius,radius2=.15,depth=height)
             leaf.name="TreeFoliage"
             leaf.data.materials.append(MAT_TREE_DARK if level==0 else MAT_TREE_LIGHT)
             link(leaf,"VEGETATION")
@@ -599,8 +625,7 @@ def make_streetlamp(loc, inward_angle):
     hx=x+math.cos(inward_angle)*arm_len
     hy=y+math.sin(inward_angle)*arm_len
     sphere_obj("LampHead",.28,(hx,hy,6.0),MAT_LAMP_GLOW,"STREET_FURNITURE")
-    bpy.ops.object.light_add(type='POINT', location=(hx,hy,5.9))
-    l=bpy.context.object
+    l=add_light('POINT',(hx,hy,5.9))
     l.data.energy=1200 if LIGHTING_MODE!="DAY" else 100
     l.data.color=(1,0.85,0.6)
     link(l,"LIGHTS")
@@ -735,7 +760,10 @@ def setup_sky():
     nt=world.node_tree
     bg=nt.nodes["Background"]
     sky=nt.nodes.new("ShaderNodeTexSky")
-    sky.sky_type='NISHITA'
+    try:
+        sky.sky_type='NISHITA'               # Blender 4.x
+    except TypeError:
+        sky.sky_type='MULTIPLE_SCATTERING'   # Blender 5 renamed the Nishita model
     if LIGHTING_MODE=="DAY":
         elevation=math.radians(55); rotation=math.radians(200)
         sky.sun_intensity=1.0; bg.inputs["Strength"].default_value=1.0
