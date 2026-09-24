@@ -5,7 +5,7 @@
 | `mountain_track.py` | Generates the whole map. Deletes everything and rebuilds from one centreline. |
 | `Mountain_3.blend` | The map built by that script (the script is embedded as a Text block). |
 | `check_mountain.py` | Measures a built `.blend` against the game team's acceptance criteria. |
-| `export_glb.py` | Exports the `.blend` to `assets/maps/MountainTrack.glb`, which `src/levels/mountain.js` loads. |
+| `../export_glb.py` | Exports the `.blend` to `assets/maps/MountainTrack.glb`, which `src/levels/mountain.js` loads. |
 
 ## Rebuild
 
@@ -16,7 +16,7 @@ Headless, with `pip install bpy` (Blender 5.0 as a Python module, Python 3.11):
 ```bash
 python3 -c "import bpy; exec(open('mountain_track.py').read()); bpy.ops.wm.save_as_mainfile(filepath='Mountain_3.blend')"
 python3 check_mountain.py Mountain_3.blend     # PASS/FAIL per criterion, exit code 1 on any FAIL
-python3 export_glb.py Mountain_3.blend ../../assets/maps/MountainTrack.glb
+python3 ../export_glb.py Mountain_3.blend ../../assets/maps/MountainTrack.glb
 ```
 
 The build takes about 7 minutes (mostly the 2,000+ tree and rock objects).

@@ -33,7 +33,9 @@
       "author": "Neon Rush team",
       "tool": "Blender 5.2 (Khronos glTF Blender I/O)",
       "licence": "Original work",
-      "used_for": "Official map 2 - full circuit. Loaded by src/levels/grandprix.js"
+      "used_for": "Official map 2 - full circuit. Loaded by src/levels/grandprix.js",
+      "path": "blender/grandprix/",
+      "modified": "Final corner rebuilt, road ribbon regenerated, scenery cleared from the track, gravel trap and Grass colour fixed by blender/grandprix/fix_grandprix.py"
     },
     {
       "name": "Mountain Track (assets/maps/MountainTrack.glb)",

@@ -5,10 +5,13 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // OFFICIAL MAP 3 — Grand Prix
 //
 // A full-size permanent circuit, modelled in Blender
-// (assets/maps/GrandPrix.glb): 2.6 km, pit straight with garages and a
-// start gantry, grandstands, gravel traps and tyre walls. Long straights
-// and mostly fast sweepers, closing with a tight right-hander onto the
-// pit straight — the one corner that punishes arriving flat out.
+// (assets/maps/GrandPrix.glb, fixed by blender/grandprix/fix_grandprix.py):
+// 2.7 km, pit straight with garages and a start gantry, grandstands,
+// gravel traps and tyre walls. Long straights and mostly fast sweepers,
+// closing with a diagonal run down the west side into one slow R30 left
+// onto the pit straight — the one corner that punishes arriving flat
+// out. It finishes 70 m before the line, so the whole grid lines up on
+// straight road.
 //
 // The soft wall sits 1.4 m out on the grass verge, just inside the tyre
 // walls. It was first set 4 m out, which put the tyre walls inside the
@@ -40,9 +43,6 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // Road edge 7 m; the nearest tyre-wall face is at 9.4 m, and the car
     // is 0.85 m either side of its centre.
     wallLimit: 8.4,
-    // The ground and hills use a Blender procedural material that exports
-    // with no colour, so they rendered white.
-    materialColors: { Grass: [0.12, 0.3, 0.08] },
     track: { checkpointSpacing: 150 },
   });
   const { track } = map;
