@@ -19,7 +19,7 @@ import * as THREE from "three";
 //
 // Personalities are PARAMETERS over this one controller, never separate
 // code paths. A second implementation would be a second set of bugs.
-// ---------------------------------------------------------------------
+// --------------------------------------------------------------------
 
 const _fwd = new THREE.Vector3();
 const _right = new THREE.Vector3();
