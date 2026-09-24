@@ -5,16 +5,17 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
 //
-// A street circuit through a city block, modelled in Blender
-// (assets/maps/CityTrack.glb). 1.2 km, 14 m of road between kerbs, and
-// two genuine hairpins — about 4 m and 7 m radius on the modelled line —
-// that nothing in the procedural levels comes close to. Those are the
-// point of the map: this is where braking is learned.
+// A street circuit through a city block, generated in Blender by
+// citytrack.py (assets/maps/CityTrack.glb): 1.25 km, 14 m of road between
+// kerbs, lamps, traffic lights, parked cars and a crowd along the
+// pavements. Two hairpins, opened out to about 14 m radius in this
+// version (they were 3 m and 5 m, tighter than the car can turn, and
+// folded the pavement over the road).
 //
-// The soft wall sits out on the pavement, so the kerb is a line you can
-// cross and the buildings are never reached. Every facade was measured
-// against the centreline: the nearest is well outside the wall, so none
-// of the 2595 blocks needs a collider.
+// The generator keeps everything that stands up at least 10 m from the
+// centre line, so the soft wall at 9 m lets a car use the kerb and
+// gutter and never reach a lamp post, a pedestrian or a building. None
+// of the scenery needs a collider.
 // ---------------------------------------------------------------------
 
 buildCity.preload = () => loadMap(mapUrl);
@@ -27,27 +28,25 @@ export function buildCity(RAPIER, world, scene, gltf) {
       { match: /^Road$/, friction: 1.0 },
       { match: /^Kerb(Left|Right)$/, friction: 0.9 },
       { match: /^Pavement(Left|Right)$/, friction: 0.8 },
-      // The modelled gutter is the ground plane, 12 cm below the road and
-      // 14 cm below the pavement. The chassis clears the road by 17 cm,
-      // so in the gutter a flat pavement edge caught it side-on and
-      // stopped the car dead — and as ground, not wall, nothing counted
-      // it as a hit or pushed it off. Collide with the ground at road
-      // level; the 12 cm the wheels float over the gutter is invisible.
-      { match: /^CityGround$/, friction: 0.7, lift: 0.12 },
+      // The modelled gutter is the ground plane: 12 cm below the road,
+      // with gentle bumps of up to 10 cm either way. The chassis clears
+      // the road by 17 cm, so down in the gutter the pavement's edge
+      // caught it side-on and stopped the car dead — and as ground, not
+      // wall, nothing counted it as a hit or pushed it off. Collide with
+      // the ground as a flat sheet at road level instead: lifting the
+      // bumpy mesh would push its bumps up through the road.
+      { match: /^CityGround$/, friction: 0.7, flatY: 0 },
     ],
-    decals: /^(Line|CentreDash)/,
+    decals: /^(Line|CentreDash|CrosswalkBar|Manhole|Puddle|RoadPatch)/,
     overlays: /^(Road|KerbLeft|KerbRight|Pavement|GreenIsland|TreePit)/,
     minimap: /^(Road|KerbLeft|KerbRight|Pavement)/,
-    // 132 posts in the model have no material at all.
-    materialColors: { default: [0.3, 0.3, 0.32] },
-    // Road edge 7 m, kerb to 7.35, pavement from 9 to 12, and the nearest
-    // building face at 11.9. The hairpins need all the width there is:
-    // the car's full-lock radius (~4.2 m) is the same as theirs.
-    wallLimit: 10.5,
+    // Road edge 7 m, kerb to 7.35, pavement from 9 to 12; nothing standing
+    // inside 10 m. The car is 0.85 m either side of its centre.
+    wallLimit: 9,
   });
   const { track } = map;
 
-  // The model has no start line, and a lap that ends at nothing reads as
+  // The model has a gantry but no line on the road, and a lap that ends at nothing reads as
   // a timing bug. A chequered strip across the road at s = 0.
   const line = startLine(track, scene);
   track.objects.push(line); // Track.dispose() frees its geometry and material

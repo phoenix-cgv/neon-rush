@@ -179,7 +179,7 @@ deliberately graded by their tightest corner:
 
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
-| A | City Track | `city` | 3.2 m hairpin — 24 km/h | 4 cars | street circuit, hairpins |
+| A | City Track | `city` | 15.3 m — 51 km/h | 4 cars | street circuit, lamps, crowd |
 | B | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
 | C | Mountain Track | `mountain` | 6.2 m, 33° off-camber — 18 km/h | 4 cars | banked climb, guardrails |
 | 1 | Sprint | `sprint` | 42.9 m — 87 km/h | solo | boost strips |

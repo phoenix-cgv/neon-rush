@@ -33,9 +33,10 @@ const UP = new THREE.Vector3(0, 1, 0);
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
 
 // Collision layers. `car` is every racing car including the player;
-// `ghost` is a replay, which shares the track but not the racing.
-const GROUP = { car: 0x0002, ghost: 0x0004 };
-const ALL = 0xffff;
+// `ghost` is a replay, which shares the track but not the racing;
+// `traffic` is civilian traffic (core/traffic.js), solid to cars only.
+export const GROUP = { car: 0x0002, ghost: 0x0004, traffic: 0x0008 };
+export const ALL = 0xffff;
 
 /**
  * Tyre force curve. Returns a signed grip coefficient for a slip angle.

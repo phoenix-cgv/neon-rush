@@ -176,7 +176,7 @@ function centrelineFromRibbon(pos, { spacing = 6, passes = 3 } = {}) {
 }
 
 /** World-space position + index arrays of a mesh, for a trimesh collider. */
-function worldTriangles(mesh, lift = 0) {
+function worldTriangles(mesh, lift = 0, flatY = null) {
   const g = mesh.geometry;
   const pos = g.attributes.position;
   const out = new Float32Array(pos.count * 3);
@@ -184,7 +184,7 @@ function worldTriangles(mesh, lift = 0) {
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld);
     out[i * 3] = v.x;
-    out[i * 3 + 1] = v.y + lift;
+    out[i * 3 + 1] = flatY ?? v.y + lift;
     out[i * 3 + 2] = v.z;
   }
   const idx = g.index
@@ -260,7 +260,10 @@ function prepare(gltf, opts) {
 
     const surface = opts.surfaces.find((sf) => sf.match.test(name));
     if (surface) {
-      surfaces.push({ ...worldTriangles(o, surface.lift), friction: surface.friction ?? 1.0 });
+      surfaces.push({
+        ...worldTriangles(o, surface.lift, surface.flatY),
+        friction: surface.friction ?? 1.0,
+      });
     }
     // Continuous barriers (the Mountain Track's guardrails) collide as the
     // mesh itself, like the generated barriers do: a row of boxes along a
@@ -334,8 +337,9 @@ function prepare(gltf, opts) {
  *
  * @param {object} gltf       from loadMap()
  * @param {object} opts
- *   surfaces   [{ match: RegExp, friction, lift }] meshes that are drivable
- *              ground; lift raises the collider (not the mesh), in metres
+ *   surfaces   [{ match: RegExp, friction, lift, flatY }] meshes that are
+ *              drivable ground; lift raises the collider (not the mesh), in
+ *              metres; flatY collides as a flat sheet at that height
  *   roadName   the road ribbon mesh (default "Road")
  *   solid      RegExp of node names that become box colliders
  *   walls      RegExp of meshes that collide as themselves (barriers)
