@@ -620,7 +620,15 @@ stored ghost recordings on load.
 
 ---
 
-## 11. Deploying to the department server
+## 11. Deploying
+
+**GitHub Pages (automatic).** Every push to `main` builds the game and
+publishes it to <https://phoenix-cgv.github.io/neon-rush/>, via
+`.github/workflows/deploy.yml`. Watch a deploy in the repo's Actions tab;
+the "Run workflow" button there redeploys without a push. Pages is set to
+publish from GitHub Actions (Settings → Pages → Source).
+
+### The department server
 
 ```bash
 npm run build     # -> dist/
