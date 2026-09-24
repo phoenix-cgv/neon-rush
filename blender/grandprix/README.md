@@ -45,4 +45,7 @@ distance to the nearest **vertex** of the road's centreline. Those vertices were
 apart on the straights, so a spot halfway between two of them could be on the asphalt and still
 read as far from the track. `distance_to_track()` now measures the distance to the centreline
 **segments**, and grass clumps keep 10 m from the centre (outside the 9.25 m the game lets a car
-use). `fix_grandprix.py` still clears the drivable band either way.
+use). Checked by stripping `Track.py`'s scenery from `RaceTrack2.blend` and re-running it: none
+of its 260 trees, 180 bushes or 450 grass clumps land in the drivable band (84 of its objects did
+before). The one object left there is `Rock.011`, a 2.6 m rock on the verge from `Track2.py`,
+which `fix_grandprix.py` removes.
