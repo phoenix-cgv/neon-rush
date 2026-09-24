@@ -11,16 +11,12 @@ import { Race } from "./core/race.js";
 import { Minimap, MINIMAP_LAYER, MAP_WORLD_LAYER } from "./ui/minimap.js";
 import { Menu } from "./ui/menu.js";
 import { Save, QUALITY } from "./core/save.js";
-import { Ghost } from "./core/ghost.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
-import { buildCircuit } from "./levels/circuit.js";
-import { buildSprint } from "./levels/sprint.js";
-import { buildStorm } from "./levels/storm.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
 import { buildMountain } from "./levels/mountain.js";
@@ -29,12 +25,13 @@ import { buildMountain } from "./levels/mountain.js";
 // M1-M4.
 //
 // Drivable car (raycast suspension, slip-angle tyres, friction circle) on
-// either the tuning testbed or a spline-generated circuit, with
-// checkpoints, laps, falling and respawn all derived from one number:
-// distance along the track centreline.
+// one of the three maps or the tuning testbed, with checkpoints, laps,
+// falling and respawn all derived from one number: distance along the
+// track centreline.
 //
-// Tuning constants live in src/vehicle/config.js. Track shape lives in
-// src/levels/circuit.js. Neither belongs in here.
+// Tuning constants live in src/vehicle/config.js. Maps live in
+// src/levels/ (city.js, mountain.js, grandprix.js) and assets/maps/.
+// Neither belongs in here.
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
@@ -169,37 +166,33 @@ applyAssists();
 applyPresentation();
 
 // ---------------------------------------------------------------------
-// Levels. The testbed stays because it is where the car was tuned and
-// where it gets re-checked; the circuit is the first thing built on the
-// track API. Switch with L, or ?level=testbed.
-// ---------------------------------------------------------------------
-// The three game levels, in order, plus the tuning testbed — which is a
-// development tool rather than a level and deliberately sits after them
-// in the cycle.
+// Levels: the game's three maps, in order. L cycles through them.
 //
-// The official maps come first and are modelled in Blender (assets/maps);
-// their builders carry a preload() that fetches the .glb, and loadLevel
-// awaits it before building. The procedural levels follow them.
+// The maps are modelled in Blender (assets/maps); their builders carry a
+// preload() that fetches the .glb, and loadLevel awaits it before
+// building.
+//
+// The testbed is a development tool, not a level: it is where the car
+// was tuned and where handling gets re-checked. It stays loadable with
+// ?level=testbed but is deliberately left out of the L cycle, so players
+// never land on it.
+// ---------------------------------------------------------------------
 const LEVELS = {
-  city: buildCity, //         official map 1 — street circuit, hairpins
-  grandprix: buildGrandPrix, // official map 2 — the full circuit, five opponents
-  mountain: buildMountain, // official map 3 — banked climb, guardrails
-  sprint: buildSprint, // learn the car and the boost economy
-  storm: buildStorm, //   crosswind, downdraft, chicanes
-  circuit: buildCircuit, // the race, five opponents
-  testbed: buildTestbed,
+  city: buildCity, //           1 — street circuit, solo through live traffic
+  mountain: buildMountain, //   2 — banked climb, guardrails, tunnel
+  grandprix: buildGrandPrix, // 3 — the full circuit, five opponents
+  testbed: buildTestbed, //     development only: ?level=testbed
 };
-const ORDER = ["city", "grandprix", "mountain", "sprint", "storm", "circuit", "testbed"];
+const ORDER = ["city", "mountain", "grandprix"];
 let level = null;
 // The car a track-less level owns, so the next loadLevel can take it back.
-let ghost = null;
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
 const requested = new URLSearchParams(location.search).get("level");
-let levelName = ORDER.includes(requested) ? requested : "city";
+let levelName = requested && Object.hasOwn(LEVELS, requested) ? requested : ORDER[0];
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
@@ -246,8 +239,6 @@ async function loadLevel(name) {
 
   race?.dispose();
   race = null;
-  ghost?.dispose();
-  ghost = null;
   traffic?.dispose();
   traffic = null;
   pickups = null; // its meshes belong to the track and go with it
@@ -272,13 +263,8 @@ async function loadLevel(name) {
     carRig = race.player.rig;
     progress = race.player.progress;
     minimap.build(race.cars);
-    // The ghost shares the world but not the race: it is not in
-    // race.cars, so it cannot affect standings, slipstream or respawn
-    // slot searches.
-    ghost = new Ghost(RAPIER, world, scene, level.track, name, (level.opponents ?? 0) === 0);
     pickups = new Pickups(level.track, scene, level.pickups ?? {});
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
-    ghost.restart(vehicle);
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -313,7 +299,8 @@ function respawn(pose = null) {
 
 await loadLevel(levelName);
 // A map that failed to download must not leave the game with no level.
-if (!level) await loadLevel("sprint");
+// The testbed is built in code, so it needs no download.
+if (!level) await loadLevel("testbed");
 
 renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
@@ -394,11 +381,6 @@ function frame(now) {
       }
     }
 
-    // The ghost is stepped with the field, before the single solve, for
-    // the same reason every car is: anything stepped after would be
-    // reacting to a world the others had not moved in yet.
-    ghost?.step(WORLD.fixedDt, controls);
-
     // Traffic moves on the same step, before the same single solve.
     traffic?.step(WORLD.fixedDt, race ? race.cars : []);
 
@@ -408,13 +390,9 @@ function frame(now) {
       // Constraints and progress correct the pose Rapier just produced,
       // so they run after the solver, not before it.
       race.postStep(WORLD.fixedDt);
-      ghost?.postStep();
-      // Orbs are collected by the FIELD, not by the ghost: a replay must
-      // not change the world it is replaying into.
       pickups?.update(WORLD.fixedDt, race.cars);
-      if (progress?.justCompletedLap) {
-        ghost?.completeLap(progress.lastLapTime, vehicle);
-      }
+      // Best lap per level, shown in the pause menu.
+      if (progress?.justCompletedLap) Save.submitLap(levelName, progress.lastLapTime);
     } else {
       vehicle.applySoftWall();
     }
@@ -427,7 +405,6 @@ function frame(now) {
     vehicle.writeTransform(alpha);
     carRig.sync(vehicle.state);
   }
-  ghost?.render(alpha);
   traffic?.render(alpha);
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
@@ -471,7 +448,6 @@ window.__dbg = {
   get race() { return race; },
   minimap, menu, Save, input, renderer, health, smoke,
   get pickups() { return pickups; },
-  get ghost() { return ghost; },
   get traffic() { return traffic; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),

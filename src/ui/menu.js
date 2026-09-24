@@ -107,7 +107,7 @@ export class Menu {
 
   render() {
     const s = Save.data;
-    // Records are per level — a Sprint ghost means nothing on the Circuit.
+    // Records are per level: a lap time only means something on its own track.
     const rec = Save.record(this.levelName());
     let html = "";
 
@@ -116,8 +116,7 @@ export class Menu {
         <div style="font-size:1.5rem;letter-spacing:.03em;margin-bottom:.2rem">PAUSED</div>
         <div style="color:#7d9198;margin-bottom:1.1rem">
           ${rec.bestLap
-            ? "Best lap " + rec.bestLap.toFixed(2) + " s" +
-              (rec.ghost ? " &middot; ghost saved" : "")
+            ? "Best lap " + rec.bestLap.toFixed(2) + " s"
             : "No lap set yet"}
         </div>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap">

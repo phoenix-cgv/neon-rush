@@ -2,7 +2,7 @@ import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 
 // ---------------------------------------------------------------------
-// OFFICIAL MAP 2 — Grand Prix
+// OFFICIAL MAP 3 — Grand Prix
 //
 // A full-size permanent circuit, modelled in Blender
 // (assets/maps/GrandPrix.glb): 2.6 km, pit straight with garages and a
@@ -50,7 +50,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
   const gate = track.spawnAt(0);
   return {
     name: "grandprix",
-    index: 2,
+    index: 3,
     title: "Grand Prix",
     track,
     opponents: 5, // the full field: this is the race

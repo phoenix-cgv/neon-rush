@@ -20,17 +20,19 @@ export const DEFAULTS = {
   telemetry: true,
   // input
   bindings: null, // null = use DEFAULT_BINDINGS
-  // Records, keyed by level name. A ghost is a recording of a specific
-  // track: replaying a Sprint lap on the Circuit would send it straight
-  // through a barrier, so one global best lap is not a record, it is a
-  // category error.
+  // Best lap per level, keyed by level name: a lap time only means
+  // something on the track it was set on.
   records: {},
 };
 
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    const data = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+    // Earlier versions kept a ghost-car recording (~17 KB of controls)
+    // with every best lap. The ghost is gone; keep the times, drop those.
+    for (const rec of Object.values(data.records ?? {})) if (rec) delete rec.ghost;
+    return data;
   } catch {
     return { ...DEFAULTS };
   }
@@ -57,25 +59,18 @@ export const Save = {
     write(this.data);
   },
 
-  /** The stored best lap and ghost for one level, or nulls. */
+  /** The stored best lap for one level, or null. */
   record(level) {
-    return this.data.records?.[level] ?? { bestLap: null, ghost: null };
+    return this.data.records?.[level] ?? { bestLap: null };
   },
 
-  /**
-   * Store a lap if it beat this level's stored one. The ghost is kept
-   * with it, so the recording on disk is always the lap the time
-   * belongs to rather than whatever happened to be recorded last.
-   */
-  submitLap(level, seconds, recording) {
+  /** Store a lap if it beat this level's stored one. */
+  submitLap(level, seconds) {
     if (!Number.isFinite(seconds) || seconds <= 0) return false;
     const prev = this.record(level);
     if (prev.bestLap !== null && seconds >= prev.bestLap) return false;
     this.data.records = this.data.records ?? {};
-    this.data.records[level] = {
-      bestLap: seconds,
-      ghost: recording ?? prev.ghost ?? null,
-    };
+    this.data.records[level] = { bestLap: seconds };
     write(this.data);
     return true;
   },

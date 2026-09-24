@@ -102,9 +102,8 @@ export class Traffic {
         RAPIER.ColliderDesc.cuboid(HALF.x, HALF.y, HALF.z)
           .setFriction(0.3)
           .setRestitution(0.1)
-          // Solid to racing cars and their wheel rays; invisible to the
-          // ghost, which must replay its own lap undisturbed.
-          .setCollisionGroups((GROUP.traffic << 16) | (ALL & ~GROUP.ghost)),
+          // Its own collision layer, solid to every car and wheel ray.
+          .setCollisionGroups((GROUP.traffic << 16) | ALL),
         c.body
       );
     }

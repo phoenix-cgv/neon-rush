@@ -52,7 +52,7 @@ design decisions in here only make sense once you have felt the car.
 | `G` | toggle the telemetry overlay and force vectors |
 | `M` | toggle the minimap |
 | `G` | telemetry overlay (the condition bar follows `Save.healthBar`) |
-| `L` | next level: City Track → Grand Prix → Mountain Track → Sprint → Storm Ridge → Neon Circuit → testbed |
+| `L` | next level: City Track → Mountain Track → Grand Prix (the tuning testbed is `?level=testbed`) |
 | `Esc` | pause / options — quality, assists, mouse look, key rebinding |
 
 In the air, `W`/`S` become pitch and `A`/`D` become roll.
@@ -70,8 +70,7 @@ Start from the thing you have been asked to work on.
 
 | I am working on… | Start here |
 |---|---|
-| A new level or track layout | `src/levels/common.js`, then copy `sprint.js` |
-| A map modelled in Blender | `src/levels/glb-map.js`, then copy `city.js` (§5) |
+| A new level or map | `src/levels/glb-map.js`, then copy `city.js` (§5) |
 | Hazards and obstacles | `src/track/track.js` — the level-author API (§5) |
 | Car handling / feel | `src/vehicle/config.js` — **constants only, see §6** |
 | Opponent behaviour | `src/ai/driver.js` |
@@ -91,20 +90,15 @@ Full map:
 | `src/track/track.js` | Road + runoff + barriers, checkpoints, **level-author API** |
 | `src/core/progress.js` | Laps, checkpoints, falling, off-track reset |
 | `src/core/race.js` | The field: every car, grid, slipstream, standings, respawn |
-| `src/core/ghost.js` | Best-lap recording and the ghost car |
 | `src/core/traffic.js` | Civilian traffic: kinematic cars that keep left, both ways |
-| `src/core/determinism.js` | Replay, ghost recordings, **the physics test harness** |
+| `src/core/determinism.js` | Replay recordings, **the physics test harness** |
 | `src/core/save.js` | Settings and records in localStorage (never throws) |
 | `src/ai/driver.js` | Opponent controllers and personalities |
 | `src/levels/glb-map.js` | Modelled maps: .glb → merged meshes + Track (centreline, colliders) |
-| `src/levels/city.js` | Official map 1 — City Track (`assets/maps/CityTrack.glb`) |
-| `src/levels/grandprix.js` | Official map 2 — Grand Prix (`assets/maps/GrandPrix.glb`) |
-| `src/levels/mountain.js` | Official map 3 — Mountain Track (`assets/maps/MountainTrack.glb`) |
-| `src/levels/common.js` | Shared level furniture: scatter, gantry, markers, `polarPoints` |
-| `src/levels/sprint.js` | Level 1 — wide and fast, boost strips |
-| `src/levels/storm.js` | Level 2 — crosswind, updraft, chicanes |
-| `src/levels/circuit.js` | Level 3 — the race. First Track consumer |
-| `src/levels/testbed.js` | Tuning testbed: slalom, crest, ramp, barriers |
+| `src/levels/city.js` | Level 1 — City Track (`assets/maps/CityTrack.glb`) |
+| `src/levels/mountain.js` | Level 2 — Mountain Track (`assets/maps/MountainTrack.glb`) |
+| `src/levels/grandprix.js` | Level 3 — Grand Prix (`assets/maps/GrandPrix.glb`) |
+| `src/levels/testbed.js` | Tuning testbed (development only): slalom, crest, ramp, barriers |
 | `src/ui/menu.js` | Pause and options: quality, assists, key rebinding |
 | `src/ui/minimap.js` | Orthographic second camera in a scissored corner |
 | `src/debug/overlay.js` | Telemetry and force vectors |
@@ -130,7 +124,7 @@ vehicle.state; // position, quaternion, speed, grounded, steerAngle,
 ```
 
 The player, the AI and a recorded replay all produce that same struct.
-That is why opponents and the ghost car cost no extra vehicle code, and
+That is why opponents and recorded replays cost no extra vehicle code, and
 why the physics backend stays swappable.
 
 **2. Never call Rapier directly from a level.** Go through the track (§5).
@@ -149,14 +143,20 @@ properly credited work into a plagiarism question.
 
 ## 5. Adding a level or a hazard
 
-Levels are functions that return a description. Copy `src/levels/sprint.js`
-and change the numbers; register it in the `LEVELS` map and `ORDER` array
-in `src/main.js`.
+The game has three levels, all maps modelled in Blender: City Track,
+Mountain Track and Grand Prix, in that order. A level is a function that
+returns a description. To add one, export the map to `assets/maps/`, copy
+`src/levels/city.js`, and register it in the `LEVELS` map and `ORDER`
+array in `src/main.js`. Anything in `LEVELS` but not in `ORDER` (like the
+testbed) can still be opened with `?level=name` but is not in the `L`
+cycle.
 
-Track shape comes from `polarPoints()` — a periodic polar radius function,
-**not** hand-placed points. Hand-placed points closed the loop with a kink
+`Track` can also sweep a road from a list of control points instead of a
+model (the original procedural levels did; they are in git history). If
+you do that, generate the points from a smooth periodic function rather
+than placing them by hand: hand-placed points closed the loop with a kink
 and put a 7.3 m-radius corner on the start/finish line, which no car can
-take. A periodic function is smooth at the seam by construction.
+take.
 
 The level-author API:
 
@@ -175,21 +175,18 @@ minimap, checkpoints, hazard triggers, respawn and AI lookahead. Always
 pass `sHint` on the hot path — it makes projection O(1).
 
 **Check your corners are drivable.** At mu = 1.4 the maximum cornering
-speed for radius r is `sqrt(1.4 * 9.81 * r)`. The three levels are
-deliberately graded by their tightest corner:
+speed for radius r is `sqrt(1.4 * 9.81 * r)`; the car cannot turn tighter
+than about 4.2 m at full lock. The three levels:
 
 | # | Name | `?level=` | Tightest corner | Field | Mechanic |
 |---|---|---|---|---|---|
-| A | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
-| B | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
-| C | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | 6 cars | banked climb, guardrails, tunnel |
-| 1 | Sprint | `sprint` | 42.9 m — 87 km/h | solo | boost strips |
-| 2 | Storm Ridge | `storm` | 34.1 m — 78 km/h | 2 cars | crosswind, updraft, chicanes |
-| 3 | Neon Circuit | `circuit` | 27.7 m — 70 km/h | 5 cars | racing |
-| — | Testbed | `testbed` | n/a | solo | slalom, crest, ramp |
+| 1 | City Track | `city` | 15.3 m — 51 km/h | solo | live two-way traffic (`src/core/traffic.js`) |
+| 2 | Mountain Track | `mountain` | 15.1 m, banked 13° — 51 km/h | 6 cars | banked climb, guardrails, tunnel |
+| 3 | Grand Prix | `grandprix` | 9.7 m — 42 km/h | 6 cars | 2.6 km full circuit |
+| — | Testbed (development only) | `testbed` | n/a | solo | slalom, crest, ramp |
 
-**The official maps are modelled, not generated.** `city` and
-`grandprix` are Blender exports in `assets/maps/`, turned into a Track by
+**The maps are modelled, not generated.** All three are Blender exports
+in `assets/maps/`, turned into a Track by
 `src/levels/glb-map.js`. The contract with the modeller is one road mesh
 (`Road` unless the level names another): a single closed ribbon with its
 vertices in left/right pairs along the lap (flat-shaded exports that
@@ -198,7 +195,7 @@ exporting**: a flat-shaded export merges the duplicate wherever two
 neighbouring faces are exactly coplanar, and every pair after that is
 off by one). The centreline, `s`, the width, the start line (first pair) and
 the direction of travel (pair order) are all recovered from it, so
-checkpoints, AI, pickups, ghost and minimap work unchanged. Things to know:
+checkpoints, AI, pickups and minimap work unchanged. Things to know:
 
 - The level lists which meshes are drivable (`surfaces`, trimesh colliders
   made from the same vertices that are drawn) and which are solid
@@ -223,7 +220,8 @@ checkpoints, AI, pickups, ghost and minimap work unchanged. Things to know:
 - three.js turns spaces in names into underscores: match `Guardrail_Left`,
   not `Guardrail Left`.
 
-Two things to copy from Storm Ridge when you build a hazard:
+Two lessons from the old Storm Ridge level (removed; it is in git
+history) for anyone building a hazard:
 
 - **Make the invisible visible.** The crosswind has wind socks standing in
   it, leaning downwind. A player shoved sideways by nothing reads it as a
@@ -244,7 +242,7 @@ mesh from the scene does **not** remove its rigid body. See §8.
 
 `src/vehicle/config.js` is **frozen** as of the M10 pass. The handling is
 signed off and validated, so changing a value there now re-tunes every
-level at once and invalidates stored ghost recordings. If you need
+level at once and invalidates stored replay recordings. If you need
 different handling for one level, ask for a per-level override rather than
 editing the file.
 
@@ -265,7 +263,7 @@ __dbg.vehicle.body.translation()
 ```
 
 `__dbg` also exposes `THREE`, `RAPIER`, `world`, `scene`, `level`, `race`,
-`ghost`, `minimap`, `menu`, `Save`, `input` and `loadLevel(name)`.
+`traffic`, `minimap`, `menu`, `Save`, `input` and `loadLevel(name)`.
 
 ---
 
@@ -594,33 +592,20 @@ neighbours.
 `damage` is in `captureState`, because it scales engine force — a replay
 that did not restore it would drive with different power than the recording
 did. Set `damagePowerLoss: 0` to keep the looks and drop the handicap.
-## 10. The ghost car
+## 10. Best laps
 
-Your best lap, replayed alongside you. The recording is six bytes of
-**controls** per frame (a 50 s lap is about 17 KB), not a list of
-positions, so the ghost is only in the right place because the simulation
-reproduces exactly from the same inputs. That is what the determinism
-harness in §7 is for.
+Your best lap time on each level is saved in the browser (`Save.record`,
+keyed by level name) and shown in the pause menu. Times are per level: a
+lap only means something on the track it was set on.
 
-It shares the track but cannot race. It must meet the same barriers the
-recording met, so it is not a sensor; what it must never do is touch
-another car, because a ghost that shoves the player is worse than no
-ghost. That separation is Rapier interaction groups set in `Vehicle`,
-applied to the chassis collider **and** to the suspension raycasts —
-without the second, a real car's wheel rays land on the ghost's chassis
-and it drives over a rival it cannot collide with.
-
-**Replay is enabled only on levels with no opponents.** A lap driven in
-traffic was shaped by slipstream and by contact with cars the ghost cannot
-touch, so the replay meets a different world than the recording did.
-Measured: on the six-car circuit a lap covering 1248 m replayed to 769 m
-and stopped against a barrier; the same recording on the solo level
-replays the full 1338 m and finishes 2.75 m from the line. The best lap
-*time* is still recorded everywhere — it is real whatever the traffic did
-— but the car is only drawn where the replay is faithful.
-
-Records are stored per level. One global best would replay a Sprint ghost
-on the Circuit, straight through a barrier.
+There used to be a **ghost car** that replayed your best lap alongside you.
+It was removed because players found it confusing; it is in git history
+(`src/core/ghost.js`) if it is ever wanted back. Its replays were
+recordings of the **controls**, not of positions, so they only worked
+because the simulation reproduces exactly from the same inputs; the
+determinism harness in §7 still guarantees that. `Vehicle` keeps the
+`ghost` collision layer the replay car used, unused. Old saves drop their
+stored ghost recordings on load.
 
 ---
 
