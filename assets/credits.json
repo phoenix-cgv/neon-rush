@@ -20,7 +20,15 @@
       "used_for": "Development server and production build"
     }
   ],
-  "models": [],
+  "models": [
+    {
+      "name": "Sphinx Mountain Grand Prix map",
+      "path": "blender/mountain/",
+      "author": "Neon Rush team (procedural, mountain_track.py)",
+      "licence": "Project-owned",
+      "used_for": "Mountain level: road, rails, kerbs, tunnel, terrain and scenery, generated in Blender"
+    }
+  ],
   "textures": [],
   "audio": [],
   "learned_from": []
