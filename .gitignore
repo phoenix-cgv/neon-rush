@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.log
 .vite/
+
+# Blender backup files
+*.blend1
