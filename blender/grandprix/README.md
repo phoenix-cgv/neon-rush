@@ -6,7 +6,7 @@
 | `Track.py` | The realism pass that ran after `Track2.py` (trees, bushes, grass clumps, materials). Fixed, see below. |
 | `fix_grandprix.py` | Rebuilds `RaceTrack2.blend` into the finished map (below) and leaves the scene open. |
 | `GrandPrix.blend` | The finished map. |
-| `check_grandprix.py` | Checks a `.blend` or `.glb`: 27/27 on `GrandPrix.blend`, 28/28 on the exported `.glb`. |
+| `check_grandprix.py` | Checks a `.blend` or `.glb`: 29/29 on `GrandPrix.blend`, 30/30 on the exported `.glb`. |
 | `../export_glb.py` | Exports the `.blend` to `assets/maps/GrandPrix.glb`, which `src/levels/grandprix.js` loads. |
 
 ## Rebuild
@@ -30,15 +30,17 @@ In Blender: open `RaceTrack2.blend`, run `fix_grandprix.py` from the Text Editor
 | Grid | last 70 m + first 400 m | Level, straight | height 0, nothing under R301 within 60 m of the line |
 | A · Turn 1 | 1,049 m (599, −85) | Downhill 1 km straight, then a hard stop | 257 m dead straight into an R16.2 left hairpin (130°), boards at 300/200/100 m, gravel from the road edge, Sweep stand 44 m from the apex |
 | | 1,107 m | Right-hander back up | R44.6, 80°, banked 6° |
-| B · crest | 1,556 m (320, 203) | Blind crest under a sponsor bridge | +10 m, crest radius ~1.9 km, bridge underside 7.5 m up, legs 13.3 m out |
+| B · jump | 1,556 m (320, 203) | A jump at the top of the hill, under a sponsor bridge | +12.3 m; a kicker (4 % up, sharp lip, 4.8 % down) on the hill: cars leave the road above ~88 km/h and the AI flies 22–37 m at 160–175 km/h; bridge 7.5 m above the lip |
+| Tunnel | 2,351–2,549 m | 200 m of the diagonal under a hill | walls 10.2 m out, roof 7.3 m up, warm light strips, concrete portals |
 | C · esses | 1,998–2,083 m | Left-right-left in front of the Esses stand | R40 each, 40° each; stand 38 m from the road; gravel outside the middle bend |
 | D | 2,201 m | Fast left onto the diagonal | R90, banked 8° |
 | E · final corner | 2,708 m (−513, −151) | Slow left onto the pit straight | R29.4, banked 4.5°, ends 70 m before the line; Stadium stand 50 m out |
 
 Height: level to 760 m (the whole pit straight, so the pits and garages stay level), down to −4 m for
 Turn 1, up to +10 m at the crest, a dip to +3 m, climbing to +6 m through the esses, down to 0 for the
-final corner. Maximum grade 6 %. Banking only ever raises the outside edge, in proportion to the
-corner's curvature (so it fades in and out with it), 1° or less on straights.
+final corner. Maximum grade 6.4 %; every crest except the jump has a radius over 1.9 km. Banking only ever raises
+the outside edge, eased in and out over ~30 m (a quicker change made cars hop at corner D), 1.8° or
+less on straights.
 
 ## How it's built
 

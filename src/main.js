@@ -111,6 +111,42 @@ const sky = new THREE.Mesh(
 sky.frustumCulled = false;
 scene.add(sky);
 
+// Per-level lighting. A level's `lit` may set any of these; anything it
+// leaves out falls back to the daylight defaults, so switching from a
+// dusk level back to a day one restores everything.
+//   sun          sun position relative to the car (sets its direction)
+//   sunColor, sunIntensity
+//   hemi         [sky colour, ground colour, intensity] of the fill light
+//   sky          { top, horizon, bottom } colours of the gradient dome
+//   fog          [colour, near, far]
+//   exposure     tone-mapping exposure
+const LIGHT_DEFAULTS = {
+  sun: [60, 80, 30],
+  sunColor: 0xfff3dc,
+  sunIntensity: 3.0,
+  hemi: [0xbcd9e8, 0x4a4238, 2.2],
+  sky: { top: 0x3f7fb5, horizon: 0xcfe2ea, bottom: 0x6f7d6a },
+  fog: [0x8fb4c4, 180, 620],
+  exposure: 1.05,
+};
+function applyLighting(lit) {
+  const L = { ...LIGHT_DEFAULTS, ...lit };
+  // Older levels give `sky` as one colour (their fog colour): keep the
+  // default dome for them rather than painting it flat.
+  const dome = typeof L.sky === "object" ? L.sky : LIGHT_DEFAULTS.sky;
+  SUN_OFFSET.set(...L.sun);
+  sun.color.set(L.sunColor);
+  sun.intensity = L.sunIntensity;
+  hemi.color.set(L.hemi[0]);
+  hemi.groundColor.set(L.hemi[1]);
+  hemi.intensity = L.hemi[2];
+  skyUniforms.uTop.value.set(dome.top);
+  skyUniforms.uHorizon.value.set(dome.horizon);
+  skyUniforms.uBottom.value.set(dome.bottom);
+  scene.fog = new THREE.Fog(L.fog[0], L.fog[1], L.fog[2]);
+  renderer.toneMappingExposure = L.exposure;
+}
+
 const world = new RAPIER.World(WORLD.gravity);
 world.timestep = WORLD.fixedDt;
 
@@ -239,9 +275,7 @@ async function loadLevel(name) {
   levelName = name;
   level = LEVELS[name](RAPIER, world, scene, asset);
 
-  const fog = level.lit?.fog ?? [0x8fb4c4, 180, 620];
-  scene.fog = new THREE.Fog(fog[0], fog[1], fog[2]);
-  if (level.lit?.sun) SUN_OFFSET.set(...level.lit.sun);
+  applyLighting(level.lit ?? {});
 
   director?.dispose();
   director = null;
