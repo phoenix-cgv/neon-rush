@@ -59,11 +59,12 @@ export class Rockfall {
    *   ground  THREE.Object3D[] the terrain, to tell uphill from downhill
    *   signOffset  lateral distance of the warning signs, m
    */
-  constructor(RAPIER, world, scene, track, opts = {}) {
+  constructor(RAPIER, world, scene, track, opts = {}, eventBus = null) {
     this.RAPIER = RAPIER;
     this.world = world;
     this.scene = scene;
     this.track = track;
+    this.eventBus = eventBus;
     this.rocks = [];
     this.objects = [];
     this.warnFor = 0;
@@ -294,6 +295,7 @@ export class Rockfall {
       stones,
       dustT: -1,
       body: null,
+      collider: null,
     };
   }
 
@@ -350,7 +352,7 @@ export class Rockfall {
           r.body = this.world.createRigidBody(
             this.RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(r.rest.x, r.rest.y, r.rest.z)
           );
-          this.world.createCollider(
+          r.collider = this.world.createCollider(
             this.RAPIER.ColliderDesc.ball(r.radius * 0.9)
               .setFriction(0.4)
               .setCollisionGroups((GROUP.traffic << 16) | ALL),
@@ -361,6 +363,11 @@ export class Rockfall {
         }
         break;
       case "rest": {
+        const hit = this.#collidingCar(r, field);
+        if (hit) {
+          this.#break(r, hit);
+          break;
+        }
         // Sink once the player is well past it, or after a while anyway.
         const lead = field[0]?.vehicle;
         const L = this.track.length;
@@ -384,9 +391,37 @@ export class Rockfall {
     if (r.body) {
       this.world.removeRigidBody(r.body);
       r.body = null;
+      r.collider = null;
     }
     r.phase = "sink";
     r.t = 0;
+  }
+
+  #collidingCar(rock, field) {
+    if (!rock.collider || !this.world.contactPairsWith) return null;
+    let hit = null;
+    this.world.contactPairsWith(rock.collider, (other) => {
+      if (hit) return;
+      const car = field.find((entry) => entry.vehicle.collider.handle === other.handle);
+      if (!car) return;
+      this.world.contactPair?.(rock.collider, other, (manifold) => {
+        if ((manifold.numContacts?.() ?? 0) > 0) hit = car;
+      });
+    });
+    return hit;
+  }
+
+  #break(rock, car) {
+    if (rock.body) this.world.removeRigidBody(rock.body);
+    rock.body = null;
+    rock.collider = null;
+    rock.phase = "gone";
+    this.eventBus?.emit("obstacle-broken", {
+      kind: "boulder",
+      car,
+      position: rock.pos.clone(),
+      radius: rock.radius,
+    });
   }
 
   #carNear(p, dist, field) {
@@ -403,6 +438,7 @@ export class Rockfall {
       if (r.pos.distanceToSquared(_v.set(pos.x, pos.y, pos.z)) < radius * radius) {
         if (r.body) this.world.removeRigidBody(r.body);
         r.body = null;
+        r.collider = null;
         r.phase = "gone";
       }
     }

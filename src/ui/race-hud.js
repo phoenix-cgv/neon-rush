@@ -91,20 +91,29 @@ export class RaceHud {
     this.bar.innerHTML =
       `<span>LAP ${lap}/${director.laps}</span>` +
       `<span>P${pos}/${field}</span>` +
-      `<span>${fmt(t ?? 0)}</span>`;
+      `<span>${fmt(t ?? 0)}${director.timeLimit ? ` / ${fmt(director.timeLimit)}` : ""}</span>`;
 
     // results
     if (director.state === "finished") {
       const rows = director.results();
       const winner = rows[0]?.time ?? null;
+      const heading = director.outcome === "won"
+        ? "VICTORY"
+        : director.reason === "time-limit"
+          ? "TIME UP"
+          : director.outcome === "lost"
+            ? "RACE LOST"
+            : "FINISHED";
       const html =
         `<div style="font:800 20px/1.2 ${FONT};letter-spacing:.08em;margin-bottom:4px">` +
-        `FINISHED — P${pos} of ${field}</div>` +
+        `${heading} — P${pos} of ${field}</div>` +
         `<div style="color:#8fa5ac;margin-bottom:12px">${director.laps} laps</div>` +
         `<table style="border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums">` +
         rows
           .map((r, i) => {
-            const status = r.finished
+            const status = director.outcome === "lost" && r.isPlayer && !r.finished
+              ? "DNF"
+              : r.finished
               ? i === 0 || winner === null
                 ? fmt(r.time)
                 : `+${(r.time - winner).toFixed(2)} s`

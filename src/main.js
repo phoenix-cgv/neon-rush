@@ -18,6 +18,8 @@ import { Rockfall } from "./core/rockfall.js";
 import { PitLane } from "./track/pit-lane.js";
 import { RaceDirector } from "./core/race-director.js";
 import { RaceHud } from "./ui/race-hud.js";
+import { GameplayHud } from "./ui/gameplay-hud.js";
+import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
@@ -166,6 +168,8 @@ const debug = new DebugOverlay(scene);
 const minimap = new Minimap(scene);
 const health = new HealthBar();
 const raceHud = new RaceHud();
+const gameplayHud = new GameplayHud();
+const gameplayEvents = new GameplayEvents();
 // One shared pool for the whole field — smoke is one draw call however
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
@@ -282,6 +286,7 @@ async function loadLevel(name) {
   director?.dispose();
   director = null;
   raceHud.setActive(false);
+  gameplayHud.setActive(false);
   race?.dispose();
   race = null;
   traffic?.dispose();
@@ -307,22 +312,29 @@ async function loadLevel(name) {
   if (level.track) {
     // Level 3 is the race; the others are single-car. Opponent count
     // comes from the level so the testbed stays a testbed.
-    race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0);
+    race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0, gameplayEvents);
     vehicle = race.player.vehicle;
     carRig = race.player.rig;
     progress = race.player.progress;
     minimap.build(race.cars);
-    pickups = new Pickups(level.track, scene, level.pickups ?? {});
+    pickups = new Pickups(level.track, scene, level.pickups ?? {}, gameplayEvents);
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
-    if (level.rockfall) rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall);
+    if (level.rockfall) {
+      rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
+    }
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
     }
     if (level.race) {
-      director = new RaceDirector(race, { laps: level.race.laps, lamps: level.startLamps ?? [] });
+      director = new RaceDirector(race, {
+        ...level.race,
+        lamps: level.startLamps ?? [],
+        eventBus: gameplayEvents,
+      });
       raceHud.setActive(true);
     }
+    gameplayHud.setActive(true);
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -492,6 +504,7 @@ function frame(now) {
   health.update(state.damage);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
+  gameplayHud.update(progress, level.track, state);
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);
@@ -524,7 +537,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke,
+  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },

@@ -17,7 +17,7 @@ export const DEFAULTS = {
   quality: "high", // high | medium | low
   minimap: true,
   healthBar: true,
-  telemetry: true,
+  telemetry: false,
   // input
   bindings: null, // null = use DEFAULT_BINDINGS
   // Best lap per level, keyed by level name: a lap time only means

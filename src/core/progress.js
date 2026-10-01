@@ -1,5 +1,3 @@
-import * as THREE from "three";
-
 // ---------------------------------------------------------------------
 // Checkpoints, laps, falling and respawn — all of it derived from s.
 //
@@ -20,6 +18,10 @@ export class Progress {
       progressDistance = 18, // m of forward progress that counts as racing
       pinnedLimit = 2.5, // s scraping a wall at a crawl before it counts
       beachedLimit = 1.2, // s resting on the body before it counts
+      checkpointMargin = 0.75,
+      wrongWayDelay = 1.0,
+      rightWayDelay = 0.35,
+      eventBus = null,
       // Only count "not moving" while the driver is TRYING to move. A
       // player who stops on purpose (waiting behind traffic, looking
       // around) is not stuck; resetting them for it is just annoying.
@@ -35,6 +37,10 @@ export class Progress {
     this.progressDistance = progressDistance;
     this.pinnedLimit = pinnedLimit;
     this.beachedLimit = beachedLimit;
+    this.checkpointMargin = checkpointMargin;
+    this.wrongWayDelay = wrongWayDelay;
+    this.rightWayDelay = rightWayDelay;
+    this.eventBus = eventBus;
     this.requireIntent = requireIntent;
     this.reset();
   }
@@ -47,6 +53,12 @@ export class Progress {
     this.bestLap = this.bestLap ?? null;
     this.lastLapTime = null;
     this.justCompletedLap = false;
+    this.missedCheckpoint = null;
+    this.wrongWay = false;
+    this.wrongWayFor = 0;
+    this.rightWayFor = 0;
+    this.previousS = null;
+    this.events = [];
     this.falling = 0;
     this.offTrack = 0;
     this.pinnedFor = 0;
@@ -56,6 +68,14 @@ export class Progress {
     this.respawns = 0;
     this.justRespawned = false;
     this.justCompletedLap = false;
+  }
+
+  get nextCheckpoint() {
+    return (this.lastCheckpoint + 1) % this.track.checkpoints.length;
+  }
+
+  consumeEvents() {
+    return this.events.splice(0);
   }
 
   /**
@@ -74,15 +94,23 @@ export class Progress {
 
     const s = vehicle.s;
     const n = this.track.checkpoints.length;
-    const idx = this.track.checkpointIndexAt(s);
+    const previousS = this.previousS ?? s;
+    const delta = this.#signedDistance(previousS, s);
+    this.previousS = s;
+    this.#updateDirection(dt, delta, vehicle.speed);
 
-    // Advancing one checkpoint at a time stops a player skipping half the
-    // lap by cutting a corner, and stops a wobble at a boundary counting
-    // twice.
-    const next = (this.lastCheckpoint + 1) % n;
-    if (idx === next) {
+    // A checkpoint is an invisible gate across the road. It is passed only
+    // by moving forward across its s-position while inside the road-width
+    // trigger, so cutting past it through the scenery cannot count.
+    const next = this.nextCheckpoint;
+    const checkpoint = this.track.checkpoints[next];
+    const crossed = delta > 0 && this.#forwardDistance(previousS, checkpoint.s) <= delta + 1e-6;
+    const gateHalfWidth = checkpoint.halfWidth ?? this.track.width * 0.5 + this.checkpointMargin;
+    if (crossed && Math.abs(vehicle.lateralOffset) <= gateHalfWidth) {
       this.lastCheckpoint = next;
       this.visited.add(next);
+      this.missedCheckpoint = null;
+      this.#emit("checkpoint", { checkpoint: next, nextCheckpoint: this.nextCheckpoint });
       if (next === 0 && this.visited.size >= n) {
         this.lap++;
         // Lap 0 is the run from a grid slot behind the line up to it
@@ -98,13 +126,17 @@ export class Progress {
           // This is what lets a best lap be saved.
           this.lastLapTime = this.lapTime;
           this.justCompletedLap = true;
+          this.#emit("lap-complete", { lap: this.lap - 1, time: this.lastLapTime });
         }
         this.lapTime = 0;
         this.visited.clear();
         this.visited.add(0);
       }
+    } else if (crossed) {
+      this.missedCheckpoint = next;
+      this.#emit("checkpoint-missed", { checkpoint: next });
     } else if (!this.requireOrder) {
-      this.lastCheckpoint = idx;
+      this.lastCheckpoint = this.track.checkpointIndexAt(s);
     }
 
     // --- falling ------------------------------------------------------
@@ -238,6 +270,7 @@ export class Progress {
   /** Call after teleporting the car, so progress is measured from there. */
   markProgressFrom(s) {
     this.sMark = s;
+    this.previousS = s;
     this.sMarkAge = 0;
     this.noProgress = 0;
     this.offTrack = 0;
@@ -258,6 +291,46 @@ export class Progress {
     const idx = this.track.checkpointIndexAt(s);
     this.lastCheckpoint = idx;
     for (let i = 0; i <= idx; i++) this.visited.add(i);
+  }
+
+  #forwardDistance(from, to) {
+    const length = this.track.length;
+    return ((to - from) % length + length) % length;
+  }
+
+  #signedDistance(from, to) {
+    const length = this.track.length;
+    let delta = to - from;
+    while (delta > length / 2) delta -= length;
+    while (delta < -length / 2) delta += length;
+    return delta;
+  }
+
+  #updateDirection(dt, delta, speed) {
+    if (speed > 2 && delta < -0.05) {
+      this.wrongWayFor += dt;
+      this.rightWayFor = 0;
+    } else if (delta > 0.05) {
+      this.rightWayFor += dt;
+      this.wrongWayFor = Math.max(0, this.wrongWayFor - dt);
+    } else {
+      this.rightWayFor = 0;
+    }
+
+    if (!this.wrongWay && this.wrongWayFor >= this.wrongWayDelay) {
+      this.wrongWay = true;
+      this.#emit("wrong-way");
+    } else if (this.wrongWay && this.rightWayFor >= this.rightWayDelay) {
+      this.wrongWay = false;
+      this.wrongWayFor = 0;
+      this.#emit("right-way");
+    }
+  }
+
+  #emit(type, detail = {}) {
+    const event = { type, ...detail, lap: this.lap, time: this.lapTime, progress: this };
+    this.events.push(event);
+    this.eventBus?.emit(type, event);
   }
 
   /** Where a respawn puts you: the last checkpoint, upright, on the line. */

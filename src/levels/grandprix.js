@@ -91,7 +91,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     track,
     opponents: 5, // the full field: this is the race
     // A proper race: start lights, three laps, a classification.
-    race: { laps: 3 },
+    race: { laps: 3, timeLimit: 8 * 60 },
     startLamps: map.kept,
     // A real pit stop: 60 km/h limit, repaired and refuelled with boost in
     // your box in about three seconds; opponents pit when badly damaged.

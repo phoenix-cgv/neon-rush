@@ -49,11 +49,12 @@ export class Race {
    * @param {object} track
    * @param {number} opponents  how many AI cars
    */
-  constructor(RAPIER, world, scene, track, opponents = 5) {
+  constructor(RAPIER, world, scene, track, opponents = 5, eventBus = null) {
     this.RAPIER = RAPIER;
     this.world = world;
     this.scene = scene;
     this.track = track;
+    this.eventBus = eventBus;
     this.cars = [];
 
     const names = Object.keys(PERSONALITIES);
@@ -77,7 +78,10 @@ export class Race {
       const rig = new CarRig(colours[i % colours.length]);
       scene.add(rig.root);
 
-      const progress = new Progress(track, i === 0 ? PLAYER_PATIENCE : {});
+      const progress = new Progress(track, {
+        ...(i === 0 ? PLAYER_PATIENCE : {}),
+        eventBus,
+      });
       progress.markProgressFrom(s);
       // Everyone but pole starts behind the line, on lap 0.
       if (i > 0) progress.startBehindLine();
@@ -136,7 +140,13 @@ export class Race {
         : c.controller
           ? c.controller.update(c.vehicle, dt, vehicles)
           : playerControls;
+      const wasBoosting = c.vehicle.boosting;
       c.vehicle.step(dt, controls);
+      if (!wasBoosting && c.vehicle.boosting) {
+        this.eventBus?.emit("boost-started", { car: c, vehicle: c.vehicle });
+      } else if (wasBoosting && !c.vehicle.boosting) {
+        this.eventBus?.emit("boost-stopped", { car: c, vehicle: c.vehicle });
+      }
     }
   }
 

@@ -319,6 +319,10 @@ export class Track {
         s,
         position: fr.position.clone(),
         tangent: fr.tangent.clone(),
+        right: fr.right.clone(),
+        up: fr.up.clone(),
+        halfWidth: this.width * 0.5 + 0.75,
+        halfDepth: 1.5,
       });
     }
   }

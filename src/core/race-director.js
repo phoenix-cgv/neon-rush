@@ -30,11 +30,20 @@ export class RaceDirector {
    * @param {object} race
    * @param {object} opts { laps, lamps: THREE.Mesh[] in the order they light }
    */
-  constructor(race, { laps = 3, lamps = [] } = {}) {
+  constructor(
+    race,
+    { laps = 3, lamps = [], timeLimit = null, maxRespawns = null, eventBus = null } = {}
+  ) {
     this.race = race;
     this.laps = laps;
     this.lamps = lamps;
+    this.timeLimit = timeLimit;
+    this.maxRespawns = maxRespawns;
+    this.eventBus = eventBus;
     this.state = "lights";
+    this.outcome = null;
+    this.reason = null;
+    this.events = [];
     this.t = 0; // s since the level loaded
     this.hold = HOLD_MIN + Math.random() * (HOLD_MAX - HOLD_MIN);
     this.raceTime = 0; // s since the lights went out
@@ -58,6 +67,7 @@ export class RaceDirector {
         this.#paintLamps(0); // lights out
         this.state = "racing";
         this.race.frozen = false;
+        this.#emit("race-started");
       }
       return;
     }
@@ -65,12 +75,28 @@ export class RaceDirector {
     this.raceTime += dt;
     for (const c of this.race.cars) {
       if (c.progress.lap <= this.laps || this.finished.some((f) => f.car === c)) continue;
+      if (c.isPlayer && this.state === "finished") continue;
       this.finished.push({ car: c, time: this.raceTime });
+      this.#emit("car-finished", { car: c, position: this.finished.length });
       if (c.isPlayer) {
-        this.state = "finished";
-        this.race.autopilotPlayer();
+        const won = this.finished.length === 1;
+        this.#finishPlayer(won ? "won" : "lost", won ? "finished-first" : "finished-behind");
       }
     }
+
+    if (this.state === "racing" && this.timeLimit !== null && this.raceTime >= this.timeLimit) {
+      this.#finishPlayer("lost", "time-limit");
+    } else if (
+      this.state === "racing" &&
+      this.maxRespawns !== null &&
+      this.race.player.progress.respawns >= this.maxRespawns
+    ) {
+      this.#finishPlayer("lost", "respawn-limit");
+    }
+  }
+
+  consumeEvents() {
+    return this.events.splice(0);
   }
 
   /**
@@ -103,6 +129,21 @@ export class RaceDirector {
   /** The player's place in the classification (1-based). */
   get playerPosition() {
     return this.results().findIndex((r) => r.isPlayer) + 1;
+  }
+
+  #finishPlayer(outcome, reason) {
+    if (this.state === "finished") return;
+    this.state = "finished";
+    this.outcome = outcome;
+    this.reason = reason;
+    this.race.autopilotPlayer();
+    this.#emit(outcome === "won" ? "race-won" : "race-lost", { reason });
+  }
+
+  #emit(type, detail = {}) {
+    const event = { type, ...detail, raceTime: this.raceTime, director: this };
+    this.events.push(event);
+    this.eventBus?.emit(type, event);
   }
 
   #paintLamps(n) {

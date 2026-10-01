@@ -42,11 +42,12 @@ const _hidden = new THREE.Vector3(0, -9999, 0);
  * @param {object} plan  { repair, boost } counts, or explicit `at` list
  */
 export class Pickups {
-  constructor(track, scene, plan = {}) {
+  constructor(track, scene, plan = {}, eventBus = null) {
     this.track = track;
     this.scene = scene;
     this.items = [];
     this.time = 0;
+    this.eventBus = eventBus;
 
     const repairCount = plan.repair ?? 0;
     const boostCount = plan.boost ?? 0;
@@ -126,11 +127,19 @@ export class Pickups {
         if (Math.abs(ds) > PICK_RADIUS_S) continue;
         if (Math.abs(v.lateralOffset - item.lateral) > PICK_RADIUS_T) continue;
 
-        if (item.kind === REPAIR) v.repair(CAR.repairPickup);
-        else v.refillBoost(CAR.boostPickup);
+        const amount = item.kind === REPAIR
+          ? v.repair(CAR.repairPickup)
+          : v.refillBoost(CAR.boostPickup);
 
         item.active = false;
         item.takenAt = this.time;
+        this.eventBus?.emit("pickup-collected", {
+          kind: item.kind,
+          amount,
+          car,
+          vehicle: v,
+          pickup: item,
+        });
         break; // first car to reach it takes it
       }
     }
