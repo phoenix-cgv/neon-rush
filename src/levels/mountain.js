@@ -79,7 +79,11 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // Solo: the mountain is you against the road. Only the Grand Prix is
     // a race against other cars.
     opponents: 0,
-    pickups: { repair: 4, boost: 5 },
+    // One lap up, through the tunnel, and back down to the line before
+    // the clock runs out. Boost orbs buy you more of it rather than
+    // filling the boost meter — the climb is the opponent here.
+    pickups: { repair: 4, boost: 5, boostSeconds: 10 },
+    race: { laps: 1, timeLimit: 150 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },

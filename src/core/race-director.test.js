@@ -61,3 +61,35 @@ test("publishes a loss when the configured race time expires", () => {
   director.step(1);
   assert.equal(director.results().find((result) => result.isPlayer).finished, false);
 });
+
+test("addTime pushes the deadline back instead of ending the race", () => {
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 1, timeLimit: 10 });
+  director.state = "racing";
+  race.frozen = false;
+
+  director.step(9);
+  director.addTime(5);
+  assert.equal(director.timeLimit, 15);
+  assert.equal(director.consumeEvents().at(-1)?.type, "time-added");
+
+  director.step(5); // 14 s elapsed, still under the extended 15 s
+  assert.equal(director.state, "racing");
+
+  director.step(1); // 15 s elapsed: the extended deadline now expires
+  assert.equal(director.state, "finished");
+  assert.equal(director.reason, "time-limit");
+});
+
+test("addTime does nothing once the race is already decided", () => {
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 3, timeLimit: 10 });
+  director.state = "racing";
+  race.frozen = false;
+
+  director.step(10); // times out
+  assert.equal(director.state, "finished");
+
+  director.addTime(5);
+  assert.equal(director.timeLimit, 10);
+});

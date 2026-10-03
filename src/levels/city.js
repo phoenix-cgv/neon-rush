@@ -60,7 +60,11 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // every ~95 m: busy, not gridlocked.
     opponents: 0,
     traffic: { sameWay: 7, oncoming: 6, lane: 3.5, cruise: [11, 15] },
-    pickups: { repair: 4, boost: 5 },
+    // A solo run against the clock: one lap to the chequered strip at s =
+    // 0 before time runs out. Boost orbs don't fill the boost meter here
+    // — they buy you more of it, which is the whole game against traffic.
+    pickups: { repair: 4, boost: 5, boostSeconds: 8 },
+    race: { laps: 1, timeLimit: 110 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [60, 90, 40], fog: [0xb4c6d0, 220, 950], sky: 0xb4c6d0 },

@@ -321,7 +321,13 @@ export class Track {
         tangent: fr.tangent.clone(),
         right: fr.right.clone(),
         up: fr.up.clone(),
-        halfWidth: this.width * 0.5 + 0.75,
+        // The gate has to be at least as wide as the track itself is
+        // legally driven — wallLimit, not the paved width. On a modelled
+        // map (the City's pavement, the Grand Prix's verge) the drivable
+        // band reaches past the road edge, and a gate sized to the road
+        // alone flagged a car cutting a wide, legal line as having missed
+        // the checkpoint it had just driven straight across.
+        halfWidth: this.wallLimit,
         halfDepth: 1.5,
       });
     }

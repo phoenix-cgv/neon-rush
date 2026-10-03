@@ -28,7 +28,14 @@ export class GameplayHud {
       font:900 22px/1 ${FONT};letter-spacing:.12em;color:#ffd24a;text-shadow:0 2px 4px #000;
       display:none;white-space:nowrap`;
 
-    this.root.append(this.boost, this.checkpoint, this.warning);
+    // A time-trial pickup moves the clock, not the boost bar, so it needs
+    // its own brief callout rather than riding the boost fill.
+    this.toast = document.createElement("div");
+    this.toast.style.cssText = `position:absolute;left:50%;top:185px;transform:translateX(-50%);
+      font:800 18px/1 ${FONT};letter-spacing:.1em;color:#58e08f;text-shadow:0 2px 4px #000;
+      display:none;white-space:nowrap`;
+
+    this.root.append(this.boost, this.checkpoint, this.warning, this.toast);
     document.body.appendChild(this.root);
     this.responsiveStyle = document.createElement("style");
     this.responsiveStyle.textContent = `@media (max-width:600px) {
@@ -41,6 +48,18 @@ export class GameplayHud {
 
   setActive(active) {
     this.root.style.display = active ? "block" : "none";
+    if (!active) {
+      clearTimeout(this.toastTimer);
+      this.toast.style.display = "none";
+    }
+  }
+
+  /** A brief "+Ns" callout when a pickup extends a time-trial's clock. */
+  flashTimeBonus(seconds) {
+    clearTimeout(this.toastTimer);
+    this.toast.textContent = `+${seconds}s`;
+    this.toast.style.display = "block";
+    this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), 1300);
   }
 
   update(progress, track, state) {

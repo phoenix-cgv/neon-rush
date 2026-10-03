@@ -100,6 +100,17 @@ export class RaceDirector {
   }
 
   /**
+   * Push the deadline back — a time-trial level's reward for a pickup,
+   * in place of the usual boost refill. A no-op once the flag has
+   * fallen or on a level with no clock to extend.
+   */
+  addTime(seconds) {
+    if (this.state !== "racing" || this.timeLimit === null) return;
+    this.timeLimit += seconds;
+    this.#emit("time-added", { seconds });
+  }
+
+  /**
    * The classification: finishers in order, then everyone still running
    * in their current race order.
    * @returns {{ name, colour, isPlayer, finished, time, lap }[]}

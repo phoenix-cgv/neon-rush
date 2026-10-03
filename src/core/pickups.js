@@ -39,7 +39,10 @@ const _hidden = new THREE.Vector3(0, -9999, 0);
 /**
  * @param {object} track
  * @param {THREE.Scene} scene
- * @param {object} plan  { repair, boost } counts, or explicit `at` list
+ * @param {object} plan  { repair, boost } counts, or explicit `at` list.
+ *   `boostSeconds`, if set, turns every boost orb into a clock bonus
+ *   instead of a boost-charge refill — for a level raced against a
+ *   countdown rather than against a field of other cars.
  */
 export class Pickups {
   constructor(track, scene, plan = {}, eventBus = null) {
@@ -48,6 +51,7 @@ export class Pickups {
     this.items = [];
     this.time = 0;
     this.eventBus = eventBus;
+    this.boostSeconds = plan.boostSeconds ?? null;
 
     const repairCount = plan.repair ?? 0;
     const boostCount = plan.boost ?? 0;
@@ -127,15 +131,22 @@ export class Pickups {
         if (Math.abs(ds) > PICK_RADIUS_S) continue;
         if (Math.abs(v.lateralOffset - item.lateral) > PICK_RADIUS_T) continue;
 
+        // A time-trial level (boostSeconds set) spends its boost orbs on
+        // the clock instead: the car's boost charge is untouched, and the
+        // race director adds the seconds once it hears the event below.
+        const timeBonus = item.kind === BOOST ? this.boostSeconds : null;
         const amount = item.kind === REPAIR
           ? v.repair(CAR.repairPickup)
-          : v.refillBoost(CAR.boostPickup);
+          : timeBonus !== null
+            ? timeBonus
+            : v.refillBoost(CAR.boostPickup);
 
         item.active = false;
         item.takenAt = this.time;
         this.eventBus?.emit("pickup-collected", {
           kind: item.kind,
           amount,
+          timeBonus,
           car,
           vehicle: v,
           pickup: item,
