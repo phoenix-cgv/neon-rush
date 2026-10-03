@@ -93,7 +93,11 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // the clock runs out. Boost orbs buy you more of it rather than
     // filling the boost meter — the climb is the opponent here.
     pickups: { repair: 4, boost: 5, boostSeconds: 10 },
-    race: { laps: 1, timeLimit: 150 },
+    // 115 s: this 1.48 km lap climbs, threads a tunnel and a crosswind,
+    // and descends again, so it's slower than the City by nature — but
+    // 150 s still left room to coast through the hazards instead of
+    // actually having to handle them.
+    race: { laps: 1, timeLimit: 115 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },
