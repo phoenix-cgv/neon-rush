@@ -1,6 +1,7 @@
 import { CAR } from "../vehicle/config.js";
 
 const FONT = `"Cascadia Mono",Consolas,monospace`;
+const CRITICAL_DAMAGE = 0.85; // warn before RaceDirector's default maxDamage (1) ends the race
 
 export class GameplayHud {
   constructor() {
@@ -73,12 +74,18 @@ export class GameplayHud {
     this.boostTrack.style.boxShadow = state.boosting ? "0 0 16px rgba(50,201,223,.9)" : "none";
 
     this.checkpoint.textContent = `NEXT CP ${progress.nextCheckpoint + 1}/${track.checkpoints.length}`;
-    const message = progress.wrongWay
-      ? "WRONG WAY"
-      : progress.missedCheckpoint !== null
-        ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
-        : "";
+    // Highest priority: a wrecked car ends the race, which outranks
+    // either of the other two warnings.
+    const critical = state.damage >= CRITICAL_DAMAGE;
+    const message = critical
+      ? "CRITICAL DAMAGE"
+      : progress.wrongWay
+        ? "WRONG WAY"
+        : progress.missedCheckpoint !== null
+          ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
+          : "";
     this.warning.textContent = message;
+    this.warning.style.color = critical ? "#ff4433" : "#ffd24a";
     this.warning.style.display = message ? "block" : "none";
   }
 }

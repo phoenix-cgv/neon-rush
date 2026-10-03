@@ -101,9 +101,11 @@ export class RaceHud {
         ? "VICTORY"
         : director.reason === "time-limit"
           ? "TIME UP"
-          : director.outcome === "lost"
-            ? "RACE LOST"
-            : "FINISHED";
+          : director.reason === "wrecked"
+            ? "WRECKED"
+            : director.outcome === "lost"
+              ? "RACE LOST"
+              : "FINISHED";
       // Solo (a time trial, no other cars): a placing of "P1 of 1" tells
       // the player nothing a field of rivals would.
       const html =

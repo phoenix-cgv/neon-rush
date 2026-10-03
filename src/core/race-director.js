@@ -32,13 +32,25 @@ export class RaceDirector {
    */
   constructor(
     race,
-    { laps = 3, lamps = [], timeLimit = null, maxRespawns = null, eventBus = null } = {}
+    {
+      laps = 3,
+      lamps = [],
+      timeLimit = null,
+      maxRespawns = null,
+      // A wrecked car ends the race the same way running out of time
+      // does. On by default — this is about the vehicle's own 0..1
+      // damage scale, not a per-level tuning knob like laps or
+      // timeLimit — but a level can still pass null to turn it off.
+      maxDamage = 1,
+      eventBus = null,
+    } = {}
   ) {
     this.race = race;
     this.laps = laps;
     this.lamps = lamps;
     this.timeLimit = timeLimit;
     this.maxRespawns = maxRespawns;
+    this.maxDamage = maxDamage;
     this.eventBus = eventBus;
     this.state = "lights";
     this.outcome = null;
@@ -92,6 +104,12 @@ export class RaceDirector {
       this.race.player.progress.respawns >= this.maxRespawns
     ) {
       this.#finishPlayer("lost", "respawn-limit");
+    } else if (
+      this.state === "racing" &&
+      this.maxDamage !== null &&
+      this.race.player.vehicle.damage >= this.maxDamage
+    ) {
+      this.#finishPlayer("lost", "wrecked");
     }
   }
 
