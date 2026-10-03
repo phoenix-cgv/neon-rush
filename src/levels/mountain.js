@@ -72,6 +72,11 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       ground: map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)),
       signOffset: 7.4, // just beyond the rail
     },
+    // The viaduct (1,018-1,160 m) is the one stretch with nothing beside
+    // the road at all — no slope to drop rocks, no rail-height drop-off,
+    // just open air over the gorge. A crosswind belongs there and
+    // nowhere else on this lap.
+    crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 4200, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",

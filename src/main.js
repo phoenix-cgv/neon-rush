@@ -15,6 +15,7 @@ import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
 import { Rockfall } from "./core/rockfall.js";
+import { Crosswind } from "./core/crosswind.js";
 import { PitLane } from "./track/pit-lane.js";
 import { RaceDirector } from "./core/race-director.js";
 import { RaceHud } from "./ui/race-hud.js";
@@ -244,6 +245,7 @@ let level = null;
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
 let rockfall = null; // falling rocks, on levels that ask for them
+let crosswind = null; // lateral gusts, on levels that ask for them
 let pits = null; // the pit lane, on maps that have one
 let director = null; // start lights, laps and the flag, on levels that race
 let soloVehicle = null;
@@ -303,6 +305,8 @@ async function loadLevel(name) {
   traffic = null;
   rockfall?.dispose();
   rockfall = null;
+  crosswind?.dispose();
+  crosswind = null;
   pits?.dispose();
   pits = null;
   pickups = null; // its meshes belong to the track and go with it
@@ -332,6 +336,7 @@ async function loadLevel(name) {
     if (level.rockfall) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
+    if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
@@ -504,6 +509,9 @@ function frame(now) {
   }
   traffic?.render(alpha);
   rockfall?.render(alpha);
+  // Flutter only, driven by the render frame like smoke — the gust
+  // itself is a force field, already applied in the fixed step above.
+  crosswind?.render(frameDt);
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
@@ -551,6 +559,7 @@ window.__dbg = {
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
+  get crosswind() { return crosswind; },
   get pits() { return pits; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js

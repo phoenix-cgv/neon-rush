@@ -201,7 +201,11 @@ export class Rockfall {
   #buildBanner() {
     this.banner = document.createElement("div");
     this.banner.textContent = "⚠ ROCKFALL";
-    this.banner.style.cssText = `position:fixed;top:44px;left:50%;transform:translateX(-50%);z-index:25;
+    // top:128, not top:44 — the Mountain now races against a clock
+    // (RaceDirector), and raceHud's lap/position/time bar sits at
+    // top:44. Both are centred, so sharing that slot would jumble them
+    // whenever a rock triggers mid-race.
+    this.banner.style.cssText = `position:fixed;top:128px;left:50%;transform:translateX(-50%);z-index:25;
       font:800 16px/1 "Cascadia Mono",Consolas,monospace;letter-spacing:.14em;color:#1a1300;
       background:#f2c200;border:2px solid #1a1300;padding:6px 12px;border-radius:3px;
       pointer-events:none;display:none`;
@@ -363,11 +367,11 @@ export class Rockfall {
         }
         break;
       case "rest": {
-        const hit = this.#collidingCar(r, field);
-        if (hit) {
-          this.#break(r, hit);
-          break;
-        }
+        // A hit does NOT remove it — the header comment promises a settled
+        // rock is solid, a crash like hitting a wall, and vehicle.js's own
+        // wall-impact code already charges the damage for that. Deleting it
+        // here on contact used to undercut both: the rock vanished the
+        // instant you touched it instead of staying a real obstacle.
         // Sink once the player is well past it, or after a while anyway.
         const lead = field[0]?.vehicle;
         const L = this.track.length;
@@ -395,33 +399,6 @@ export class Rockfall {
     }
     r.phase = "sink";
     r.t = 0;
-  }
-
-  #collidingCar(rock, field) {
-    if (!rock.collider || !this.world.contactPairsWith) return null;
-    let hit = null;
-    this.world.contactPairsWith(rock.collider, (other) => {
-      if (hit) return;
-      const car = field.find((entry) => entry.vehicle.collider.handle === other.handle);
-      if (!car) return;
-      this.world.contactPair?.(rock.collider, other, (manifold) => {
-        if ((manifold.numContacts?.() ?? 0) > 0) hit = car;
-      });
-    });
-    return hit;
-  }
-
-  #break(rock, car) {
-    if (rock.body) this.world.removeRigidBody(rock.body);
-    rock.body = null;
-    rock.collider = null;
-    rock.phase = "gone";
-    this.eventBus?.emit("obstacle-broken", {
-      kind: "boulder",
-      car,
-      position: rock.pos.clone(),
-      radius: rock.radius,
-    });
   }
 
   #carNear(p, dist, field) {
