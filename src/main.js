@@ -16,6 +16,7 @@ import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
 import { Rockfall } from "./core/rockfall.js";
 import { Crosswind } from "./core/crosswind.js";
+import { FogPatch } from "./core/fog-patch.js";
 import { PitLane } from "./track/pit-lane.js";
 import { RaceDirector } from "./core/race-director.js";
 import { RaceHud } from "./ui/race-hud.js";
@@ -246,6 +247,7 @@ let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
 let rockfall = null; // falling rocks, on levels that ask for them
 let crosswind = null; // lateral gusts, on levels that ask for them
+let fogPatch = null; // visibility hazard, on levels that ask for it
 let pits = null; // the pit lane, on maps that have one
 let director = null; // start lights, laps and the flag, on levels that race
 let soloVehicle = null;
@@ -283,6 +285,12 @@ async function loadLevel(name) {
     loadingNote.style.display = "none";
   }
   if (level) {
+    // Before applyLighting below replaces scene.fog for the new level:
+    // FogPatch.dispose() restores the OLD fog's near/far/colour, and
+    // doing that after the swap would stomp the new level's fog instead
+    // of the one it actually captured.
+    fogPatch?.dispose();
+    fogPatch = null;
     level.track?.dispose?.();
     level.dispose?.(); // levels without a Track clean up their own bodies
     for (const o of level.statics ?? []) {
@@ -337,6 +345,7 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
@@ -520,6 +529,7 @@ function frame(now) {
 
   const state = vehicle.state;
   health.update(state.damage);
+  fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
   gameplayHud.update(progress, level.track, state);
@@ -560,6 +570,7 @@ window.__dbg = {
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
   get crosswind() { return crosswind; },
+  get fogPatch() { return fogPatch; },
   get pits() { return pits; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
