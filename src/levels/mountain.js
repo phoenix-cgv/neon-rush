@@ -80,18 +80,19 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // but enough to actually need countersteer, not just a push too
     // gentle for the tyres' own grip to shrug off unnoticed.
     crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
-    // Low ground mist, not summit cloud, and right before the flag: the
-    // lap is 1,474.7 m, so 1440-1460 sits in the last ~35 m of clean road
-    // before the line — low elevation (~9.6 m, against an 82 m peak at
-    // the tunnel) and the one stretch on the whole descent not already
-    // claimed by the last rockfall zone (1320-1420). That gap is only
-    // ~55 m, tighter than the usual 40 m ramp allows without creeping
-    // into the rocks, so this zone gets a shorter 20 m ramp of its own
-    // (see FogPatch's `ramp` option) — thickening right as the rockfall
-    // zone ends, and clearing again just past the line, so you take the
-    // flag most of the way through it rather than emerging from it well
-    // before or after.
-    fogPatch: [{ s0: 1440, s1: 1460, ramp: 20, near: 20, far: 140, signOffset: 7.4 }],
+    // Low ground mist, not summit cloud, filling the gap between the last
+    // rockfall zone and the line: the lap is 1,474.7 m and that zone ends
+    // at 1420, leaving only ~55 m of clean road before the flag — low
+    // elevation (~9.6 m, against an 82 m peak at the tunnel), and the one
+    // stretch on the descent the rocks don't already claim. The ramp-in
+    // starts right where the rockfall zone ends (1419, one metre of
+    // overlap rather than a gap) and the ramp-out finishes at 1474, just
+    // short of the line — a fog patch you're still fighting as you cross
+    // the flag defeats the point of it, so it has to be fully clear by
+    // then, not fading out past it. 15 m ramps either side of a 25 m
+    // core: shorter than the usual 40 m (see FogPatch's `ramp` option),
+    // since the whole thing has to fit in 55 m.
+    fogPatch: [{ s0: 1434, s1: 1459, ramp: 15, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
