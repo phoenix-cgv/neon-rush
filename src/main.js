@@ -15,8 +15,12 @@ import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
 import { Traffic } from "./core/traffic.js";
 import { Rockfall } from "./core/rockfall.js";
+import { Crosswind } from "./core/crosswind.js";
+import { FogPatch } from "./core/fog-patch.js";
 import { PitLane } from "./track/pit-lane.js";
 import { RaceDirector } from "./core/race-director.js";
+import { Ghost } from "./core/ghost.js";
+import { Recorder } from "./core/determinism.js";
 import { RaceHud } from "./ui/race-hud.js";
 import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
@@ -244,8 +248,13 @@ let level = null;
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
 let rockfall = null; // falling rocks, on levels that ask for them
+let crosswind = null; // lateral gusts, on levels that ask for them
+let fogPatch = null; // visibility hazard, on levels that ask for it
 let pits = null; // the pit lane, on maps that have one
 let director = null; // start lights, laps and the flag, on levels that race
+let ghost = null; // your own best lap, replayed alongside you
+let ghostBestLap = null; // its time, for the HUD — fixed for the level's visit, like the ghost itself
+let recorder = null; // recording the lap in progress, so a new best gets a ghost
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
@@ -281,6 +290,12 @@ async function loadLevel(name) {
     loadingNote.style.display = "none";
   }
   if (level) {
+    // Before applyLighting below replaces scene.fog for the new level:
+    // FogPatch.dispose() restores the OLD fog's near/far/colour, and
+    // doing that after the swap would stomp the new level's fog instead
+    // of the one it actually captured.
+    fogPatch?.dispose();
+    fogPatch = null;
     level.track?.dispose?.();
     level.dispose?.(); // levels without a Track clean up their own bodies
     for (const o of level.statics ?? []) {
@@ -303,6 +318,12 @@ async function loadLevel(name) {
   traffic = null;
   rockfall?.dispose();
   rockfall = null;
+  crosswind?.dispose();
+  crosswind = null;
+  ghost?.dispose();
+  ghost = null;
+  ghostBestLap = null;
+  recorder = null;
   pits?.dispose();
   pits = null;
   pickups = null; // its meshes belong to the track and go with it
@@ -332,6 +353,8 @@ async function loadLevel(name) {
     if (level.rockfall) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
+    if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
@@ -343,6 +366,16 @@ async function loadLevel(name) {
         eventBus: gameplayEvents,
       });
       raceHud.setActive(true);
+      // A ghost of the level's own best lap — null if none has been set
+      // yet. Loaded once, from whatever was the best lap at the moment
+      // this level started: beating it mid-run does not replace it until
+      // the next restart, same as any other ghost-replay racer.
+      const record = Save.record(levelName);
+      if (record.ghost) {
+        ghost = new Ghost(RAPIER, world, scene, level.track, record.ghost);
+        ghostBestLap = record.bestLap;
+      }
+      recorder = new Recorder();
     }
     gameplayHud.setActive(true);
     cameraRig.snapTo(vehicle.state);
@@ -392,6 +425,15 @@ let accumulator = 0;
 let fps = 60;
 const _fieldForce = new THREE.Vector3();
 
+// Auto-advance: left alone at the results screen, the game moves itself
+// on to the next level rather than stalling until someone presses a key —
+// the whole three-level game plays through on its own. R (race again) or
+// L (switch level) during this window calls loadLevel itself, which sets
+// director back to a fresh "lights" state next frame and so resets this
+// right along with it; no special-casing needed to cancel the timer.
+const AUTO_ADVANCE_DELAY = 6; // s the results screen stays up before advancing
+let finishedFor = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
 
@@ -430,6 +472,16 @@ function frame(now) {
     loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
   }
 
+  if (director?.state === "finished") {
+    finishedFor += frameDt;
+    if (finishedFor >= AUTO_ADVANCE_DELAY) {
+      finishedFor = 0;
+      loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+    }
+  } else {
+    finishedFor = 0;
+  }
+
   accumulator += frameDt;
   let controls = input.controls;
   while (accumulator >= WORLD.fixedDt) {
@@ -450,9 +502,18 @@ function frame(now) {
       // step anyone may move.
       director?.step(WORLD.fixedDt);
       for (const c of race.cars) c.vehicle.savePreviousState();
+      const racing = director?.state === "racing";
+      // Captures the PLAYER's state before this step's controls move it,
+      // so a replay starting here and stepping with frame 0 lands exactly
+      // where recording frame 0 did. Lap 2+ begins the instant lap 1 did
+      // not (below), mid-corner at racing speed rather than from a
+      // standing start — which is exactly where that lap actually began.
+      if (racing && recorder && !recorder.recording) recorder.begin(vehicle);
       // Every car is stepped BEFORE the single solve, so no car sees a
       // world the others have not moved in yet.
       race.step(WORLD.fixedDt, controls);
+      recorder?.capture(controls);
+      ghost?.step(WORLD.fixedDt, racing);
     } else {
       vehicle.savePreviousState();
       vehicle.step(WORLD.fixedDt, controls);
@@ -463,9 +524,14 @@ function frame(now) {
     //
     // Every car, not just the player. Applying a gust to the player
     // alone makes the wind read as a handicap aimed at them rather than
-    // as weather, and the AI would take the exposed line for free.
+    // as weather, and the AI would take the exposed line for free. The
+    // ghost needs it too, for the same reason it needs everything else
+    // the recording met: skip it here and the ghost drifts off its own
+    // recorded line the moment it reaches a crosswind, having met a
+    // force the original run did not go without.
     if (level.track && level.track.forceFields.size) {
       const field = race ? race.cars.map((c) => c.vehicle) : [vehicle];
+      if (ghost) field.push(ghost.vehicle);
       for (const v of field) {
         level.track.forceAt(
           v.s,
@@ -486,10 +552,15 @@ function frame(now) {
       // Constraints and progress correct the pose Rapier just produced,
       // so they run after the solver, not before it.
       race.postStep(WORLD.fixedDt);
+      ghost?.postStep();
       pits?.postStep(WORLD.fixedDt, race.cars);
       pickups?.update(WORLD.fixedDt, race.cars);
-      // Best lap per level, shown in the pause menu.
-      if (progress?.justCompletedLap) Save.submitLap(levelName, progress.lastLapTime);
+      // Best lap per level, shown in the pause menu — and, if it's a new
+      // best, the recording just finished becomes next visit's ghost.
+      if (progress?.justCompletedLap) {
+        const rec = recorder?.recording ? recorder.end() : null;
+        Save.submitLap(levelName, progress.lastLapTime, rec);
+      }
     } else {
       vehicle.applySoftWall();
     }
@@ -502,8 +573,12 @@ function frame(now) {
     vehicle.writeTransform(alpha);
     carRig.sync(vehicle.state);
   }
+  ghost?.render(alpha);
   traffic?.render(alpha);
   rockfall?.render(alpha);
+  // Flutter only, driven by the render frame like smoke — the gust
+  // itself is a force field, already applied in the fixed step above.
+  crosswind?.render(frameDt);
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
@@ -512,9 +587,10 @@ function frame(now) {
 
   const state = vehicle.state;
   health.update(state.damage);
+  fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
-  gameplayHud.update(progress, level.track, state);
+  gameplayHud.update(progress, level.track, state, ghostBestLap);
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);
@@ -551,6 +627,9 @@ window.__dbg = {
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
+  get crosswind() { return crosswind; },
+  get fogPatch() { return fogPatch; },
+  get ghost() { return ghost; },
   get pits() { return pits; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js

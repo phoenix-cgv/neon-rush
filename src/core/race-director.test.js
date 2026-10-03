@@ -9,6 +9,7 @@ function makeRace() {
     name: "You",
     colour: 0xffffff,
     progress: { lap: 1, respawns: 0 },
+    vehicle: { damage: 0 },
   };
   const rival = {
     isPlayer: false,
@@ -92,4 +93,35 @@ test("addTime does nothing once the race is already decided", () => {
 
   director.addTime(5);
   assert.equal(director.timeLimit, 10);
+});
+
+test("publishes a loss when the player's car is wrecked", () => {
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 3 });
+  director.state = "racing";
+  race.frozen = false;
+
+  race.player.vehicle.damage = 0.6;
+  director.step(1);
+  assert.equal(director.state, "racing"); // damaged, but not wrecked yet
+
+  race.player.vehicle.damage = 1;
+  director.step(1);
+
+  assert.equal(director.state, "finished");
+  assert.equal(director.outcome, "lost");
+  assert.equal(director.reason, "wrecked");
+  assert.equal(director.consumeEvents().at(-1)?.type, "race-lost");
+});
+
+test("maxDamage: null turns the wreck check off", () => {
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 3, maxDamage: null });
+  director.state = "racing";
+  race.frozen = false;
+
+  race.player.vehicle.damage = 1;
+  director.step(1);
+
+  assert.equal(director.state, "racing");
 });

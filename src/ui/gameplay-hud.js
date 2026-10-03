@@ -1,6 +1,14 @@
 import { CAR } from "../vehicle/config.js";
 
 const FONT = `"Cascadia Mono",Consolas,monospace`;
+const CRITICAL_DAMAGE = 0.85; // warn before RaceDirector's default maxDamage (1) ends the race
+const GHOST_COLOR = "#7fe3ff"; // matches the ghost car's paint (src/core/ghost.js)
+
+const fmt = (t) => {
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, "0")}`;
+};
 
 export class GameplayHud {
   constructor() {
@@ -62,7 +70,7 @@ export class GameplayHud {
     this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), 1300);
   }
 
-  update(progress, track, state) {
+  update(progress, track, state, ghostBestLap = null) {
     if (!progress || !track || !state) return;
     const charge = Math.max(0, Math.min(1, state.boostCharge / CAR.boostCapacity));
     if (Math.abs(charge - this.lastCharge) >= 0.002) {
@@ -72,13 +80,23 @@ export class GameplayHud {
     this.fill.style.background = state.boosting ? "#f5fbff" : "#32c9df";
     this.boostTrack.style.boxShadow = state.boosting ? "0 0 16px rgba(50,201,223,.9)" : "none";
 
-    this.checkpoint.textContent = `NEXT CP ${progress.nextCheckpoint + 1}/${track.checkpoints.length}`;
-    const message = progress.wrongWay
-      ? "WRONG WAY"
-      : progress.missedCheckpoint !== null
-        ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
-        : "";
+    this.checkpoint.innerHTML =
+      `NEXT CP ${progress.nextCheckpoint + 1}/${track.checkpoints.length}` +
+      (ghostBestLap !== null
+        ? `<div style="color:${GHOST_COLOR};margin-top:3px">GHOST ${fmt(ghostBestLap)}</div>`
+        : "");
+    // Highest priority: a wrecked car ends the race, which outranks
+    // either of the other two warnings.
+    const critical = state.damage >= CRITICAL_DAMAGE;
+    const message = critical
+      ? "CRITICAL DAMAGE"
+      : progress.wrongWay
+        ? "WRONG WAY"
+        : progress.missedCheckpoint !== null
+          ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
+          : "";
     this.warning.textContent = message;
+    this.warning.style.color = critical ? "#ff4433" : "#ffd24a";
     this.warning.style.display = message ? "block" : "none";
   }
 }

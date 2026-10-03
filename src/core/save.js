@@ -29,9 +29,6 @@ function read() {
   try {
     const raw = localStorage.getItem(KEY);
     const data = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
-    // Earlier versions kept a ghost-car recording (~17 KB of controls)
-    // with every best lap. The ghost is gone; keep the times, drop those.
-    for (const rec of Object.values(data.records ?? {})) if (rec) delete rec.ghost;
     return data;
   } catch {
     return { ...DEFAULTS };
@@ -59,18 +56,24 @@ export const Save = {
     write(this.data);
   },
 
-  /** The stored best lap for one level, or null. */
+  /** The stored best lap for one level (and its ghost recording, if any), or null. */
   record(level) {
-    return this.data.records?.[level] ?? { bestLap: null };
+    return this.data.records?.[level] ?? { bestLap: null, ghost: null };
   },
 
-  /** Store a lap if it beat this level's stored one. */
-  submitLap(level, seconds) {
+  /**
+   * Store a lap if it beat this level's stored one.
+   * @param {object|null} ghost  a determinism.js recording ({ start, frames })
+   *   of the lap just driven, kept alongside the time so the next visit can
+   *   race it as a ghost car. Six bytes a frame — a 50 s lap is ~18 KB,
+   *   comfortably inside localStorage.
+   */
+  submitLap(level, seconds, ghost = null) {
     if (!Number.isFinite(seconds) || seconds <= 0) return false;
     const prev = this.record(level);
     if (prev.bestLap !== null && seconds >= prev.bestLap) return false;
     this.data.records = this.data.records ?? {};
-    this.data.records[level] = { bestLap: seconds };
+    this.data.records[level] = { bestLap: seconds, ghost };
     write(this.data);
     return true;
   },
