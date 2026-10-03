@@ -1,0 +1,96 @@
+import * as THREE from "three";
+import { Vehicle } from "../vehicle/vehicle.js";
+import { CarRig } from "../vehicle/car-rig.js";
+import { ReplayController } from "./determinism.js";
+
+// ---------------------------------------------------------------------
+// Ghost: your own best lap, driving itself alongside you.
+//
+// The hard part of this was already built and verified — vehicle.js's
+// `opts.ghost` flag puts the car on its own Rapier collision group (see
+// the comment by GROUP.ghost there): it meets the same road, kerbs and
+// barriers the recording did, but it can never touch the player, so a
+// ghost that "wins" a corner cannot shove you off your own line. And
+// determinism.js already has the Recorder/ReplayController pair, with
+// a harness (verifyDeterminism) that proves a recording reproduces
+// bit-faithfully — which is the only thing that makes replaying one
+// worth doing at all. This module is just the wiring: a second Vehicle
+// driven by canned controls instead of the keyboard, painted
+// translucent so it's never mistaken for a rival.
+//
+// It is stepped and rendered exactly like a race car (savePreviousState
+// before the solve, applySoftWall after, writeTransform/sync for
+// render) — main.js just calls it alongside race.step()/race.render()
+// rather than through race.cars, since it is not part of the race.
+// ---------------------------------------------------------------------
+
+const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
+const GHOST_PAINT = 0x7fe3ff;
+const GHOST_OPACITY = 0.35;
+
+export class Ghost {
+  /**
+   * @param {object} RAPIER
+   * @param {object} world
+   * @param {THREE.Scene} scene
+   * @param {object} track
+   * @param {{start: object, frames: number[][]}} recording  from Recorder.end()
+   */
+  constructor(RAPIER, world, scene, track, recording) {
+    this.world = world;
+    this.scene = scene;
+
+    const t = recording.start.t;
+    this.vehicle = new Vehicle(RAPIER, world, new THREE.Vector3(t[0], t[1], t[2]), { ghost: true });
+    this.vehicle.setTrack(track, recording.start.s);
+    this.vehicle.restoreState(recording.start);
+    this.vehicle.savePreviousState();
+
+    this.replay = new ReplayController(recording);
+    this.rig = new CarRig(GHOST_PAINT);
+    this.#makeTranslucent();
+    this.scene.add(this.rig.root);
+    this.rig.sync(this.vehicle.state);
+  }
+
+  /** A see-through car reads as a ghost, not as another racer. */
+  #makeTranslucent() {
+    this.rig.root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = false;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        if (!m) continue;
+        m.transparent = true;
+        m.opacity = Math.min(m.opacity, GHOST_OPACITY);
+        m.depthWrite = false;
+      }
+    });
+  }
+
+  /**
+   * One fixed step, before world.step() — like every other car. Held
+   * still with zero controls until the lights go out, same as the real
+   * field; past the end of the recording, ReplayController itself coasts
+   * rather than holding the last input forever.
+   */
+  step(dt, racing) {
+    this.vehicle.savePreviousState();
+    this.vehicle.step(dt, racing ? this.replay.update() : HOLD);
+  }
+
+  /** After world.step(). */
+  postStep() {
+    this.vehicle.applySoftWall();
+  }
+
+  /** Render frame: alpha blends the last two physics poses. */
+  render(alpha) {
+    this.vehicle.writeTransform(alpha);
+    this.rig.sync(this.vehicle.state);
+  }
+
+  dispose() {
+    this.scene.remove(this.rig.root);
+    this.world.removeRigidBody(this.vehicle.body);
+  }
+}
