@@ -605,7 +605,7 @@ function frame(now) {
       : fogPatch?.activeAt(vehicle.s)
         ? "FOG"
         : null;
-  gameplayHud.update(progress, level.track, state, ghostBestLap, hazard);
+  gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);

@@ -80,18 +80,24 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // but enough to actually need countersteer, not just a push too
     // gentle for the tyres' own grip to shrug off unnoticed.
     crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
-    // Low ground mist, not summit cloud, and right before the flag: the
-    // lap is 1,474.7 m, so 1440-1460 sits in the last ~35 m of clean road
-    // before the line — low elevation (~9.6 m, against an 82 m peak at
-    // the tunnel) and the one stretch on the whole descent not already
-    // claimed by the last rockfall zone (1320-1420). That gap is only
-    // ~55 m, tighter than the usual 40 m ramp allows without creeping
-    // into the rocks, so this zone gets a shorter 20 m ramp of its own
-    // (see FogPatch's `ramp` option) — thickening right as the rockfall
-    // zone ends, and clearing again just past the line, so you take the
-    // flag most of the way through it rather than emerging from it well
-    // before or after.
-    fogPatch: [{ s0: 1440, s1: 1460, ramp: 20, near: 20, far: 140, signOffset: 7.4 }],
+    // Low ground mist, not summit cloud, filling the whole gap between the
+    // last rockfall zone and the line. That zone is the 1180-1290 one, not
+    // the 1320-1420 entry above: Rockfall's own uphill-slope check
+    // (measured from the terrain, not configured) finds no real slope
+    // over that last stretch and drops it silently — so it never arms,
+    // never signs, never drops a rock, and 1320-1420 is actually just more
+    // plain road. The real gap to the line is 1290-1474.7, not 1420-1474.7.
+    // A short 10 m ramp (see FogPatch's `ramp` option, default 40) so it
+    // reads as present almost the instant the rocks stop, not a 40 m fade
+    // that is still near-baseline visibility for the first several
+    // seconds. Full strength holds for the next 160 m, nearly the whole
+    // remaining stretch, clearing only in the last 15 m before the line —
+    // there to be driven through right up to the flag, not resolved with
+    // a big empty buffer beforehand, but still gone before the line
+    // itself so it never reads as lingering past it. Denser than the
+    // default near/far too (12/80, not 20/140): the default read as too
+    // faint to notice at a glance.
+    fogPatch: [{ s0: 1300, s1: 1460, ramp: 10, near: 12, far: 80, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
