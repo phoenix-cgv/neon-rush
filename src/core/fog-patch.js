@@ -73,6 +73,11 @@ export class FogPatch {
     return 1;
   }
 
+  /** Is s inside any zone's murk (ramps included)? For the HUD warning. */
+  activeAt(s) {
+    return this.zones.some((z) => this.#strengthAt(z, s) > 0.05);
+  }
+
   /** Called once per rendered frame with the player's track distance. */
   update(s) {
     const fog = this.scene.fog;

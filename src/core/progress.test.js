@@ -55,6 +55,25 @@ test("reports a missed checkpoint when crossing outside the road-width gate", ()
   assert.deepEqual(progress.consumeEvents().map((event) => event.type), ["checkpoint-missed"]);
 });
 
+test("counts a checkpoint crossed on the pit road despite its huge lateral offset", () => {
+  // The pit road runs several metres out from the centreline, and
+  // PitLane.constrain projects the car onto the main track from there —
+  // vehicle.lateralOffset while inPit is routinely far outside any gate.
+  // Grand Prix's pit lane happens to run alongside the main straight
+  // through s = 0, so a pitting car sweeps across the start/finish
+  // checkpoint while still reading that offset.
+  const progress = new Progress(track);
+  progress.markProgressFrom(90);
+
+  const v = vehicle(101, 12);
+  v.inPit = true;
+  progress.update(1 / 60, v);
+
+  assert.equal(progress.lastCheckpoint, 1);
+  assert.equal(progress.missedCheckpoint, null);
+  assert.deepEqual(progress.consumeEvents().map((event) => event.type), ["checkpoint"]);
+});
+
 test("raises and clears wrong-way state from sustained reverse travel", () => {
   const progress = new Progress(track, { wrongWayDelay: 0.5 });
   progress.markProgressFrom(150);

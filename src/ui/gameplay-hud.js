@@ -3,6 +3,7 @@ import { CAR } from "../vehicle/config.js";
 const FONT = `"Cascadia Mono",Consolas,monospace`;
 const CRITICAL_DAMAGE = 0.85; // warn before RaceDirector's default maxDamage (1) ends the race
 const GHOST_COLOR = "#7fe3ff"; // matches the ghost car's paint (src/core/ghost.js)
+const HAZARD_COLOR = "#41c7e6"; // an active crosswind/fog patch — distinct from the ghost's cyan
 
 const fmt = (t) => {
   const m = Math.floor(t / 60);
@@ -70,7 +71,7 @@ export class GameplayHud {
     this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), 1300);
   }
 
-  update(progress, track, state, ghostBestLap = null) {
+  update(progress, track, state, ghostBestLap = null, hazard = null) {
     if (!progress || !track || !state) return;
     const charge = Math.max(0, Math.min(1, state.boostCharge / CAR.boostCapacity));
     if (Math.abs(charge - this.lastCharge) >= 0.002) {
@@ -85,18 +86,22 @@ export class GameplayHud {
       (ghostBestLap !== null
         ? `<div style="color:${GHOST_COLOR};margin-top:3px">GHOST ${fmt(ghostBestLap)}</div>`
         : "");
-    // Highest priority: a wrecked car ends the race, which outranks
-    // either of the other two warnings.
+    // Priority: a wrecked car ends the race, which outranks everything
+    // else; an active hazard (crosswind, fog) is live right now and more
+    // actionable than the other two, which are the player's own mistake
+    // to correct rather than something happening to them this instant.
     const critical = state.damage >= CRITICAL_DAMAGE;
     const message = critical
       ? "CRITICAL DAMAGE"
-      : progress.wrongWay
-        ? "WRONG WAY"
-        : progress.missedCheckpoint !== null
-          ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
-          : "";
+      : hazard
+        ? hazard
+        : progress.wrongWay
+          ? "WRONG WAY"
+          : progress.missedCheckpoint !== null
+            ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
+            : "";
     this.warning.textContent = message;
-    this.warning.style.color = critical ? "#ff4433" : "#ffd24a";
+    this.warning.style.color = critical ? "#ff4433" : hazard ? HAZARD_COLOR : "#ffd24a";
     this.warning.style.display = message ? "block" : "none";
   }
 }
