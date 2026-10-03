@@ -99,8 +99,11 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     title: "Grand Prix",
     track,
     opponents: 5, // the full field: this is the race
-    // A proper race: start lights, three laps, a classification.
-    race: { laps: 3, timeLimit: 8 * 60 },
+    // A proper race: start lights, two laps, a classification. timeLimit
+    // scales with laps (was 8 min for three) rather than being a fixed
+    // ceiling, so it stays exactly as generous relative to a real race
+    // distance as it always was.
+    race: { laps: 2, timeLimit: (8 * 60 * 2) / 3 },
     startLamps: map.kept,
     // A real pit stop: repaired and refuelled with boost in your box in
     // about three seconds; opponents pit when badly damaged. The limiter
