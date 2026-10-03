@@ -81,21 +81,18 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // gentle for the tyres' own grip to shrug off unnoticed.
     crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
     // Low ground mist, not summit cloud, filling the gap between the last
-    // rockfall zone and the line: the lap is 1,474.7 m and that zone ends
-    // at 1420, leaving only ~55 m of clean road before the flag — low
-    // elevation (~9.6 m, against an 82 m peak at the tunnel), and the one
-    // stretch on the descent the rocks don't already claim. The ramp-in
-    // starts right where the rockfall zone ends (1420) and the ramp-out
-    // is down to nothing by 1464 — about 10 m of plainly clear road
-    // before the line, not just the single metre a strict s1+ramp
-    // calculation would allow. A patch that's still fighting you as you
-    // cross the flag defeats the point of it, and a margin measured in
-    // single metres is invisible at race speed (a few hundredths of a
-    // second) — this one needs to actually read as cleared, not merely
-    // compute as cleared. 12 m ramps either side of a 20 m core: shorter
-    // than the usual 40 m (see FogPatch's `ramp` option), since the
-    // whole thing still has to fit in 55 m with room to spare at the end.
-    fogPatch: [{ s0: 1432, s1: 1452, ramp: 12, near: 20, far: 140, signOffset: 7.4 }],
+    // rockfall zone and the line. That zone is the 1180-1290 one, not the
+    // 1320-1420 entry above: Rockfall's own uphill-slope check (measured
+    // from the terrain, not configured) finds no real slope over that
+    // last stretch and drops it silently — so it never arms, never signs,
+    // never drops a rock, and 1320-1420 is actually just more plain road.
+    // The real gap to the line is 1290-1474.7, not 1420-1474.7, so this
+    // uses the default 40 m ramp (see FogPatch's `ramp` option) rather
+    // than a squeezed one: ramp-in starts right at 1290, where the rocks
+    // actually stop, and ramp-out is down to nothing by 1400 — about 75 m
+    // of plainly clear road before the line, not fighting you as you
+    // cross the flag.
+    fogPatch: [{ s0: 1330, s1: 1360, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
