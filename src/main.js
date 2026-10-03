@@ -594,7 +594,17 @@ function frame(now) {
   fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
-  const hazard = crosswind?.activeAt(vehicle.s) ? "CROSSWIND" : fogPatch?.activeAt(vehicle.s) ? "FOG" : null;
+  // One shared slot, one hazard at a time — rockfall first (an incoming
+  // boulder is the most acutely urgent), so a falling-rocks trigger can
+  // never land on top of "CROSSWIND"/"FOG" and bury it, the way its own
+  // separate banner used to.
+  const hazard = rockfall?.warning
+    ? "ROCKFALL"
+    : crosswind?.activeAt(vehicle.s)
+      ? "CROSSWIND"
+      : fogPatch?.activeAt(vehicle.s)
+        ? "FOG"
+        : null;
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard);
   cameraRig.update(frameDt, state, input.look);
 

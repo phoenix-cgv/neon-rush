@@ -8,7 +8,11 @@ import { GROUP, ALL } from "../vehicle/vehicle.js";
 //
 //   SIGNS     each zone has a falling-rocks warning sign on its approach.
 //   WARNING   a trickle of small stones comes down the slope a second
-//             before the boulder, and "ROCKFALL" flashes on screen.
+//             before the boulder, and the `warning` getter below tells
+//             the shared HUD warning line to show "ROCKFALL" — the same
+//             slot the crosswind and the fog patch use, rather than its
+//             own floating banner, so two hazards can never overlap and
+//             obscure each other on screen.
 //   AHEAD     a boulder always lands well ahead of the car (the landing
 //             point is chosen from the car's speed), never on it, and on
 //             the uphill half of the road, so there is always a lane.
@@ -92,7 +96,11 @@ export class Rockfall {
     for (const z of this.zones) this.#sign(z, opts.signOffset ?? 7.6);
 
     this.#buildMeshes();
-    this.#buildBanner();
+  }
+
+  /** Is a warning (or the fall itself) live right now? For the HUD. */
+  get warning() {
+    return this.warnFor > 0;
   }
 
   // -------------------------------------------------------------------
@@ -213,20 +221,6 @@ export class Rockfall {
       this.scene.add(o);
       this.objects.push(o);
     }
-  }
-
-  #buildBanner() {
-    this.banner = document.createElement("div");
-    this.banner.textContent = "⚠ ROCKFALL";
-    // top:128, not top:44 — the Mountain now races against a clock
-    // (RaceDirector), and raceHud's lap/position/time bar sits at
-    // top:44. Both are centred, so sharing that slot would jumble them
-    // whenever a rock triggers mid-race.
-    this.banner.style.cssText = `position:fixed;top:128px;left:50%;transform:translateX(-50%);z-index:25;
-      font:800 16px/1 "Cascadia Mono",Consolas,monospace;letter-spacing:.14em;color:#1a1300;
-      background:#f2c200;border:2px solid #1a1300;padding:6px 12px;border-radius:3px;
-      pointer-events:none;display:none`;
-    document.body.appendChild(this.banner);
   }
 
   // -------------------------------------------------------------------
@@ -488,7 +482,6 @@ export class Rockfall {
     this.dust.count = nd;
     this.dust.material.opacity = 0.35;
     for (const o of [this.boulders, this.stones, this.dust]) o.instanceMatrix.needsUpdate = true;
-    this.banner.style.display = this.warnFor > 0 ? "block" : "none";
   }
 
   dispose() {
@@ -505,6 +498,5 @@ export class Rockfall {
       o.dispose?.();
     }
     this.objects.length = 0;
-    this.banner.remove();
   }
 }

@@ -2,16 +2,25 @@ import * as THREE from "three";
 
 // ---------------------------------------------------------------------
 // Fog patch: a stretch where the mountain air thickens over the road,
-// pulling the draw distance right in. Placed on the climb to the
-// tunnel — a misty approach to the summit — so the hazard is "the
-// corners you already have to read on sight now give you less sight,"
-// not a cheap jump-scare out of nowhere.
+// pulling the draw distance right in. Placed low on the climb, not up
+// near the summit: ground mist pooling in a valley reads as a real
+// place for weather to collect, where thickening right by the tunnel
+// just looked like the sky had been swapped for a flat grey card. The
+// hazard is "the corners you already have to read on sight now give
+// you less sight," not a cheap jump-scare out of nowhere.
 //
 // Same fairness rule as the rockfall and the crosswind it shares the
 // mountain with: thickness is a function of s alone, ramped in and out
-// smoothly, with a sign on the approach. No HUD banner — unlike a
-// missed checkpoint or an incoming boulder, fog thickening around you
-// is its own, entirely legible warning.
+// smoothly, with a sign on the approach. No separate HUD banner of its
+// own — it shares main.js's one hazard-warning slot with the rockfall
+// and the crosswind, so only one can ever be on screen at a time.
+//
+// The dome tints toward three slightly different shades of the fog
+// colour (brighter overhead, darker at the ground) rather than one flat
+// value: collapsing the whole sky to a single colour fixed the ORIGINAL
+// bug (clear blue still showing past the fog, so it looked like the
+// murk just stopped), but a perfectly flat dome swung too far the other
+// way and read as a solid card rather than an overcast sky.
 // ---------------------------------------------------------------------
 
 const RAMP = 40; // m the patch takes to thicken to / clear from full strength
@@ -24,6 +33,8 @@ const DEFAULT_COLOR = 0x6c7680;
 const _fr = {};
 const _v = new THREE.Vector3();
 const _c = new THREE.Color();
+const WHITE = new THREE.Color(0xffffff);
+const BLACK = new THREE.Color(0x000000);
 
 export class FogPatch {
   /**
@@ -57,12 +68,22 @@ export class FogPatch {
       };
     }
 
-    this.zones = zones.map((z) => ({
-      ...z,
-      near: z.near ?? 8,
-      far: z.far ?? 85,
-      color: z.color !== undefined ? new THREE.Color(z.color) : new THREE.Color(DEFAULT_COLOR),
-    }));
+    this.zones = zones.map((z) => {
+      const color = z.color !== undefined ? new THREE.Color(z.color) : new THREE.Color(DEFAULT_COLOR);
+      return {
+        ...z,
+        near: z.near ?? 20,
+        far: z.far ?? 140,
+        color,
+        // The dome tints toward three DIFFERENT shades of this colour,
+        // not one flat value — brighter overhead, darker at the ground —
+        // so thick fog still reads as sky-shaped murk rather than a
+        // single-colour card pasted behind the scene.
+        skyTop: color.clone().lerp(WHITE, 0.2),
+        skyHorizon: color.clone(),
+        skyBottom: color.clone().lerp(BLACK, 0.18),
+      };
+    });
     for (const z of this.zones) this.#buildSign(z);
   }
 
@@ -99,16 +120,19 @@ export class FogPatch {
     if (zone) _c.lerp(zone.color, k);
     fog.color.copy(_c);
 
-    // The dome itself goes flat and grey as the patch thickens: a sky
-    // you can still read a gradient in is a sky you can see past the fog,
-    // which is the one thing fog is not supposed to let you do. k is 0
-    // whenever zone is null, so the tint fallback below never actually
+    // The dome tints toward the murk as the patch thickens — not to one
+    // flat colour (that read as a solid card pasted behind the scene,
+    // not a sky), but to its own top/horizon/bottom shades, so there is
+    // still a sky-shaped gradient to see, just a muted, overcast one. k
+    // is 0 whenever zone is null, so the tint fallback never actually
     // applies — lerp(..., 0) is exactly the base colour regardless.
     if (this.skyUniforms) {
-      const tint = zone?.color ?? this.baseColor;
-      this.skyUniforms.uTop.value.copy(this.baseSky.top).lerp(tint, k);
-      this.skyUniforms.uHorizon.value.copy(this.baseSky.horizon).lerp(tint, k);
-      this.skyUniforms.uBottom.value.copy(this.baseSky.bottom).lerp(tint, k);
+      const top = zone?.skyTop ?? this.baseColor;
+      const horizon = zone?.skyHorizon ?? this.baseColor;
+      const bottom = zone?.skyBottom ?? this.baseColor;
+      this.skyUniforms.uTop.value.copy(this.baseSky.top).lerp(top, k);
+      this.skyUniforms.uHorizon.value.copy(this.baseSky.horizon).lerp(horizon, k);
+      this.skyUniforms.uBottom.value.copy(this.baseSky.bottom).lerp(bottom, k);
     }
   }
 

@@ -75,13 +75,20 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // The viaduct (1,018-1,160 m) is the one stretch with nothing beside
     // the road at all — no slope to drop rocks, no rail-height drop-off,
     // just open air over the gorge. A crosswind belongs there and
-    // nowhere else on this lap.
-    crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 4200, signOffset: 7.4 }],
-    // A misty approach to the summit: thickens on the climb to the
-    // tunnel (683 m) and clears well short of its mouth (the patch and
-    // its ramp-out both end by 680 m), so the fog never bleeds into the
-    // tunnel's own lit, walled interior.
-    fogPatch: [{ s0: 560, s1: 640, near: 8, far: 85, signOffset: 7.4 }],
+    // nowhere else on this lap. 5200 N, not 4200: on a 1200 kg car that's
+    // ~4.3 m/s^2 at full strength — comfortably below boostForce (6500 N)
+    // but enough to actually need countersteer, not just a push too
+    // gentle for the tyres' own grip to shrug off unnoticed.
+    crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
+    // Low ground mist, not summit cloud: 90-140 m sits near the foot of
+    // the climb (roughly 9-12 m of elevation, against an 82 m peak at the
+    // tunnel) — a damp valley pocket reads as a real place for fog to
+    // collect, where thickening right up near the summit just looked like
+    // the whole sky had been replaced. Clear of the start line by enough
+    // for the sign at s0-70 to actually be seen before the car gets
+    // there, and its ramp-out ends 5 m before the first rockfall zone
+    // (190 m) so the two hazards never overlap.
+    fogPatch: [{ s0: 90, s1: 140, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",

@@ -105,17 +105,27 @@ export class Crosswind {
     for (const side of [-1, 1]) {
       const base = _fr.position.clone().addScaledVector(_fr.right, side * offset);
       const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 3.4, 6),
+        new THREE.CylinderGeometry(0.07, 0.07, 4.0, 6),
         new THREE.MeshStandardMaterial({ color: 0x8c9296, metalness: 0.4, roughness: 0.6 })
       );
-      pole.position.copy(base).add(_v.set(0, 1.7, 0));
+      pole.position.copy(base).add(_v.set(0, 2.0, 0));
       pole.castShadow = true;
 
+      // Bigger and lit from within: at speed, a thin orange cone the
+      // size of the original was easy to miss entirely against the
+      // terrain. A glow reads the same whether the sun is behind it or
+      // in front of it, which plain colour does not.
       const sock = new THREE.Mesh(
-        new THREE.ConeGeometry(0.34, 1.6, 10, 1, true),
-        new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.75, side: THREE.DoubleSide })
+        new THREE.ConeGeometry(0.5, 2.2, 10, 1, true),
+        new THREE.MeshStandardMaterial({
+          color: 0xff7a1a,
+          emissive: 0xff3300,
+          emissiveIntensity: 0.5,
+          roughness: 0.75,
+          side: THREE.DoubleSide,
+        })
       );
-      sock.position.copy(base).add(_v.set(0, 3.3, 0));
+      sock.position.copy(base).add(_v.set(0, 3.9, 0));
       sock.quaternion.copy(q);
       sock.castShadow = true;
 

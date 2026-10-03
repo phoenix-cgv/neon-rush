@@ -87,9 +87,10 @@ export class GameplayHud {
         ? `<div style="color:${GHOST_COLOR};margin-top:3px">GHOST ${fmt(ghostBestLap)}</div>`
         : "");
     // Priority: a wrecked car ends the race, which outranks everything
-    // else; an active hazard (crosswind, fog) is live right now and more
-    // actionable than the other two, which are the player's own mistake
-    // to correct rather than something happening to them this instant.
+    // else; an active hazard (rockfall, crosswind, fog — main.js picks
+    // which one) is live right now and more actionable than the other
+    // two, which are the player's own mistake to correct rather than
+    // something happening to them this instant.
     const critical = state.damage >= CRITICAL_DAMAGE;
     const message = critical
       ? "CRITICAL DAMAGE"
@@ -101,7 +102,10 @@ export class GameplayHud {
             ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
             : "";
     this.warning.textContent = message;
-    this.warning.style.color = critical ? "#ff4433" : hazard ? HAZARD_COLOR : "#ffd24a";
+    // A falling rock is a physical danger (the old rockfall banner's own
+    // yellow/black), not ambient weather (crosswind/fog's cyan) — kept
+    // distinct so the two read as different kinds of warning at a glance.
+    this.warning.style.color = critical ? "#ff4433" : hazard === "ROCKFALL" ? "#f2c200" : hazard ? HAZARD_COLOR : "#ffd24a";
     this.warning.style.display = message ? "block" : "none";
   }
 }
