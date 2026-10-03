@@ -71,7 +71,7 @@ export class GameplayHud {
     this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), 1300);
   }
 
-  update(progress, track, state, ghostBestLap = null, hazard = null) {
+  update(progress, track, state, ghostBestLap = null, hazard = null, finished = false) {
     if (!progress || !track || !state) return;
     const charge = Math.max(0, Math.min(1, state.boostCharge / CAR.boostCapacity));
     if (Math.abs(charge - this.lastCharge) >= 0.002) {
@@ -90,17 +90,23 @@ export class GameplayHud {
     // else; an active hazard (rockfall, crosswind, fog — main.js picks
     // which one) is live right now and more actionable than the other
     // two, which are the player's own mistake to correct rather than
-    // something happening to them this instant.
+    // something happening to them this instant. Once the race is over
+    // the results screen is the only thing that should be talking to the
+    // player — a leftover "WRONG WAY" from the car's last few seconds
+    // (it's handed to autopilot, but not reset) would otherwise sit
+    // rendered on top of it.
     const critical = state.damage >= CRITICAL_DAMAGE;
-    const message = critical
-      ? "CRITICAL DAMAGE"
-      : hazard
-        ? hazard
-        : progress.wrongWay
-          ? "WRONG WAY"
-          : progress.missedCheckpoint !== null
-            ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
-            : "";
+    const message = finished
+      ? ""
+      : critical
+        ? "CRITICAL DAMAGE"
+        : hazard
+          ? hazard
+          : progress.wrongWay
+            ? "WRONG WAY"
+            : progress.missedCheckpoint !== null
+              ? `CHECKPOINT ${progress.missedCheckpoint + 1} MISSED`
+              : "";
     this.warning.textContent = message;
     // A falling rock is a physical danger (the old rockfall banner's own
     // yellow/black), not ambient weather (crosswind/fog's cyan) — kept
