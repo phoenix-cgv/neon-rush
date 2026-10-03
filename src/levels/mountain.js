@@ -85,14 +85,17 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // at 1420, leaving only ~55 m of clean road before the flag — low
     // elevation (~9.6 m, against an 82 m peak at the tunnel), and the one
     // stretch on the descent the rocks don't already claim. The ramp-in
-    // starts right where the rockfall zone ends (1419, one metre of
-    // overlap rather than a gap) and the ramp-out finishes at 1474, just
-    // short of the line — a fog patch you're still fighting as you cross
-    // the flag defeats the point of it, so it has to be fully clear by
-    // then, not fading out past it. 15 m ramps either side of a 25 m
-    // core: shorter than the usual 40 m (see FogPatch's `ramp` option),
-    // since the whole thing has to fit in 55 m.
-    fogPatch: [{ s0: 1434, s1: 1459, ramp: 15, near: 20, far: 140, signOffset: 7.4 }],
+    // starts right where the rockfall zone ends (1420) and the ramp-out
+    // is down to nothing by 1464 — about 10 m of plainly clear road
+    // before the line, not just the single metre a strict s1+ramp
+    // calculation would allow. A patch that's still fighting you as you
+    // cross the flag defeats the point of it, and a margin measured in
+    // single metres is invisible at race speed (a few hundredths of a
+    // second) — this one needs to actually read as cleared, not merely
+    // compute as cleared. 12 m ramps either side of a 20 m core: shorter
+    // than the usual 40 m (see FogPatch's `ramp` option), since the
+    // whole thing still has to fit in 55 m with room to spare at the end.
+    fogPatch: [{ s0: 1432, s1: 1452, ramp: 12, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
