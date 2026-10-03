@@ -65,6 +65,15 @@ test("counts a checkpoint crossed on the pit road despite its huge lateral offse
   const progress = new Progress(track);
   progress.markProgressFrom(90);
 
+  // Already on the pit road, not entering it this frame — settles
+  // wasInPit first, so the entry resync below doesn't fire and it's
+  // genuinely the ordinary continuous crossing test (bypassing the
+  // lateral gate for vehicle.inPit) being exercised, not that resync.
+  const settling = vehicle(95, 12);
+  settling.inPit = true;
+  progress.update(1 / 60, settling);
+  progress.consumeEvents();
+
   const v = vehicle(101, 12);
   v.inPit = true;
   progress.update(1 / 60, v);
@@ -72,6 +81,29 @@ test("counts a checkpoint crossed on the pit road despite its huge lateral offse
   assert.equal(progress.lastCheckpoint, 1);
   assert.equal(progress.missedCheckpoint, null);
   assert.deepEqual(progress.consumeEvents().map((event) => event.type), ["checkpoint"]);
+});
+
+test("entering the pit road syncs checkpoints instead of measuring the jump as a drive", () => {
+  // PitLane.constrain reassigns vehicle.s to its own tracking the frame a
+  // car enters the pit road — not a continuous drive from the car's real
+  // previous position. A jump big enough to span more than one checkpoint
+  // only lets the ordinary crossing test register the first one it finds
+  // (checkpoint 2 here): checkpoint 3 would be skipped, never counted as
+  // passed OR missed, and the lap could never complete (visited.size
+  // never reaches n). Entering the pit must resync past both at once.
+  const progress = new Progress(track);
+  progress.markProgressFrom(90);
+  progress.update(1 / 60, vehicle(101, 0)); // ordinary crossing of checkpoint 1
+  progress.consumeEvents();
+
+  const v = vehicle(310, 12); // far out on the pit road
+  v.inPit = true;
+  progress.update(1 / 60, v);
+
+  assert.equal(progress.lastCheckpoint, 3);
+  assert.equal(progress.visited.size, 4);
+  assert.equal(progress.missedCheckpoint, null);
+  assert.deepEqual(progress.consumeEvents().map((event) => event.type), []);
 });
 
 test("raises and clears wrong-way state from sustained reverse travel", () => {
