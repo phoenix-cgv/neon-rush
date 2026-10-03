@@ -16,6 +16,10 @@ import * as THREE from "three";
 
 const RAMP = 40; // m the patch takes to thicken to / clear from full strength
 const WARN_BEFORE = 70; // m before the patch that the sign stands
+// A pale grey under this scene's bright sun and ACES exposure reads as
+// blown-out white, not mist — this is a darker, cooler slate that still
+// reads as fog once lit.
+const DEFAULT_COLOR = 0x6c7680;
 
 const _fr = {};
 const _v = new THREE.Vector3();
@@ -28,23 +32,36 @@ export class FogPatch {
    * @param {object[]} zones  [{ s0, s1, near, far, color, signOffset }]
    *   near/far  THREE.Fog distances at full strength, m (short — that's
    *             the point); default to a tight, grey murk.
-   *   color     fog colour at full strength; defaults to the level's own.
+   *   color     fog colour at full strength; defaults to DEFAULT_COLOR.
+   * @param {object} [skyUniforms]  main.js's uTop/uHorizon/uBottom, so the
+   *   sky dome tints toward the fog too. Without this the dome keeps
+   *   showing its ordinary blue gradient right through the murk — the
+   *   fog reads as a flat grey wall with clear sky visible past it,
+   *   rather than actually being in the air around the car.
    */
-  constructor(track, scene, zones = []) {
+  constructor(track, scene, zones = [], skyUniforms = null) {
     this.track = track;
     this.scene = scene;
+    this.skyUniforms = skyUniforms;
     this.objects = [];
 
     const base = scene.fog;
     this.baseNear = base?.near ?? 180;
     this.baseFar = base?.far ?? 620;
     this.baseColor = (base?.color ?? new THREE.Color(0x8fb4c4)).clone();
+    if (skyUniforms) {
+      this.baseSky = {
+        top: skyUniforms.uTop.value.clone(),
+        horizon: skyUniforms.uHorizon.value.clone(),
+        bottom: skyUniforms.uBottom.value.clone(),
+      };
+    }
 
     this.zones = zones.map((z) => ({
       ...z,
       near: z.near ?? 8,
       far: z.far ?? 85,
-      color: z.color !== undefined ? new THREE.Color(z.color) : new THREE.Color(0xaab0ab),
+      color: z.color !== undefined ? new THREE.Color(z.color) : new THREE.Color(DEFAULT_COLOR),
     }));
     for (const z of this.zones) this.#buildSign(z);
   }
@@ -76,6 +93,18 @@ export class FogPatch {
     _c.copy(this.baseColor);
     if (zone) _c.lerp(zone.color, k);
     fog.color.copy(_c);
+
+    // The dome itself goes flat and grey as the patch thickens: a sky
+    // you can still read a gradient in is a sky you can see past the fog,
+    // which is the one thing fog is not supposed to let you do. k is 0
+    // whenever zone is null, so the tint fallback below never actually
+    // applies — lerp(..., 0) is exactly the base colour regardless.
+    if (this.skyUniforms) {
+      const tint = zone?.color ?? this.baseColor;
+      this.skyUniforms.uTop.value.copy(this.baseSky.top).lerp(tint, k);
+      this.skyUniforms.uHorizon.value.copy(this.baseSky.horizon).lerp(tint, k);
+      this.skyUniforms.uBottom.value.copy(this.baseSky.bottom).lerp(tint, k);
+    }
   }
 
   // -------------------------------------------------------------------
@@ -134,6 +163,11 @@ export class FogPatch {
       fog.near = this.baseNear;
       fog.far = this.baseFar;
       fog.color.copy(this.baseColor);
+    }
+    if (this.skyUniforms) {
+      this.skyUniforms.uTop.value.copy(this.baseSky.top);
+      this.skyUniforms.uHorizon.value.copy(this.baseSky.horizon);
+      this.skyUniforms.uBottom.value.copy(this.baseSky.bottom);
     }
     for (const o of this.objects) {
       this.scene.remove(o);

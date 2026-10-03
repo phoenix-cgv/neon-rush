@@ -354,7 +354,7 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
-    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch);
+    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch, skyUniforms);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
