@@ -27,8 +27,9 @@ import { CAR } from "../vehicle/config.js";
 //             the track distance the car is level with, never going
 //             backwards, so checkpoints and laps count through the pits.
 //
-//   LIMITER   60 km/h between the two lines. Arrive faster and the car is
-//             slowed hard to it; it cannot go faster until the second line.
+//   LIMITER   opts.limitKmh between the two lines (default 60). Arrive
+//             faster and the car is slowed hard to it; it cannot go
+//             faster until the second line.
 //
 //   SERVICE   Stop in your own garage box (it glows) and the car is
 //             repaired and the boost refilled; about three seconds from

@@ -174,6 +174,16 @@ const gameplayEvents = new GameplayEvents();
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
 
+// A time-trial level's boost orbs (see Pickups' boostSeconds) push the
+// race clock back instead of filling the boost meter. One listener for
+// the whole game: `director` is reassigned on every loadLevel, and this
+// closure always reads whatever it currently is.
+gameplayEvents.on("pickup-collected", (e) => {
+  if (!e.timeBonus) return;
+  director?.addTime(e.timeBonus);
+  gameplayHud.flashTimeBonus(e.timeBonus);
+});
+
 // --- settings ----------------------------------------------------------
 function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));

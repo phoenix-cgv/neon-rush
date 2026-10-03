@@ -19,8 +19,17 @@ import { buildArmco } from "./armco.js";
 //
 // The pit lane is a real one (src/track/pit-lane.js): the entry peels off
 // before the final corner, the exit merges back after the garages, there
-// is a 60 km/h limit, and stopping in your box repairs the car and
-// refills the boost. Opponents pit only when badly damaged.
+// is a limiter between the two painted lines, and stopping in your box
+// repairs the car and refills the boost. Opponents pit only when badly
+// damaged.
+//
+// The limiter is 100 km/h, not a realistic 60: the nine garages (and so
+// the limited zone between the painted lines) stretch across most of
+// the 760 m level section of the home straight — about a quarter of the
+// whole lap — so at 60 the limiter alone was costing upwards of 30 s
+// against driving that same stretch on the racing line, on top of the
+// detour and the stop itself. A pit stop should cost you the stop and
+// the few car-lengths either side of it, not a third of a lap.
 //
 // The soft wall sits 1.4 m out on the grass verge, just inside the tyre
 // walls. It was first set 4 m out, which put the tyre walls inside the
@@ -93,9 +102,11 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // A proper race: start lights, three laps, a classification.
     race: { laps: 3, timeLimit: 8 * 60 },
     startLamps: map.kept,
-    // A real pit stop: 60 km/h limit, repaired and refuelled with boost in
-    // your box in about three seconds; opponents pit when badly damaged.
-    pit: { data: map.pit, limitKmh: 60, repairTime: 3, aiDamage: 0.5 },
+    // A real pit stop: repaired and refuelled with boost in your box in
+    // about three seconds; opponents pit when badly damaged. The limiter
+    // is 100 km/h, not the usual 60 — see the note near the top of this
+    // file for why.
+    pit: { data: map.pit, limitKmh: 100, repairTime: 3, aiDamage: 0.5 },
     pickups: { repair: 6, boost: 8 },
     spawn: gate.position,
     quaternion: gate.quaternion,

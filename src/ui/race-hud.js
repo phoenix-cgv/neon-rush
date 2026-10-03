@@ -90,7 +90,7 @@ export class RaceHud {
     const pos = director.playerPosition;
     this.bar.innerHTML =
       `<span>LAP ${lap}/${director.laps}</span>` +
-      `<span>P${pos}/${field}</span>` +
+      (field > 1 ? `<span>P${pos}/${field}</span>` : "") +
       `<span>${fmt(t ?? 0)}${director.timeLimit ? ` / ${fmt(director.timeLimit)}` : ""}</span>`;
 
     // results
@@ -104,10 +104,13 @@ export class RaceHud {
           : director.outcome === "lost"
             ? "RACE LOST"
             : "FINISHED";
+      // Solo (a time trial, no other cars): a placing of "P1 of 1" tells
+      // the player nothing a field of rivals would.
       const html =
         `<div style="font:800 20px/1.2 ${FONT};letter-spacing:.08em;margin-bottom:4px">` +
-        `${heading} — P${pos} of ${field}</div>` +
-        `<div style="color:#8fa5ac;margin-bottom:12px">${director.laps} laps</div>` +
+        `${heading}${field > 1 ? ` — P${pos} of ${field}` : ""}</div>` +
+        `<div style="color:#8fa5ac;margin-bottom:12px">` +
+        `${director.laps} lap${director.laps === 1 ? "" : "s"}</div>` +
         `<table style="border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums">` +
         rows
           .map((r, i) => {
