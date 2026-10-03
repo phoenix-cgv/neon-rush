@@ -75,13 +75,23 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // The viaduct (1,018-1,160 m) is the one stretch with nothing beside
     // the road at all — no slope to drop rocks, no rail-height drop-off,
     // just open air over the gorge. A crosswind belongs there and
-    // nowhere else on this lap.
-    crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 4200, signOffset: 7.4 }],
-    // A misty approach to the summit: thickens on the climb to the
-    // tunnel (683 m) and clears well short of its mouth (the patch and
-    // its ramp-out both end by 680 m), so the fog never bleeds into the
-    // tunnel's own lit, walled interior.
-    fogPatch: [{ s0: 560, s1: 640, near: 8, far: 85, signOffset: 7.4 }],
+    // nowhere else on this lap. 5200 N, not 4200: on a 1200 kg car that's
+    // ~4.3 m/s^2 at full strength — comfortably below boostForce (6500 N)
+    // but enough to actually need countersteer, not just a push too
+    // gentle for the tyres' own grip to shrug off unnoticed.
+    crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
+    // Low ground mist, not summit cloud, and right before the flag: the
+    // lap is 1,474.7 m, so 1440-1460 sits in the last ~35 m of clean road
+    // before the line — low elevation (~9.6 m, against an 82 m peak at
+    // the tunnel) and the one stretch on the whole descent not already
+    // claimed by the last rockfall zone (1320-1420). That gap is only
+    // ~55 m, tighter than the usual 40 m ramp allows without creeping
+    // into the rocks, so this zone gets a shorter 20 m ramp of its own
+    // (see FogPatch's `ramp` option) — thickening right as the rockfall
+    // zone ends, and clearing again just past the line, so you take the
+    // flag most of the way through it rather than emerging from it well
+    // before or after.
+    fogPatch: [{ s0: 1440, s1: 1460, ramp: 20, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
@@ -93,11 +103,12 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // the clock runs out. Boost orbs buy you more of it rather than
     // filling the boost meter — the climb is the opponent here.
     pickups: { repair: 4, boost: 5, boostSeconds: 10 },
-    // 115 s: this 1.48 km lap climbs, threads a tunnel and a crosswind,
-    // and descends again, so it's slower than the City by nature — but
-    // 150 s still left room to coast through the hazards instead of
-    // actually having to handle them.
-    race: { laps: 1, timeLimit: 115 },
+    // 90 s: this 1.48 km lap climbs, threads a tunnel, a crosswind and a
+    // fog patch right before the line, and descends again — needs ~59
+    // km/h average, slower than the City by nature, but still tight
+    // enough that actually handling the hazards (not just surviving
+    // them) is what gets you home in time.
+    race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },
