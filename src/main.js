@@ -406,6 +406,15 @@ let accumulator = 0;
 let fps = 60;
 const _fieldForce = new THREE.Vector3();
 
+// Auto-advance: left alone at the results screen, the game moves itself
+// on to the next level rather than stalling until someone presses a key —
+// the whole three-level game plays through on its own. R (race again) or
+// L (switch level) during this window calls loadLevel itself, which sets
+// director back to a fresh "lights" state next frame and so resets this
+// right along with it; no special-casing needed to cancel the timer.
+const AUTO_ADVANCE_DELAY = 6; // s the results screen stays up before advancing
+let finishedFor = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
 
@@ -442,6 +451,16 @@ function frame(now) {
   }
   if (input.pressed("level")) {
     loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+  }
+
+  if (director?.state === "finished") {
+    finishedFor += frameDt;
+    if (finishedFor >= AUTO_ADVANCE_DELAY) {
+      finishedFor = 0;
+      loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+    }
+  } else {
+    finishedFor = 0;
   }
 
   accumulator += frameDt;
