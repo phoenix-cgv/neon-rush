@@ -80,15 +80,18 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // but enough to actually need countersteer, not just a push too
     // gentle for the tyres' own grip to shrug off unnoticed.
     crosswind: [{ s0: 1018, s1: 1160, side: 1, force: 5200, signOffset: 7.4 }],
-    // Low ground mist, not summit cloud: 90-140 m sits near the foot of
-    // the climb (roughly 9-12 m of elevation, against an 82 m peak at the
-    // tunnel) — a damp valley pocket reads as a real place for fog to
-    // collect, where thickening right up near the summit just looked like
-    // the whole sky had been replaced. Clear of the start line by enough
-    // for the sign at s0-70 to actually be seen before the car gets
-    // there, and its ramp-out ends 5 m before the first rockfall zone
-    // (190 m) so the two hazards never overlap.
-    fogPatch: [{ s0: 90, s1: 140, near: 20, far: 140, signOffset: 7.4 }],
+    // Low ground mist, not summit cloud, and right before the flag: the
+    // lap is 1,474.7 m, so 1440-1460 sits in the last ~35 m of clean road
+    // before the line — low elevation (~9.6 m, against an 82 m peak at
+    // the tunnel) and the one stretch on the whole descent not already
+    // claimed by the last rockfall zone (1320-1420). That gap is only
+    // ~55 m, tighter than the usual 40 m ramp allows without creeping
+    // into the rocks, so this zone gets a shorter 20 m ramp of its own
+    // (see FogPatch's `ramp` option) — thickening right as the rockfall
+    // zone ends, and clearing again just past the line, so you take the
+    // flag most of the way through it rather than emerging from it well
+    // before or after.
+    fogPatch: [{ s0: 1440, s1: 1460, ramp: 20, near: 20, far: 140, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
