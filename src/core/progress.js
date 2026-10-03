@@ -68,6 +68,7 @@ export class Progress {
     this.respawns = 0;
     this.justRespawned = false;
     this.justCompletedLap = false;
+    this.wasInPit = false;
   }
 
   get nextCheckpoint() {
@@ -94,6 +95,28 @@ export class Progress {
 
     const s = vehicle.s;
     const n = this.track.checkpoints.length;
+
+    // The frame a car enters the pit road, PitLane.constrain has already
+    // reassigned vehicle.s to its OWN tracking (the main-track distance
+    // the pit road is level with) — not a continuous drive from last
+    // frame's s, so measuring it as one is wrong on its face. On the
+    // Grand Prix that reassignment can land s meaningfully ahead of
+    // where the car actually was (the pit entry's taper doesn't track
+    // 1:1 with the main straight it runs beside), which the crossing
+    // test below reads as skipping — never seeing, so never marking
+    // passed OR missed — whatever checkpoints fall in that gap. Treat
+    // entering the pits exactly like a respawn: a reposition, not a
+    // drive, so sync the checkpoint bookkeeping to where it actually
+    // put the car instead of measuring the jump as motion.
+    const enteringPit = vehicle.inPit && !this.wasInPit;
+    this.wasInPit = vehicle.inPit;
+    if (enteringPit) {
+      const idx = this.track.checkpointIndexAt(s);
+      this.lastCheckpoint = idx;
+      for (let i = 0; i <= idx; i++) this.visited.add(i);
+      this.previousS = s;
+    }
+
     const previousS = this.previousS ?? s;
     const delta = this.#signedDistance(previousS, s);
     this.previousS = s;
@@ -106,7 +129,19 @@ export class Progress {
     const checkpoint = this.track.checkpoints[next];
     const crossed = delta > 0 && this.#forwardDistance(previousS, checkpoint.s) <= delta + 1e-6;
     const gateHalfWidth = checkpoint.halfWidth ?? this.track.width * 0.5 + this.checkpointMargin;
-    if (crossed && Math.abs(vehicle.lateralOffset) <= gateHalfWidth) {
+    // On the pit road, vehicle.lateralOffset is the car's projection onto
+    // the MAIN track from several metres out on the pit road itself (see
+    // PitLane.constrain) — nowhere near the gate, by construction, for as
+    // long as the car stays "not yet open to rejoin". The Grand Prix's pit
+    // lane runs alongside the main straight THROUGH s = 0, so any car that
+    // pits sweeps its s-position straight across the start/finish
+    // checkpoint while still reading that huge offset. Gating on it there
+    // marked checkpoint 0 missed on every single pit stop, which both
+    // stopped a lap ever completing on that lap (visited.size never
+    // reached n) and left the player's lap counter visibly wrong — the
+    // pit road is a sanctioned way past the gate, not a cut through the
+    // scenery, so being on it should always count as passing one.
+    if (crossed && (vehicle.inPit || Math.abs(vehicle.lateralOffset) <= gateHalfWidth)) {
       this.lastCheckpoint = next;
       this.visited.add(next);
       this.missedCheckpoint = null;

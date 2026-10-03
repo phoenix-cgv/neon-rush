@@ -354,7 +354,7 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
-    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch);
+    if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch, skyUniforms);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
       pits.attach(race.cars);
@@ -472,7 +472,11 @@ function frame(now) {
     loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
   }
 
-  if (director?.state === "finished") {
+  // Only a WIN auto-advances. A loss (wrecked, timed out, beaten) sits on
+  // the results screen until the player chooses — R to try this level
+  // again, L to skip ahead anyway — rather than sweeping them on to the
+  // next level before they get a chance to retry the one they just lost.
+  if (director?.state === "finished" && director.outcome === "won") {
     finishedFor += frameDt;
     if (finishedFor >= AUTO_ADVANCE_DELAY) {
       finishedFor = 0;
@@ -590,7 +594,8 @@ function frame(now) {
   fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
-  gameplayHud.update(progress, level.track, state, ghostBestLap);
+  const hazard = crosswind?.activeAt(vehicle.s) ? "CROSSWIND" : fogPatch?.activeAt(vehicle.s) ? "FOG" : null;
+  gameplayHud.update(progress, level.track, state, ghostBestLap, hazard);
   cameraRig.update(frameDt, state, input.look);
 
   sky.position.copy(camera.position);

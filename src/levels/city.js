@@ -64,7 +64,11 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // 0 before time runs out. Boost orbs don't fill the boost meter here
     // — they buy you more of it, which is the whole game against traffic.
     pickups: { repair: 4, boost: 5, boostSeconds: 8 },
-    race: { laps: 1, timeLimit: 110 },
+    // 85 s: a clean lap of this 1.25 km circuit at a competitive pace
+    // (~53 km/h average through the traffic and hairpins) takes most of
+    // that already, so finishing takes decent driving, not a leisurely
+    // cruise. 110 s left so much slack a wrong turn barely cost anything.
+    race: { laps: 1, timeLimit: 85 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     lit: { sun: [60, 90, 40], fog: [0xb4c6d0, 220, 950], sky: 0xb4c6d0 },

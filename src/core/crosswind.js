@@ -76,6 +76,11 @@ export class Crosswind {
     return 0.7 + 0.3 * Math.sin(u * Math.PI * 2);
   }
 
+  /** Is s inside any zone's gust (ramps included)? For the HUD warning. */
+  activeAt(s) {
+    return this.zones.some((z) => this.#strengthAt(z, s) > 0.05);
+  }
+
   #forceAt(z, ctx) {
     const k = this.#strengthAt(z, ctx.s);
     if (k <= 0) return null;

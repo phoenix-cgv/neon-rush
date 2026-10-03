@@ -16,6 +16,16 @@ import { GROUP, ALL } from "../vehicle/vehicle.js";
 //             crash like hitting a wall. After you are past it, it sinks
 //             away.
 //
+// How many rocks a zone drops, and exactly where, used to come from
+// Math.random() — which is exactly what "readable" rules out: the same
+// zone could drop two rocks one visit and three the next, for no reason
+// the player could ever learn to read. It also meant a ghost replaying a
+// recorded lap met a freshly re-rolled set of rocks from THIS session's
+// load, not the ones the recording actually reacted to. Every zone now
+// hashes its own rolls from a fixed per-zone seed, the same trick traffic
+// already uses for the same reason ("a run and its replay see the same
+// town") — one zone always drops the same rocks, the same way.
+//
 // Zones are stretches of road with a real slope above them. Which side is
 // uphill is measured from the terrain, not configured, so the zones stay
 // right if the map is regenerated.
@@ -48,6 +58,13 @@ const DOWN = new THREE.Vector3(0, -1, 0);
 
 const easeOut = (t) => 1 - (1 - t) * (1 - t);
 
+// Deterministic pseudo-random in [0, 1) from an integer seed — same
+// formula and same reason as traffic.js's hash(i).
+const hash = (i) => {
+  const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
 export class Rockfall {
   /**
    * @param {object} RAPIER
@@ -70,7 +87,7 @@ export class Rockfall {
     this.warnFor = 0;
 
     this.zones = (opts.zones ?? [])
-      .map((z) => ({ ...z, side: this.#uphillSide(z, opts.ground ?? []), armed: true }))
+      .map((z, i) => ({ ...z, side: this.#uphillSide(z, opts.ground ?? []), armed: true, seed: i * 1000 }))
       .filter((z) => z.side !== 0); // no slope above it, no rocks
     for (const z of this.zones) this.#sign(z, opts.signOffset ?? 7.6);
 
@@ -257,31 +274,37 @@ export class Rockfall {
     const minAhead = speed * (WARN_TIME + FALL_TIME) + CLEAR_AHEAD;
     const zoneEnd = toStart + (z.s1 - z.s0);
     const room = Math.max(0, zoneEnd - Math.max(minAhead, toStart));
-    const count = room > 45 && Math.random() < 0.45 ? 2 : 1;
-    let s = v.s + Math.max(minAhead, toStart) + Math.random() * Math.min(25, room);
+    // Every roll below is hash(z.seed + offset), not Math.random() — see
+    // the module comment. z.seed is this zone's alone; +0/+1 are its own
+    // rolls, and each rock gets a further +10, +40, +70, ... band (30
+    // wide, comfortably more than the up-to-19 offsets #newRock uses) so
+    // no two rolls, in this zone or any other, ever hash the same input.
+    const count = room > 45 && hash(z.seed) < 0.45 ? 2 : 1;
+    let s = v.s + Math.max(minAhead, toStart) + hash(z.seed + 1) * Math.min(25, room);
     for (let i = 0; i < count && this.rocks.length < MAX_ROCKS; i++) {
       const land = ((s % L) + L) % L;
+      const rockSeed = z.seed + 10 + i * 30;
       // The uphill half of the road: the other half is always open.
-      const lat = z.side * (2.6 + Math.random() * 1.6);
-      this.rocks.push(this.#newRock(land, lat, z.side, 0.8 + Math.random() * 0.5, i * 0.5));
-      s += 28 + Math.random() * 18;
+      const lat = z.side * (2.6 + hash(rockSeed) * 1.6);
+      this.rocks.push(this.#newRock(land, lat, z.side, 0.8 + hash(rockSeed + 1) * 0.5, i * 0.5, rockSeed));
+      s += 28 + hash(rockSeed + 2) * 18;
     }
     this.warnFor = 2.4;
   }
 
-  #newRock(s, lat, side, radius, delay) {
+  #newRock(s, lat, side, radius, delay, seed) {
     this.track.frameAt(s, _fr);
     const land = _fr.position.clone().addScaledVector(_fr.right, lat).addScaledVector(_fr.up, radius);
     const source = land.clone().addScaledVector(_fr.right, side * SOURCE_OUT).addScaledVector(_fr.up, SOURCE_UP);
     // Bounce and roll toward the downhill side, but settle on the uphill
     // half, at least 1.3 m from the centre line: the other half is the lane.
-    const restLat = side * THREE.MathUtils.clamp(Math.abs(lat) - (0.8 + Math.random() * 0.8), 1.3, LANE_EDGE);
+    const restLat = side * THREE.MathUtils.clamp(Math.abs(lat) - (0.8 + hash(seed + 3) * 0.8), 1.3, LANE_EDGE);
     const bounceLat = (lat + restLat) / 2;
     const at = (l, lift = 0) =>
       _fr.position.clone().addScaledVector(_fr.right, l).addScaledVector(_fr.up, radius + lift);
     const stones = Array.from({ length: 8 }, (_, i) => ({
       t0: (i / 8) * WARN_TIME * 0.9,
-      off: new THREE.Vector3((Math.random() - 0.5) * 4, 0, (Math.random() - 0.5) * 4),
+      off: new THREE.Vector3((hash(seed + 4 + i * 2) - 0.5) * 4, 0, (hash(seed + 5 + i * 2) - 0.5) * 4),
     }));
     return {
       s,
