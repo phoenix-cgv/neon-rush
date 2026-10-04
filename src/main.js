@@ -10,6 +10,8 @@ import { Progress } from "./core/progress.js";
 import { Race } from "./core/race.js";
 import { Minimap, MINIMAP_LAYER, MAP_WORLD_LAYER } from "./ui/minimap.js";
 import { Menu } from "./ui/menu.js";
+import { Speedo } from "./ui/speedo.js";
+import { TrackOutline } from "./ui/track-outline.js";
 import { Dashboard } from "./ui/dashboard.js";
 import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
@@ -175,6 +177,13 @@ const minimap = new Minimap(scene);
 const health = new HealthBar();
 const raceHud = new RaceHud();
 const gameplayHud = new GameplayHud();
+const speedo = new Speedo();
+const outline = new TrackOutline();
+// Race HUD is hidden behind the home screen.
+const hudStyle = document.createElement("style");
+hudStyle.textContent = "body.dash-open .hud{visibility:hidden !important}";
+document.head.appendChild(hudStyle);
+for (const r of [raceHud.root, gameplayHud.root, speedo.root, outline.root, health.root]) r.classList.add("hud");
 const gameplayEvents = new GameplayEvents();
 // One shared pool for the whole field — smoke is one draw call however
 // many cars are smoking, and it is kept off the minimap layer.
@@ -205,6 +214,7 @@ function applyPresentation() {
   // These two were in DEFAULTS but never read back, so the toggles
   // persisted a preference the game then ignored on the next load.
   minimap.enabled = Save.get("minimap") !== false;
+  outline.setVisible(minimap.enabled);
   health.setVisible(Save.get("healthBar") !== false);
   debug.setVisible(Save.get("telemetry") !== false);
 }
@@ -323,6 +333,7 @@ async function loadLevel(name) {
   director = null;
   raceHud.setActive(false);
   gameplayHud.setActive(false);
+  speedo.setActive(false);
   race?.dispose();
   race = null;
   traffic?.dispose();
@@ -359,6 +370,7 @@ async function loadLevel(name) {
     carRig = race.player.rig;
     progress = race.player.progress;
     minimap.build(race.cars);
+    outline.build(level.track);
     pickups = new Pickups(level.track, scene, level.pickups ?? {}, gameplayEvents);
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
     if (level.rockfall) {
@@ -389,6 +401,7 @@ async function loadLevel(name) {
       recorder = new Recorder();
     }
     gameplayHud.setActive(true);
+    speedo.setActive(true);
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -400,6 +413,7 @@ async function loadLevel(name) {
     vehicle.setTrack(null, 0);
     progress = null;
     minimap.build([{ isPlayer: true, vehicle, rig: carRig }]);
+    outline.build(null);
     respawn();
   }
 }
@@ -439,6 +453,7 @@ const dashboard = new Dashboard({
   onClick: () => audio.click(),
   onChange: () => applyAssists(),
   onPlay: (i) => {
+    document.body.classList.remove("dash-open");
     audio.unlock();
     loadLevel(ORDER[i]);
   },
@@ -446,6 +461,7 @@ const dashboard = new Dashboard({
 function showDashboard() {
   menu.close();
   const i = Math.max(0, ORDER.indexOf(levelName));
+  document.body.classList.add("dash-open");
   dashboard.show(i);
 }
 // Browsers only allow audio after a gesture: the first click anywhere on
@@ -497,14 +513,16 @@ function frame(now) {
   if (menu.open) {
     accumulator = 0;
     renderer.render(scene, camera);
-    minimap.render(renderer, scene);
     input.endFrame();
     return;
   }
 
   if (input.pressed("camera")) cameraRig.cycle();
   if (input.pressed("debug")) Save.set("telemetry", debug.toggle());
-  if (input.pressed("map")) Save.set("minimap", minimap.toggle());
+  if (input.pressed("map")) {
+    Save.set("minimap", minimap.toggle());
+    outline.setVisible(minimap.enabled);
+  }
   if (input.pressed("restart")) {
     if (!director) {
       progress?.reset();
@@ -648,6 +666,8 @@ function frame(now) {
   fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
+  speedo.update(state, frameDt);
+  outline.update(state.position);
   // One shared slot, one hazard at a time — rockfall first (an incoming
   // boulder is the most acutely urgent), so a falling-rocks trigger can
   // never land on top of "CROSSWIND"/"FOG" and bury it, the way its own
@@ -680,7 +700,6 @@ function frame(now) {
   // No hide-list needed: the map camera only sees the track layer and the
   // blips, so the sky dome and debug vectors are never in its pass.
   minimap.update(state);
-  minimap.render(renderer, scene);
 
   input.endFrame();
 }
