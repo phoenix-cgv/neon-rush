@@ -4,6 +4,7 @@ import RAPIER from "@dimforge/rapier3d-compat";
 import { WORLD, CAR } from "./vehicle/config.js";
 import { Vehicle } from "./vehicle/vehicle.js";
 import { CarRig } from "./vehicle/car-rig.js";
+import { loadCarModel } from "./vehicle/car-model.js";
 import { CameraRig } from "./vehicle/camera-rig.js";
 import { Input } from "./core/input.js";
 import { Progress } from "./core/progress.js";
@@ -49,6 +50,7 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
+await loadCarModel(); // before any CarRig is built; falls back to the built-in car if it fails
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -475,6 +477,8 @@ let accumulator = 0;
 let fps = 60;
 const _fieldForce = new THREE.Vector3();
 const _mapOthers = [];
+const _dashPos = new THREE.Vector3();
+const _dashLook = new THREE.Vector3();
 
 // Auto-advance: left alone at the results screen, the game moves itself
 // on to the next level rather than stalling until someone presses a key —
@@ -494,13 +498,24 @@ function frame(now) {
 
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open);
 
-  // Home screen: the world sits still and the camera circles the car.
+  // Home screen: the world sits still and the camera frames the car from
+  // behind and to the left, so it sits low and to the right of the title.
   if (dashboard.open) {
     accumulator = 0;
-    orbit += frameDt * 0.12;
-    const p = vehicle.state.position;
-    camera.position.set(p.x + Math.cos(orbit) * 22, p.y + 7, p.z + Math.sin(orbit) * 22);
-    camera.lookAt(p.x, p.y + 2, p.z);
+    orbit += frameDt;
+    // Pose the cars (nothing steps while the dashboard is up) and read the
+    // player's rig, which carries the true heading.
+    if (race) race.render(1);
+    else {
+      vehicle.writeTransform(1);
+      carRig.sync(vehicle.state);
+    }
+    const st = { quaternion: carRig.root.quaternion, position: carRig.root.position };
+    _dashPos.set(-3.3 + Math.sin(orbit * 0.25) * 0.7, 1.15 + Math.sin(orbit * 0.17) * 0.12, 7.6)
+      .applyQuaternion(st.quaternion).add(st.position);
+    _dashLook.set(0.2, 1.1, -12).applyQuaternion(st.quaternion).add(st.position);
+    camera.position.copy(_dashPos);
+    camera.lookAt(_dashLook);
     sky.position.copy(camera.position);
     renderer.render(scene, camera);
     input.endFrame();

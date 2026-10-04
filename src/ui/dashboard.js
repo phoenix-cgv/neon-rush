@@ -16,8 +16,9 @@ const SCHEMES = [
 const ORANGE = "#e8602c";
 const CREAM = "#f4eee0";
 const AMBER = "#f0b429";
+const MONO = "ui-monospace,Consolas,'Cascadia Mono',monospace";
 const DISPLAY = "Anton,Impact,'Arial Narrow Bold',Haettenschweiler,sans-serif";
-const GLASS = "background:rgba(34,32,30,.82);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)";
+const GLASS = "background:rgba(14,18,24,.88);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)";
 
 export class Dashboard {
   constructor({ gameName, levels, onPlay, onChange, onClick } = {}) {
@@ -28,7 +29,7 @@ export class Dashboard {
     this.onClick = onClick;
     this.open = false;
     this.selected = 0;
-    this.settingsOpen = false;
+    this.panelOpen = null;
 
     this.root = document.createElement("div");
     this.root.style.cssText = `
@@ -47,7 +48,7 @@ export class Dashboard {
   show(currentIndex) {
     this.selected = Math.min(currentIndex, this.#max() - 1);
     this.open = true;
-    this.settingsOpen = false;
+    this.panelOpen = null;
     this.root.style.display = "block";
     this.render();
   }
@@ -81,52 +82,53 @@ export class Dashboard {
     const n = this.levels.length;
     const lvl = this.levels[this.selected];
     const nextLocked = this.selected + 1 < n && this.selected + 1 >= max;
+    const two = (v) => String(v).padStart(2, "0");
+    const label = `font:600 10px/1 ${MONO};letter-spacing:.3em;text-transform:uppercase`;
     const arrow = (act, glyph, off) =>
-      `<button data-act="${act}" ${off ? "disabled" : ""} style="font:inherit;font-size:1.1rem;
-        width:2rem;height:2rem;border-radius:6px;cursor:${off ? "default" : "pointer"};
-        color:${off ? "rgba(244,238,224,.3)" : CREAM};background:rgba(255,255,255,.08);
-        border:1px solid rgba(255,255,255,.14)">${glyph}</button>`;
+      `<button data-act="${act}" ${off ? "disabled" : ""} style="font:inherit;font-size:1.5rem;
+        background:none;border:0;padding:0 .35rem;cursor:${off ? "default" : "pointer"};
+        color:${off ? "rgba(244,238,224,.28)" : CREAM}">${glyph}</button>`;
+    const link = (act, text) =>
+      `<button data-act="${act}" style="${label};background:none;border:0;padding:0;cursor:pointer;
+        color:${CREAM};opacity:.9">${text}</button>`;
 
     this.root.innerHTML = `
-      <div style="position:absolute;left:22px;top:18px">
-        <div style="font:700 10px/1 ui-monospace,Consolas,monospace;letter-spacing:.35em;
-          color:${AMBER};margin-bottom:6px">STREET RACING</div>
-        <div style="font:400 clamp(2.6rem,7vw,4.6rem)/1 ${DISPLAY};text-transform:uppercase;
-          color:${CREAM};text-shadow:0 3px 14px rgba(0,0,0,.45)">${this.gameName}</div>
-        <div style="height:7px;width:100%;margin-top:6px;border-radius:1px;
-          background:repeating-linear-gradient(135deg,${ORANGE} 0 9px,${AMBER} 9px 18px)"></div>
+      <div style="position:absolute;inset:0;background:
+        linear-gradient(90deg,rgba(8,14,20,.88) 0%,rgba(8,14,20,.55) 32%,rgba(8,14,20,0) 62%),
+        linear-gradient(180deg,rgba(18,34,60,.45) 0%,rgba(255,120,60,.14) 55%,rgba(8,12,18,.55) 100%)"></div>
+
+      <div style="position:absolute;left:44px;top:30px;display:flex;align-items:center;gap:12px;${label};color:${CREAM}">
+        <span style="width:26px;height:2px;background:${ORANGE}"></span>Street Racing</div>
+      <div style="position:absolute;right:44px;top:30px;${label};color:${CREAM};opacity:.8">
+        Vol. 01 / ${lvl.title.split(" ")[0]}</div>
+
+      <div style="position:absolute;left:44px;top:12vh;max-width:calc(100vw - 88px)">
+        <div style="font:400 clamp(4.2rem,17vh,9.5rem)/.9 ${DISPLAY};text-transform:uppercase;
+          letter-spacing:.01em;color:${CREAM}">Neon</div>
+        <div style="font:400 clamp(4.2rem,17vh,9.5rem)/.9 ${DISPLAY};text-transform:uppercase;
+          letter-spacing:.01em;color:${ORANGE}">Rush</div>
+        <div style="height:3px;width:min(26rem,72vw);background:${ORANGE};margin:22px 0 14px"></div>
+        <div style="${label};color:${CREAM};opacity:.85">Own the streets.</div>
       </div>
 
-      <div style="${GLASS};position:absolute;left:22px;bottom:22px;padding:10px 14px 9px;
-        border-radius:10px;pointer-events:auto;min-width:9.5rem">
-        <div style="font:700 10px/1 ui-monospace,Consolas,monospace;letter-spacing:.3em;
-          color:${AMBER};margin-bottom:8px">LEVEL</div>
-        <div style="display:flex;align-items:center;gap:.7rem">
-          ${arrow("prev", "&larr;", this.selected === 0)}
-          <span style="font:400 2rem/1 ${DISPLAY};min-width:1.4rem;text-align:center">${this.selected + 1}</span>
-          ${arrow("next", nextLocked ? "&#128274;" : "&rarr;", this.selected >= max - 1)}
-        </div>
-        <div style="font-size:11px;margin-top:6px;color:#c9c1b2">
-          ${lvl.title} &middot; Level ${this.selected + 1} of ${n}</div>
-        <div style="font-size:11px;color:#c9c1b2">Best reached: <b style="color:${AMBER}">${max}</b></div>
-        ${nextLocked ? `<div style="font-size:11px;color:${ORANGE};margin-top:3px">
-          Win level ${this.selected + 1} to unlock level ${this.selected + 2}</div>` : ""}
+      <div style="position:absolute;left:44px;bottom:calc(18vh + 52px)">
+        <button data-act="play" style="pointer-events:auto;display:flex;align-items:center;
+          justify-content:space-between;gap:3rem;min-width:min(17rem,70vw);border:0;border-radius:0;
+          cursor:pointer;padding:.9rem 1.2rem;background:${ORANGE};color:${CREAM}">
+          <span style="font:400 1.45rem/1 ${DISPLAY};letter-spacing:.06em;text-transform:uppercase">Pull Off</span>
+          <span style="font-size:1.4rem;line-height:1">&rarr;</span></button>
+        <div style="${label};font-size:8px;margin-top:12px;opacity:.7;color:${CREAM}">Start the round</div>
       </div>
 
-      <button data-act="play" style="pointer-events:auto;position:absolute;left:50%;bottom:22px;
-        transform:translateX(-50%);font:inherit;cursor:pointer;border:0;border-radius:999px;
-        padding:.65rem 2.6rem;background:${ORANGE};color:#1b1410;
-        box-shadow:0 6px 26px rgba(232,96,44,.55)">
-        <div style="font:400 1.5rem/1.1 ${DISPLAY};letter-spacing:.04em;text-transform:uppercase">Pull Off</div>
-        <div style="font:600 9px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.3em;
-          opacity:.75">START THE ROUND</div>
-      </button>
+      <div style="position:absolute;left:44px;bottom:calc(6vh + 24px);display:flex;gap:2.4rem">
+        ${link("settings", "Settings")}${link("credits", "Credits")}
+      </div>
+      <div style="position:absolute;left:44px;bottom:22px;${label};font-size:8px;opacity:.5">NR / Street Division</div>
 
-      ${this.settingsOpen ? `
-      <div style="${GLASS};position:absolute;right:22px;bottom:70px;width:min(20rem,calc(100vw - 44px));
-        padding:6px 16px 12px;border-radius:12px;pointer-events:auto">
-        <div style="font:700 10px/1 ui-monospace,Consolas,monospace;letter-spacing:.3em;
-          color:${AMBER};padding:12px 0 4px">SETTINGS</div>
+      ${this.panelOpen === "settings" ? `
+      <div style="${GLASS};position:absolute;left:44px;bottom:calc(6vh + 56px);width:min(20rem,calc(100vw - 88px));
+        padding:6px 16px 12px;border-radius:2px;pointer-events:auto">
+        <div style="${label};color:${AMBER};padding:12px 0 4px">Settings</div>
         ${this.#toggle("Music", "music", Save.get("music") !== false)}
         ${this.#toggle("Sound", "sound", Save.get("sound") !== false)}
         ${this.#row(
@@ -136,10 +138,27 @@ export class Dashboard {
           ).join("")
         )}
       </div>` : ""}
+      ${this.panelOpen === "credits" ? `
+      <div style="${GLASS};position:absolute;left:44px;bottom:calc(6vh + 56px);width:min(20rem,calc(100vw - 88px));
+        padding:14px 16px;border-radius:2px;pointer-events:auto;font-size:12px;line-height:1.6;color:#c9c1b2">
+        <div style="${label};color:${AMBER};margin-bottom:8px">Credits</div>
+        Neon Rush &mdash; Street Division.<br>Low-poly city, mountain and circuit maps,
+        and the coupe, modelled for the game. Built with three.js and Rapier.</div>` : ""}
 
-      <button data-act="settings" style="${GLASS};pointer-events:auto;position:absolute;right:22px;
-        bottom:22px;font:600 13px system-ui,sans-serif;color:${CREAM};cursor:pointer;
-        padding:.55rem 1rem;border-radius:999px">&#9881; Settings</button>`;
+      <div style="position:absolute;right:44px;bottom:calc(6vh + 24px);text-align:right;pointer-events:auto">
+        <div style="${label};font-size:8px;opacity:.7;color:${CREAM};text-align:left">Select track</div>
+        <div style="display:flex;align-items:center;gap:1rem;margin-top:8px">
+          <span style="font:400 2.4rem/1 ${DISPLAY};color:${CREAM}">${two(this.selected + 1)}</span>
+          <span style="text-align:left;min-width:9rem">
+            <div style="font:400 1.1rem/1.1 ${DISPLAY};letter-spacing:.06em;text-transform:uppercase;color:${CREAM}">${lvl.title}</div>
+            <div style="${label};font-size:8px;opacity:.7;margin-top:4px;color:${CREAM}">Level ${this.selected + 1} / ${n}</div>
+          </span>
+          <span>${arrow("prev", "&lsaquo;", this.selected === 0)}${arrow("next", nextLocked ? "&#128274;" : "&rsaquo;", this.selected >= max - 1)}</span>
+        </div>
+        ${nextLocked ? `<div style="${label};font-size:8px;margin-top:8px;color:${ORANGE}">Win level ${this.selected + 1} to unlock level ${this.selected + 2}</div>` : ""}
+      </div>
+      <div style="position:absolute;right:44px;bottom:22px;${label};font-size:8px;opacity:.5;color:${CREAM}">
+        Best reached: ${two(max)}</div>`;
   }
 
   #act(act) {
@@ -147,7 +166,7 @@ export class Dashboard {
       this.hide();
       return this.onPlay?.(this.selected);
     }
-    if (act === "settings") this.settingsOpen = !this.settingsOpen;
+    if (act === "settings" || act === "credits") this.panelOpen = this.panelOpen === act ? null : act;
     else if (act === "prev" && this.selected > 0) this.selected--;
     else if (act === "next" && this.selected < this.#max() - 1) this.selected++;
     else if (act.startsWith("toggle:")) {
@@ -162,7 +181,7 @@ export class Dashboard {
 }
 
 function chip(active) {
-  return `font:inherit;cursor:pointer;padding:.25rem .7rem;border-radius:999px;color:${CREAM};
+  return `font:inherit;cursor:pointer;padding:.25rem .7rem;border-radius:2px;color:${CREAM};
     background:${active ? ORANGE : "rgba(255,255,255,.08)"};
     border:1px solid ${active ? ORANGE : "rgba(255,255,255,.2)"}`;
 }

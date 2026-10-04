@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR } from "./config.js";
+import { applyCarModel } from "./car-model.js";
 
 // The scene graph for the car — section 4 of the design document.
 //
@@ -373,6 +374,10 @@ export class CarRig {
     this.cameraBoom = new THREE.Group();
     this.cameraBoom.name = "CameraBoom";
     this.root.add(this.cameraBoom);
+
+    // If the car model has been loaded, it replaces the box-built shell and
+    // wheel parts above (the rig, materials and damage all stay as they are).
+    applyCarModel(this);
 
     // Draw-call pass. Everything above stays readable; this makes it cheap.
     // The body is rigid to the chassis pivot, and each wheel's parts are
