@@ -474,6 +474,7 @@ let last = performance.now();
 let accumulator = 0;
 let fps = 60;
 const _fieldForce = new THREE.Vector3();
+const _mapOthers = [];
 
 // Auto-advance: left alone at the results screen, the game moves itself
 // on to the next level rather than stalling until someone presses a key —
@@ -667,7 +668,14 @@ function frame(now) {
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
   speedo.update(state, frameDt);
-  outline.update(state.position);
+  _mapOthers.length = 0;
+  if (race) {
+    for (const c of race.cars) {
+      if (!c.isPlayer) _mapOthers.push({ position: c.vehicle.state.position, colour: c.colour });
+    }
+  }
+  if (ghost) _mapOthers.push({ position: ghost.vehicle.state.position, ghost: true });
+  outline.update(state.position, _mapOthers);
   // One shared slot, one hazard at a time — rockfall first (an incoming
   // boulder is the most acutely urgent), so a falling-rocks trigger can
   // never land on top of "CROSSWIND"/"FOG" and bury it, the way its own

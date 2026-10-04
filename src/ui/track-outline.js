@@ -19,6 +19,20 @@ export class TrackOutline {
     this.visible = true;
     this.hasTrack = false;
     this.tf = null;
+    this.others = []; // pooled circles for rivals and the ghost
+  }
+
+  #dot(i) {
+    if (!this.others[i]) {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("r", "3.5");
+      c.setAttribute("stroke", "#1b1410");
+      c.setAttribute("stroke-width", "1.2");
+      // under the player's dot
+      this.dot.before(c);
+      this.others[i] = c;
+    }
+    return this.others[i];
   }
 
   build(track) {
@@ -47,8 +61,22 @@ export class TrackOutline {
     this.#apply();
   }
 
-  update(position) {
+  /**
+   * @param {object} position  the player's position
+   * @param {{position, colour:number, ghost?:boolean}[]} others  rivals and ghost
+   */
+  update(position, others = []) {
     if (!this.tf || !this.visible) return;
+    others.forEach((o, i) => {
+      const c = this.#dot(i);
+      const [ox, oy] = this.tf(o.position.x, o.position.z);
+      c.setAttribute("cx", ox.toFixed(1));
+      c.setAttribute("cy", oy.toFixed(1));
+      c.setAttribute("fill", o.ghost ? "#7fe3ff" : `#${o.colour.toString(16).padStart(6, "0")}`);
+      c.setAttribute("fill-opacity", o.ghost ? "0.75" : "1");
+      c.style.display = "";
+    });
+    for (let i = others.length; i < this.others.length; i++) this.others[i].style.display = "none";
     const [x, y] = this.tf(position.x, position.z);
     this.dot.setAttribute("cx", x.toFixed(1));
     this.dot.setAttribute("cy", y.toFixed(1));
