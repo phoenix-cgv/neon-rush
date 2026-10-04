@@ -10,6 +10,8 @@ import { Progress } from "./core/progress.js";
 import { Race } from "./core/race.js";
 import { Minimap, MINIMAP_LAYER, MAP_WORLD_LAYER } from "./ui/minimap.js";
 import { Menu } from "./ui/menu.js";
+import { Dashboard } from "./ui/dashboard.js";
+import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
@@ -212,9 +214,13 @@ function applyAssists() {
   CAR.wallAlignTorque = 14000 * Save.get("wallAssist");
   input.sensitivity = Save.get("mouseSensitivity");
   input.setBindings(Save.get("bindings"));
+  input.setScheme(Save.get("controlScheme"));
+  audio.configure({ music: Save.get("music") !== false, sound: Save.get("sound") !== false });
 }
 
+const audio = new GameAudio();
 const menu = new Menu({
+  onHome: () => showDashboard(),
   onQuality: applyQuality,
   onAssist: applyAssists,
   onRestart: () => loadLevel(levelName),
@@ -304,6 +310,9 @@ async function loadLevel(name) {
     }
   }
   levelName = name;
+  // Furthest level reached (1-based), shown on the dashboard.
+  const reached = ORDER.indexOf(name) + 1;
+  if (reached > (Save.get("maxLevel") | 0)) Save.set("maxLevel", reached);
   level = LEVELS[name](RAPIER, world, scene, asset);
 
   applyLighting(level.lit ?? {});
@@ -420,6 +429,29 @@ renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
 });
 
+// --- dashboard: the home screen, with the live city as its backdrop -----
+const TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Grand Prix" };
+const dashboard = new Dashboard({
+  gameName: "Neon Rush",
+  levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
+  onClick: () => audio.click(),
+  onChange: () => applyAssists(),
+  onPlay: (i) => {
+    audio.unlock();
+    loadLevel(ORDER[i]);
+  },
+});
+function showDashboard() {
+  menu.close();
+  const i = Math.max(0, ORDER.indexOf(levelName));
+  dashboard.show(i);
+}
+// Browsers only allow audio after a gesture: the first click anywhere on
+// the dashboard starts it.
+window.addEventListener("pointerdown", () => { audio.unlock(); applyAssists(); }, { once: true });
+let orbit = 0;
+showDashboard();
+
 let last = performance.now();
 let accumulator = 0;
 let fps = 60;
@@ -440,6 +472,21 @@ function frame(now) {
   const frameDt = Math.min((now - last) / 1000, WORLD.maxFrameDt);
   last = now;
   fps += (1 / Math.max(frameDt, 1e-4) - fps) * 0.08;
+
+  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open);
+
+  // Home screen: the world sits still and the camera circles the car.
+  if (dashboard.open) {
+    accumulator = 0;
+    orbit += frameDt * 0.12;
+    const p = vehicle.state.position;
+    camera.position.set(p.x + Math.cos(orbit) * 22, p.y + 7, p.z + Math.sin(orbit) * 22);
+    camera.lookAt(p.x, p.y + 2, p.z);
+    sky.position.copy(camera.position);
+    renderer.render(scene, camera);
+    input.endFrame();
+    return;
+  }
 
   if (input.pressed("pause")) menu.toggle();
 

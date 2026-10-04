@@ -18,7 +18,13 @@ export const DEFAULTS = {
   minimap: true,
   healthBar: true,
   telemetry: false,
-  // input
+  // audio
+  music: true,
+  sound: true,
+  // input — which key family drives the car: "keys" (WASD), "arrows" or "both"
+  controlScheme: "both",
+  // furthest level reached, 1-based (City = 1)
+  maxLevel: 1,
   bindings: null, // null = use DEFAULT_BINDINGS
   // Best lap per level, keyed by level name: a lap time only means
   // something on the track it was set on.
