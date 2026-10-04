@@ -265,7 +265,12 @@ let soloVehicle = null;
 let soloRig = null;
 let progress = null;
 const requested = new URLSearchParams(location.search).get("level");
-let levelName = requested && Object.hasOwn(LEVELS, requested) ? requested : ORDER[0];
+// ?level= can't skip ahead of what has been unlocked (the testbed is exempt).
+const requestedOk =
+  requested &&
+  Object.hasOwn(LEVELS, requested) &&
+  (!ORDER.includes(requested) || ORDER.indexOf(requested) < (Save.get("maxLevel") | 0));
+let levelName = requestedOk ? requested : ORDER[0];
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
@@ -310,9 +315,6 @@ async function loadLevel(name) {
     }
   }
   levelName = name;
-  // Furthest level reached (1-based), shown on the dashboard.
-  const reached = ORDER.indexOf(name) + 1;
-  if (reached > (Save.get("maxLevel") | 0)) Save.set("maxLevel", reached);
   level = LEVELS[name](RAPIER, world, scene, asset);
 
   applyLighting(level.lit ?? {});
@@ -516,7 +518,9 @@ function frame(now) {
     } // during the start lights R does nothing
   }
   if (input.pressed("level")) {
-    loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+    // Levels unlock in order: L may only move within what has been earned.
+    const next = (ORDER.indexOf(levelName) + 1) % ORDER.length;
+    if (next < (Save.get("maxLevel") | 0)) loadLevel(ORDER[next]);
   }
 
   // Only a WIN auto-advances. A loss (wrecked, timed out, beaten) sits on
@@ -524,6 +528,9 @@ function frame(now) {
   // again, L to skip ahead anyway — rather than sweeping them on to the
   // next level before they get a chance to retry the one they just lost.
   if (director?.state === "finished" && director.outcome === "won") {
+    // Winning unlocks the next level.
+    const unlocked = Math.min(ORDER.indexOf(levelName) + 2, ORDER.length);
+    if (unlocked > (Save.get("maxLevel") | 0)) Save.set("maxLevel", unlocked);
     finishedFor += frameDt;
     if (finishedFor >= AUTO_ADVANCE_DELAY) {
       finishedFor = 0;
