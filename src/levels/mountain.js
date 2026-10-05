@@ -139,6 +139,13 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
       headlights: true,
       glow: 0xff9a3c, // the setting sun
+      // The summit tunnel (walls 7.5 m out, roof 6.7 m up) was modelled
+      // with no lights. Sodium strips down the roof every 9 m, two real
+      // lights following the player between them, and the sky fill
+      // dimmed under the roof, which otherwise tinted the walls purple.
+      strips: [{ name: "MountainTunnelStrip", s0: 690, s1: 820, every: 9, height: 6.5, length: 3, color: 0xffa858, intensity: 3 }],
+      pools: [{ material: "MountainTunnelStrip", count: 2, type: "point", color: 0xffb070, intensity: 80, distance: 22, fade: 15, cluster: 4 }],
+      shelter: [{ s0: 690, s1: 822, ramp: 15, ambient: 0.2 }],
     },
     dispose: map.dispose,
   };

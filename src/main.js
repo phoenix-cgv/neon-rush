@@ -125,6 +125,10 @@ const levelLights = new LevelLights(scene);
 //   lights       extra point/spot lights — see src/lighting/level-lights.js
 //   headlights   true to switch on the player's headlight spots (dusk, night)
 //   pools        light pools — see src/lighting/light-pool.js
+//   strips       glowing fittings the map lacks — see src/lighting/level-lights.js
+//   shelter      [{ s0, s1, ramp, ambient }] stretches under a roof (a
+//                tunnel): the sky fill and the environment are scaled to
+//                `ambient` there, since neither can be blocked by a roof
 //   emissive     { materialName: scale } on the map's glowing materials, so
 //                a level can switch street lamps off at noon or turn
 //                floodlights up at night without touching the .glb
@@ -145,9 +149,34 @@ const LIGHT_DEFAULTS = {
   bloom: {},
   lights: [],
   pools: [],
+  strips: [],
+  shelter: [],
   emissive: {},
   materials: {},
 };
+// The current level's roofed stretches and the fill values they dim.
+let shelter = { zones: [], hemi: 0, env: 0 };
+
+/**
+ * How much open sky the player is under, 0..1: 1 in the open, `ambient`
+ * deep in a tunnel, ramped over `ramp` metres at each mouth. Neither the
+ * hemisphere fill nor the environment map knows about the tunnel roof,
+ * and without this the inside of the Mountain's tunnel was lit by the
+ * dusk sky, a faint purple, from nowhere.
+ */
+function openSky(s) {
+  let k = 1;
+  for (const z of shelter.zones) {
+    const ramp = z.ramp ?? 15;
+    let w = 0; // 0 outside .. 1 fully inside
+    if (s > z.s0 - ramp && s < z.s1 + ramp) {
+      w = Math.min(1, (s - (z.s0 - ramp)) / ramp, ((z.s1 + ramp) - s) / ramp);
+    }
+    k = Math.min(k, 1 - w * (1 - (z.ambient ?? 0.2)));
+  }
+  return k;
+}
+
 function applyLighting(lit, track = null) {
   const L = { ...LIGHT_DEFAULTS, ...lit };
   // Older levels give `sky` as one colour (their fog colour): keep the
@@ -168,7 +197,8 @@ function applyLighting(lit, track = null) {
     scene.environmentIntensity = L.envIntensity;
   }
   post.setBloom(L.bloom);
-  levelLights.build(L.lights, track, L.pools);
+  levelLights.build(L.lights, track, L.pools, L.strips);
+  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
   restyleMaterials(L.emissive, L.materials);
   if (L.wet) {
     scene.traverse((o) => {
@@ -728,6 +758,11 @@ function frame(now) {
   post.speed.update(frameDt, state, camera);
 
   levelLights.update(state.position);
+  if (shelter.zones.length) {
+    const k = openSky(vehicle.s);
+    hemi.intensity = shelter.hemi * k;
+    if (skyEnv) scene.environmentIntensity = shelter.env * k;
+  }
   sky.update(frameDt, camera);
   sun.target.position.copy(state.position);
   sun.position.copy(state.position).add(SUN_OFFSET);
