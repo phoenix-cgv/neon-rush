@@ -33,6 +33,8 @@ const LATERAL_G = 0.55; // civilians corner gently: ~0.55 g, not 1.4
 
 const COLOURS = [0xd8dde0, 0x1f2a36, 0x8a1c1c, 0x2e5c8a, 0xc9a227, 0x3b6b3b, 0x6d6f73, 0xe8e4d8, 0x4a2f5c, 0xb85c1e];
 
+const MIX = ["car", "coupe", "truck", "car", "coupe", "car", "truck"];
+
 const _fr = {};
 const _m = new THREE.Matrix4();
 const _basis = new THREE.Matrix4();
@@ -73,10 +75,11 @@ export class Traffic {
       for (let i = 0; i < count; i++) {
         const k = this.cars.length;
         const s = clearStart + ((i + phase) / count) * usable;
-        // About one vehicle in three is a truck, the rest regular cars. A
-        // model that failed to load falls back (truck -> car -> the old box).
-        const want = hash(k + 200) < 0.34 ? "truck" : "car";
-        const kind = trafficParts(want) ? want : trafficParts("car") ? "car" : "box";
+        // A fixed rotation, so the mix is even however few cars there are:
+        // three regular cars, two coupes, two trucks in every seven. A model
+        // that failed to load falls back (-> car -> coupe -> the old box).
+        const want = MIX[k % MIX.length];
+        const kind = [want, "car", "coupe"].find((x) => trafficParts(x)) ?? "box";
         const truck = kind === "truck";
         const palette = TRAFFIC_MODELS[kind]?.colours ?? COLOURS;
         this.cars.push({
@@ -293,7 +296,7 @@ export class Traffic {
     // "paint" material takes each vehicle's own colour. The models stand on
     // y = 0, so they are dropped to the road under the collider's centre.
     this.modelParts = [];
-    for (const kind of ["car", "truck"]) {
+    for (const kind of Object.keys(TRAFFIC_MODELS)) {
       const group = this.cars.filter((c) => c.kind === kind);
       const tp = trafficParts(kind);
       if (!group.length || !tp) continue;
