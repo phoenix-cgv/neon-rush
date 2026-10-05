@@ -66,7 +66,12 @@ export class GrandPrixScenery {
     // ---- the pit garages: one block per old garage, front flush with the old front
     {
       const per = models.pit.width ?? 12; // the block is 12 m wide, 3.45 m tall and 6 m deep
-      const mats = garages.map((g) => {
+      // six blocks, spread evenly along the nine garage positions
+      const GARAGES = 6;
+      const chosen = garages.length > GARAGES
+        ? Array.from({ length: GARAGES }, (_, i) => garages[Math.round((i * (garages.length - 1)) / (GARAGES - 1))])
+        : garages;
+      const mats = chosen.map((g) => {
         const k = g.w / 12;
         const q = g.quaternion;
         // model centre sits behind the old front face by half the scaled depth
