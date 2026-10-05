@@ -235,12 +235,6 @@ const smoke = new Smoke(scene, MINIMAP_LAYER);
 // race clock back instead of filling the boost meter. One listener for
 // the whole game: `director` is reassigned on every loadLevel, and this
 // closure always reads whatever it currently is.
-// The player's checkpoints dissolve their gates. Every car's Progress
-// emits on this bus, so filter to the player's.
-gameplayEvents.on("checkpoint", (e) => {
-  if (e.progress === progress) gates?.pass(e.checkpoint);
-});
-
 gameplayEvents.on("pickup-collected", (e) => {
   if (!e.timeBonus) return;
   director?.addTime(e.timeBonus);
@@ -446,7 +440,12 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
-    gates = new CheckpointGates(level.track, scene, { color: level.lit?.glow });
+    gates = new CheckpointGates(level.track, scene, {
+      color: level.lit?.glow,
+      scenery: asset?.scene ?? null, // the map's own objects, for placement
+      RAPIER,
+      world,
+    });
     trails = new BoostTrails(scene, race.cars, { color: level.lit?.glow });
     if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch, skyUniforms);
     if (level.pit?.data) {
@@ -700,7 +699,7 @@ function frame(now) {
   // itself is a force field, already applied in the fixed step above.
   crosswind?.render(frameDt);
   pickups?.render();
-  gates?.update(frameDt);
+  gates?.update(frameDt, vehicle.s, progress);
   trails?.update(frameDt);
   wetUniforms.uTime.value += frameDt;
   // Render-frame, not fixed-step: smoke changes nothing in the
