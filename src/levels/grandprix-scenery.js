@@ -6,6 +6,7 @@ import { neonRails } from "./neon-rails.js";
 import cactusUrl from "../../assets/props/cactus.glb?url";
 import tentUrl from "../../assets/props/tent.glb?url";
 import appleUrl from "../../assets/props/apple-tree.glb?url";
+import pitUrl from "../../assets/props/pit-building.glb?url";
 
 // ---------------------------------------------------------------------
 // Grand Prix scenery from the provided models, set on the open grass
@@ -15,6 +16,7 @@ import appleUrl from "../../assets/props/apple-tree.glb?url";
 //   tents      spectator camps, three or four tents to a cluster
 //   cacti      dry patches out on the far grass
 //   apple trees  orchard groves, in loose rows
+//   pit garages the provided emergency-entrance block, one per pit box, in place of the map's plain garages
 //   neon rails an orange line along each guardrail through the tunnel
 // ---------------------------------------------------------------------
 
@@ -26,8 +28,9 @@ export function loadGrandPrixProps() {
     const draco = new DRACOLoader();
     draco.setDecoderPath(import.meta.env.BASE_URL + "draco/");
     const loader = new GLTFLoader().setDRACOLoader(draco);
-    return Promise.all([cactusUrl, tentUrl, appleUrl].map((u) => loader.loadAsync(u)))
-      .then(([cactus, tent, apple]) => (models = {
+    return Promise.all([cactusUrl, tentUrl, appleUrl, pitUrl].map((u) => loader.loadAsync(u)))
+      .then(([cactus, tent, apple, pit]) => (models = {
+        pit: bake(pit, { footY: 0 }),
         cactus: bake(cactus, { footY: 0, height: 4.5 }),
         tent: bake(tent, { footY: 0, height: 3.4 }),
         apple: bake(apple, { footY: 0, height: 6.5 }),
@@ -49,7 +52,7 @@ export class GrandPrixScenery {
    * @param {THREE.Object3D[]} obstacles  every map mesh, to find bare ground
    * @param {{tunnel?: [number, number]}} opts
    */
-  constructor(scene, track, obstacles, { tunnel = null } = {}) {
+  constructor(scene, track, obstacles, { tunnel = null, garages = [] } = {}) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = "GrandPrixScenery";
@@ -59,6 +62,35 @@ export class GrandPrixScenery {
 
     if (tunnel) this.group.add(neonRails(track, tunnel[0], tunnel[1], { offset: 9.0, y0: 0.3, y1: 0.7 }));
     if (!models) return;
+
+    // ---- the pit garages: one block per old garage, front flush with the old front
+    {
+      const per = models.pit.width ?? 12; // the block is 12 m wide, 3.45 m tall and 6 m deep
+      const mats = garages.map((g) => {
+        const k = g.w / 12;
+        const q = g.quaternion;
+        // model centre sits behind the old front face by half the scaled depth
+        const back = new THREE.Vector3(0, 0, g.d / 2 - 3 * k).applyQuaternion(q);
+        return new THREE.Matrix4().compose(
+          new THREE.Vector3(g.x + back.x, g.y, g.z + back.z),
+          q,
+          new THREE.Vector3(k, k, k)
+        );
+      });
+      void per;
+      if (mats.length) {
+        for (const { geometry, material } of models.pit.parts) {
+          const inst = new THREE.InstancedMesh(geometry, material, mats.length);
+          inst.castShadow = true;
+          inst.receiveShadow = true;
+          inst.frustumCulled = false;
+          mats.forEach((m4, i) => inst.setMatrixAt(i, m4));
+          inst.instanceMatrix.needsUpdate = true;
+          this.group.add(inst);
+        }
+      }
+      this.garageCount = mats.length;
+    }
 
     const rand = rngOf(777);
     const up = new THREE.Vector3(0, 1, 0);
