@@ -7,6 +7,7 @@ import polyUrl from "../../assets/buildings/apartment-poly.glb?url";
 import smallUrl from "../../assets/buildings/kenney-small.glb?url";
 import largeUrl from "../../assets/buildings/kenney-large.glb?url";
 import towerUrl from "../../assets/buildings/skyscraper.glb?url";
+import landmarkUrl from "../../assets/buildings/skyscraper-poly.glb?url";
 
 // ---------------------------------------------------------------------
 // The City Track's buildings: five modelled designs standing where the
@@ -30,6 +31,8 @@ const MODELS = {
   small: { url: smallUrl, tint: "_defaultMat" },
   large: { url: largeUrl, tint: "_defaultMat" },
   tower: { url: towerUrl, trim: true, tall: true },
+  // a slim stepped skyscraper, placed separately on the few plots with room
+  landmark: { url: landmarkUrl, landmark: true },
 };
 
 const TINTS = [0xffffff, 0xf0dcc0, 0xe6b8a2, 0xb9d3cf, 0xdbe0c8, 0xf3cfa4];
@@ -121,7 +124,7 @@ export class CityBuildings {
    * @param {THREE.Scene} scene
    * @param {THREE.Box3[]} boxes  the map's plain boxes: where a building stands and how big it may be
    */
-  constructor(scene, boxes) {
+  constructor(scene, boxes, track = null) {
     this.scene = scene;
     this.meshes = [];
     /** one per box that got a model: where its front door is */
@@ -129,15 +132,54 @@ export class CityBuildings {
     if (!models || !Object.keys(models).length) return;
 
     const ids = Object.keys(models);
+    const assign = []; // { id, s, sy, x, z, index }
+
+    // The landmark first: it needs far more room than a plot, so it goes
+    // only where the plot is well clear of the road and of its neighbours,
+    // scaled up until it nearly fills that room.
+    const taken = new Set();
+    const lm = models.landmark;
+    if (lm && track) {
+      const half1 = 0.5 * Math.hypot(lm.w, lm.d);
+      const cands = [];
+      boxes.forEach((b, i) => {
+        if (b.max.y < 50) return;
+        const cx = (b.min.x + b.max.x) / 2;
+        const cz = (b.min.z + b.max.z) / 2;
+        const clear = track.project(new THREE.Vector3(cx, 0, cz)).distance;
+        let s = Math.min(3.0, (clear - 14.5) / half1);
+        boxes.forEach((o, j) => {
+          if (j === i) return;
+          const dd = Math.hypot((o.min.x + o.max.x) / 2 - cx, (o.min.z + o.max.z) / 2 - cz);
+          const oh = 0.5 * Math.hypot(o.max.x - o.min.x, o.max.z - o.min.z);
+          if (dd < half1 * s + oh + 1.5) s = Math.min(s, Math.max(0, (dd - oh - 1.5) / half1));
+        });
+        if (lm.h * s >= 38) cands.push({ i, s, height: lm.h * s, cx, cz });
+      });
+      cands.sort((a, b) => b.height - a.height);
+      const chosen = [];
+      for (const c of cands) {
+        // spread them out
+        if (chosen.some((o) => Math.hypot(o.cx - c.cx, o.cz - c.cz) < 90)) continue;
+        chosen.push(c);
+        if (chosen.length >= 5) break;
+      }
+      for (const c of chosen) {
+        taken.add(c.i);
+        assign.push({ id: "landmark", s: c.s, sy: c.s, x: c.cx, z: c.cz + (lm.d * c.s) / 2, index: c.i });
+      }
+    }
+
+    const ids2 = ids.filter((id) => !MODELS[id].landmark);
     const used = Object.fromEntries(ids.map((id) => [id, 0]));
-    const assign = []; // { id, s, sy, x, z }
     boxes.forEach((b, i) => {
+      if (taken.has(i)) return;
       const w = b.max.x - b.min.x;
       const d = b.max.z - b.min.z;
       const origH = b.max.y;
       const hWant = Math.min(44, Math.max(14, origH * 0.8));
       const options = [];
-      for (const id of ids) {
+      for (const id of ids2) {
         const m = models[id];
         if (MODELS[id].max !== undefined && used[id] >= MODELS[id].max) continue;
         const sFit = Math.min((w * 0.96) / m.w, (d * 0.96) / m.d) * 1.05;
@@ -190,7 +232,7 @@ export class CityBuildings {
         this.meshes.push(inst);
       }
     }
-    this.placed = assign.map((a) => ({ index: a.index, x: a.x, z: a.z }));
+    this.placed = assign.map((a) => ({ index: a.index, x: a.x, z: a.z, halfW: (models[a.id].w * a.s) / 2 }));
     this.counts = Object.fromEntries(ids.map((id) => [id, assign.filter((a) => a.id === id).length]));
   }
 

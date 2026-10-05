@@ -6,6 +6,9 @@ import planterUrl from "../../assets/props/planter-box.glb?url";
 import wheatUrl from "../../assets/props/wheat-plant.glb?url";
 import lampUrl from "../../assets/props/lamp-post.glb?url";
 import fenceUrl from "../../assets/props/chain-link-fence.glb?url";
+import binUrl from "../../assets/props/wheelie-bin.glb?url";
+import paperUrl from "../../assets/props/wastepaper-bin.glb?url";
+import shrubUrl from "../../assets/props/evergreen-shrub.glb?url";
 
 // ---------------------------------------------------------------------
 // City Track vegetation: trees and grass built from generated textures and
@@ -195,10 +198,10 @@ function bake(gltf) {
   return out;
 }
 
-/** Fetch the GL props once (the tree, planter box, wheat, lamp post, fence). */
+/** Fetch the GL props once (tree, planter box, wheat, lamp post, fence, bins, shrub). */
 export function loadCityProps() {
   propsLoading ??= Promise.all(
-    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl]].map(
+    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl], ["bin", binUrl], ["paper", paperUrl], ["shrub", shrubUrl]].map(
       async ([name, url]) => [name, bake(await loader.loadAsync(url))]
     )
   )
@@ -247,6 +250,8 @@ export class CityNature {
 
     // ---- what is on the map
     const pits = [];
+    const mapBins = []; // where the map put its (plain) bins, to be swapped for the real ones
+    const benches = [];
     const buildings = [];
     const box = new THREE.Box3();
     gltf.scene.updateMatrixWorld(true);
@@ -255,6 +260,12 @@ export class CityNature {
       if (/^TreePit/.test(o.name)) {
         box.setFromObject(o);
         pits.push(new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2));
+      } else if (/^TrashBin/.test(o.name)) {
+        box.setFromObject(o);
+        mapBins.push(new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2));
+      } else if (/^BenchSeat/.test(o.name)) {
+        box.setFromObject(o);
+        benches.push(new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2));
       } else if (/^Cube/.test(o.name)) {
         // a building: a tall block that stands on the ground (not a roof unit, awning or balcony)
         box.setFromObject(o);
@@ -276,7 +287,7 @@ export class CityNature {
     });
 
     // ---- the buildings: modelled designs on the map's plots
-    this.buildings = new CityBuildings(scene, buildings);
+    this.buildings = new CityBuildings(scene, buildings, track);
     const doorOf = new Map(this.buildings.placed.map((p) => [p.index, p]));
 
     // ---- paths from the pavement to every building's door
@@ -287,9 +298,9 @@ export class CityNature {
     const fr = {};
     buildings.forEach((b, bi) => {
       if (!doorOf.has(bi)) return; // no building stands here any more
-      const cx = (b.min.x + b.max.x) / 2;
-      const e = { x: cx, z: b.max.z };
-      const f = { x: cx, z: b.max.z + 2.6 };
+      const door = doorOf.get(bi);
+      const e = { x: door.x, z: door.z };
+      const f = { x: door.x, z: door.z + 2.6 };
       const pr = track.project(new THREE.Vector3(f.x, 0, f.z));
       track.frameAt(pr.s, fr);
       const side = Math.sign(pr.t || 1);
@@ -441,6 +452,54 @@ export class CityNature {
       addInstances(props.planter, planters);
       addInstances(props.wheat, wheat, { wind: "crop", shadow: false });
       addInstances(props.lamp, lamps);
+
+      // Bins: a wheelie bin where the map had each of its plain ones, a
+      // wastepaper bin by every bench, and a wheelie bin by the corner of some
+      // doorways. All turn to face the road.
+      const bins = [], papers = [];
+      const faceRoad = (x, z) => {
+        const pr = track.project(new THREE.Vector3(x, 0, z));
+        track.frameAt(pr.s, fr);
+        const k = -Math.sign(pr.t || 1);
+        return Math.atan2(fr.right.x * k, fr.right.z * k);
+      };
+      mapBins.forEach((p, i) => {
+        (i % 3 === 2 ? papers : bins).push(
+          place(p.x, p.y, p.z, faceRoad(p.x, p.z) + (wr() - 0.5) * 0.5, i % 3 === 2 ? 2.4 : 1)
+        );
+      });
+      for (const p of benches) {
+        const pr = track.project(new THREE.Vector3(p.x, 0, p.z));
+        track.frameAt(pr.s, fr);
+        papers.push(place(p.x + fr.tangent.x * 1.5, p.y, p.z + fr.tangent.z * 1.5, faceRoad(p.x, p.z), 2.4));
+      }
+      this.buildings.placed.forEach((pl, i) => {
+        if (i % 3 !== 0) return;
+        const bx = pl.x + pl.halfW + 0.8;
+        const bz = pl.z + 0.7;
+        if (!clearOfPaths({ x: bx, z: bz }, 1.2)) return;
+        bins.push(place(bx, GROUND, bz, wr() * 0.6 - 0.3));
+      });
+      addInstances(props.bin, bins);
+      addInstances(props.paper, papers);
+
+      // Columnar evergreens: a pair flanking each doorway's planters, and a
+      // loose line along the pavement's outer edge.
+      const shrubs = [];
+      this.buildings.placed.forEach((pl) => {
+        const off = Math.max(2.8, Math.min(pl.halfW - 0.9, 3.8));
+        for (const side of [-1, 1]) shrubs.push(place(pl.x + side * off, GROUND, pl.z + 0.9, wr() * 6.28, 0.95 + wr() * 0.4));
+      });
+      for (let sPos = 6; sPos < track.length - 6; sPos += 13 + wr() * 5) {
+        const side = wr() < 0.5 ? -1 : 1;
+        track.frameAt(sPos, fr);
+        const x = fr.position.x + fr.right.x * side * 12.9;
+        const z = fr.position.z + fr.right.z * side * 12.9;
+        if (paths.some((q) => Math.hypot(q.t.x - x, q.t.z - z) < 3)) continue;
+        if (!clearOfBuildings({ x, z }, 0.6)) continue;
+        shrubs.push(place(x, 0.12, z, wr() * 6.28, 1.0 + wr() * 0.5));
+      }
+      addInstances(props.shrub, shrubs);
 
       // Chain-link fence along stretches of the pavement's outer edge, never
       // across a path.
