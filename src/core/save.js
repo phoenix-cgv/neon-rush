@@ -92,7 +92,9 @@ export const Save = {
 };
 
 export const QUALITY = {
-  high: { pixelRatio: 1.5, shadows: true, shadowMap: 2048 },
-  medium: { pixelRatio: 1.0, shadows: true, shadowMap: 1024 },
-  low: { pixelRatio: 0.75, shadows: false, shadowMap: 512 },
+  // bloom: the post-processing pass (src/lighting/post.js). Off on low,
+  // where the whole point is to spare the GPU.
+  high: { pixelRatio: 1.5, shadows: true, shadowMap: 2048, bloom: true },
+  medium: { pixelRatio: 1.0, shadows: true, shadowMap: 1024, bloom: true },
+  low: { pixelRatio: 0.75, shadows: false, shadowMap: 512, bloom: false },
 };

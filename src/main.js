@@ -26,6 +26,9 @@ import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
+import { SkyEnvironment } from "./lighting/sky-environment.js";
+import { PostFX } from "./lighting/post.js";
+import { LevelLights } from "./lighting/level-lights.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -45,6 +48,8 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
+
+const params = new URLSearchParams(location.search);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -91,8 +96,9 @@ const skyUniforms = {
   uHorizon: { value: new THREE.Color(0xcfe2ea) },
   uBottom: { value: new THREE.Color(0x6f7d6a) },
 };
+const SKY_RADIUS = 900;
 const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(900, 24, 16),
+  new THREE.SphereGeometry(SKY_RADIUS, 24, 16),
   new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -112,11 +118,26 @@ const sky = new THREE.Mesh(
           ? mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.55))
           : mix(uHorizon, uBottom, pow(clamp(-h, 0.0, 1.0), 0.4));
         gl_FragColor = vec4(c, 1.0);
+        // Tone-map and encode like every built-in material does. Without
+        // these the dome skipped both, so it looked different from the
+        // rest of the scene and changed with the quality setting (the
+        // bloom path applies them at the end, the direct path did not).
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   })
 );
 sky.frustumCulled = false;
 scene.add(sky);
+
+// Reflections baked from that same dome (src/lighting/sky-environment.js),
+// bloom and tone mapping (src/lighting/post.js), and any extra lights a
+// level declares (src/lighting/level-lights.js). ?env=0 and ?post=0 turn
+// the first two off, for before/after comparisons.
+const skyEnv = params.get("env") === "0" ? null : new SkyEnvironment(renderer, sky.material, SKY_RADIUS);
+const post = new PostFX(renderer, scene, camera);
+const postAllowed = params.get("post") !== "0";
+const levelLights = new LevelLights(scene);
 
 // Per-level lighting. A level's `lit` may set any of these; anything it
 // leaves out falls back to the daylight defaults, so switching from a
@@ -127,6 +148,10 @@ scene.add(sky);
 //   sky          { top, horizon, bottom } colours of the gradient dome
 //   fog          [colour, near, far]
 //   exposure     tone-mapping exposure
+//   envIntensity how strongly the sky-baked environment lights and
+//                reflects in every standard material (0 = off)
+//   bloom        { threshold, strength, radius } — see src/lighting/post.js
+//   lights       extra point/spot lights — see src/lighting/level-lights.js
 const LIGHT_DEFAULTS = {
   sun: [60, 80, 30],
   sunColor: 0xfff3dc,
@@ -135,8 +160,11 @@ const LIGHT_DEFAULTS = {
   sky: { top: 0x3f7fb5, horizon: 0xcfe2ea, bottom: 0x6f7d6a },
   fog: [0x8fb4c4, 180, 620],
   exposure: 1.05,
+  envIntensity: 0.4,
+  bloom: {},
+  lights: [],
 };
-function applyLighting(lit) {
+function applyLighting(lit, track = null) {
   const L = { ...LIGHT_DEFAULTS, ...lit };
   // Older levels give `sky` as one colour (their fog colour): keep the
   // default dome for them rather than painting it flat.
@@ -152,6 +180,13 @@ function applyLighting(lit) {
   skyUniforms.uBottom.value.set(dome.bottom);
   scene.fog = new THREE.Fog(L.fog[0], L.fog[1], L.fog[2]);
   renderer.toneMappingExposure = L.exposure;
+  // After the dome's colours are set: the bake reads them.
+  if (skyEnv) {
+    scene.environment = skyEnv.bake();
+    scene.environmentIntensity = L.envIntensity;
+  }
+  post.setBloom(L.bloom);
+  levelLights.build(L.lights, track);
 }
 
 const world = new RAPIER.World(WORLD.gravity);
@@ -198,6 +233,8 @@ function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
     sun.shadow.map?.dispose();
     sun.shadow.map = null;
   }
+  post.enabled = postAllowed && q.bloom;
+  post.resize();
 }
 function applyPresentation() {
   // These two were in DEFAULTS but never read back, so the toggles
@@ -258,8 +295,33 @@ let recorder = null; // recording the lap in progress, so a new best gets a ghos
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
-const requested = new URLSearchParams(location.search).get("level");
+const requested = params.get("level");
+
+// --- photo mode (development) ------------------------------------------
+// ?level=grandprix&shot=1049 parks the player's car at s = 1049 m, lets
+// the suspension settle, then stops the simulation while rendering
+// carries on. Every lighting and shader change can then be judged on the
+// SAME frame before and after, which a moving car never gives you.
+//   shot   s along the centreline, m
+//   lat    lateral offset from the centreline, m (default 0)
+//   cam    0 chase, 1 hood, 2 wide chase (default 0)
+//   hud=0  hide every HUD element, for clean devlog shots
+// __dbg.shot(s, lat) re-poses live without a reload. The start lights
+// never go out in photo mode, so the field stays held where it is.
+const SETTLE_STEPS = 90; // 1.5 s for the springs to come to rest
+let photo = params.has("shot")
+  ? { s: Number(params.get("shot")) || 0, lateral: Number(params.get("lat")) || 0, settle: 0 }
+  : null;
+const HOLD_STILL = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
 let levelName = requested && Object.hasOwn(LEVELS, requested) ? requested : ORDER[0];
+
+/** Park the player at photo.s and let the car settle before freezing. */
+function poseForPhoto() {
+  if (!photo || !level?.track) return;
+  photo.s = level.track.spline.wrapS(photo.s);
+  respawn(level.track.spawnAt(photo.s, photo.lateral));
+  photo.settle = SETTLE_STEPS;
+}
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
@@ -306,7 +368,7 @@ async function loadLevel(name) {
   levelName = name;
   level = LEVELS[name](RAPIER, world, scene, asset);
 
-  applyLighting(level.lit ?? {});
+  applyLighting(level.lit ?? {}, level.track ?? null);
 
   director?.dispose();
   director = null;
@@ -391,6 +453,7 @@ async function loadLevel(name) {
     minimap.build([{ isPlayer: true, vehicle, rig: carRig }]);
     respawn();
   }
+  poseForPhoto();
 }
 
 function respawn(pose = null) {
@@ -415,6 +478,17 @@ await loadLevel(levelName);
 // A map that failed to download must not leave the game with no level.
 // The testbed is built in code, so it needs no download.
 if (!level) await loadLevel("testbed");
+
+if (photo) {
+  for (let i = 0; i < (Number(params.get("cam")) || 0); i++) cameraRig.cycle();
+  if (params.get("hud") === "0") {
+    // visibility, not display: each HUD toggles its own display on every
+    // level load, and this has to outlast that.
+    for (const el of [gameplayHud.root, raceHud.root, health.root]) el.style.visibility = "hidden";
+    minimap.enabled = false;
+    debug.setVisible(false);
+  }
+}
 
 renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
@@ -447,7 +521,7 @@ function frame(now) {
   // discharging it as a burst of catch-up steps on resume.
   if (menu.open) {
     accumulator = 0;
-    renderer.render(scene, camera);
+    post.render();
     minimap.render(renderer, scene);
     input.endFrame();
     return;
@@ -487,8 +561,11 @@ function frame(now) {
   }
 
   accumulator += frameDt;
+  // Photo mode: once settled, nothing steps — the frame is held still.
+  if (photo && photo.settle <= 0) accumulator = 0;
   let controls = input.controls;
   while (accumulator >= WORLD.fixedDt) {
+    if (photo) photo.settle--;
     // Ramp the controls on the FIXED step, not the render frame.
     //
     // input.update() moves throttle, brake and steer toward their targets
@@ -499,12 +576,12 @@ function frame(now) {
     // drive — and a replay recorded on one machine would not reproduce on
     // another. Ramping in here makes the control trajectory a function of
     // the input alone.
-    controls = input.update(WORLD.fixedDt, !vehicle.grounded);
+    controls = photo ? HOLD_STILL : input.update(WORLD.fixedDt, !vehicle.grounded);
 
     if (race) {
       // Lights before cars: the step the lights go out on is the first
-      // step anyone may move.
-      director?.step(WORLD.fixedDt);
+      // step anyone may move. In photo mode they never go out.
+      if (!photo) director?.step(WORLD.fixedDt);
       for (const c of race.cars) c.vehicle.savePreviousState();
       const racing = director?.state === "racing";
       // Captures the PLAYER's state before this step's controls move it,
@@ -621,7 +698,7 @@ function frame(now) {
     race,
   });
 
-  renderer.render(scene, camera);
+  post.render();
 
   // No hide-list needed: the map camera only sees the track layer and the
   // blips, so the sky dome and debug vectors are never in its pass.
@@ -639,6 +716,7 @@ window.__dbg = {
   get progress() { return progress; },
   get race() { return race; },
   minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
+  post, skyEnv, levelLights, applyLighting,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
@@ -650,10 +728,16 @@ window.__dbg = {
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
   get vehicle() { return vehicle; },
+  // photo mode — see the note by SETTLE_STEPS
+  shot(s, lateral = 0) {
+    photo = { s, lateral, settle: 0 };
+    poseForPhoto();
+  },
 };
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  post.resize();
 });
