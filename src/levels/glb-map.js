@@ -227,30 +227,101 @@ function worldTriangles(mesh, lift = 0, flatY = null) {
   return { positions: out, indices: idx };
 }
 
-/** An oriented box around a node, from its own local bounds. */
-function solidBox(node) {
-  const inv = new THREE.Matrix4().copy(node.matrixWorld).invert();
-  const box = new THREE.Box3();
-  const rel = new THREE.Matrix4();
+/**
+ * Drop triangles from a `walls` collider mesh that sit well inside
+ * where the real barrier stands (`wallLimit`), keeping the ones at or
+ * beyond it. A real continuous barrier's own geometry never needs to
+ * reach that far in — only a modelling defect would (the Mountain's
+ * Guardrail_Left has exactly this: a stretch of backface-culled,
+ * invisible-from-the-road geometry folded in toward the centreline for
+ * about 150m near its last checkpoint, found by probing the live
+ * collider — see the project history for how). The visual mesh is a
+ * separate draw call built from the SAME node's untouched geometry, so
+ * this only ever removes collision, never anything drawn.
+ */
+function cullStrayWallTriangles(w, track, wallLimit) {
+  const { positions, indices } = w;
+  const safe = wallLimit * 0.6;
+  const keep = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < indices.length; i += 3) {
+    const ia = indices[i], ib = indices[i + 1], ic = indices[i + 2];
+    a.fromArray(positions, ia * 3);
+    b.fromArray(positions, ib * 3);
+    c.fromArray(positions, ic * 3);
+    const centroid = a.add(b).add(c).multiplyScalar(1 / 3);
+    const pr = track.project(centroid, null);
+    if (Math.abs(pr.t) >= safe) keep.push(ia, ib, ic);
+  }
+  if (keep.length === indices.length) return w; // nothing to cull
+  return { positions, indices: Uint32Array.from(keep) };
+}
+
+/**
+ * World-space vertices under a node, for a solid's box to be fitted
+ * from later — once a track exists to fit it against (see
+ * `fitSolidBox`). A node's own (world) rotation is not a safe basis
+ * for that box: these barrier blocks are exported with their vertices
+ * baked straight into world space and an identity node transform, so a
+ * banked block (the Grand Prix's final corner is a banked R30 — exactly
+ * where this showed up) has its tilt baked into the vertices
+ * themselves, not into any transform `solidBox` could have read. An
+ * axis-aligned box around tilted vertices is a diagonal box, bulging
+ * well past the block's real footprint — on a banked corner, into the
+ * road.
+ */
+function solidVertices(node) {
+  const out = [];
+  const v = new THREE.Vector3();
   node.traverse((m) => {
     if (!m.isMesh) return;
-    m.geometry.computeBoundingBox();
-    rel.multiplyMatrices(inv, m.matrixWorld);
-    box.union(m.geometry.boundingBox.clone().applyMatrix4(rel));
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      out.push(v.x, v.y, v.z);
+    }
   });
-  if (box.isEmpty()) return null;
-  const pos = new THREE.Vector3();
-  const quat = new THREE.Quaternion();
-  const scl = new THREE.Vector3();
-  node.matrixWorld.decompose(pos, quat, scl);
-  const centre = box.getCenter(new THREE.Vector3()).applyMatrix4(node.matrixWorld);
-  const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
-  half.set(
-    Math.max(0.05, half.x * Math.abs(scl.x)),
-    Math.max(0.05, half.y * Math.abs(scl.y)),
-    Math.max(0.05, half.z * Math.abs(scl.z))
+  return out.length ? out : null;
+}
+
+/**
+ * Fit a solid's box to the track's own local frame (right/up/tangent)
+ * at its position, rather than to world axes — the frame is already
+ * correctly banked, so a block that follows the bank (as these do) gets
+ * a tight box instead of a world-axis-aligned one ballooned by the
+ * tilt. See `solidVertices` for why the world axes cannot be trusted.
+ */
+function fitSolidBox(positions, track) {
+  const n = positions.length / 3;
+  const v = new THREE.Vector3();
+  const naiveCentre = new THREE.Vector3();
+  for (let i = 0; i < n; i++) naiveCentre.add(v.fromArray(positions, i * 3));
+  naiveCentre.divideScalar(n);
+
+  const fr = {};
+  track.frameAt(track.project(naiveCentre, null).s, fr);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  const rel = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    rel.fromArray(positions, i * 3).sub(fr.position);
+    const x = rel.dot(fr.right), y = rel.dot(fr.up), z = rel.dot(fr.tangent);
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  const midX = (minX + maxX) / 2, midY = (minY + maxY) / 2, midZ = (minZ + maxZ) / 2;
+  const position = fr.position.clone()
+    .addScaledVector(fr.right, midX)
+    .addScaledVector(fr.up, midY)
+    .addScaledVector(fr.tangent, midZ);
+  const basis = new THREE.Matrix4().makeBasis(fr.right, fr.up, fr.tangent);
+  const quaternion = new THREE.Quaternion().setFromRotationMatrix(basis);
+  const half = new THREE.Vector3(
+    Math.max(0.05, (maxX - minX) / 2),
+    Math.max(0.05, (maxY - minY) / 2),
+    Math.max(0.05, (maxZ - minZ) / 2)
   );
-  return { position: centre, quaternion: quat, half };
+  return { position, quaternion, half };
 }
 
 /**
@@ -281,8 +352,8 @@ function prepare(gltf, opts) {
   // the same name stem, and one object must not become two boxes.
   const findSolids = (o) => {
     if (o !== root && opts.solid?.test(o.name)) {
-      const s = solidBox(o);
-      if (s) solids.push(s);
+      const v = solidVertices(o);
+      if (v) solids.push(v);
       return;
     }
     for (const c of o.children) findSolids(c);
@@ -440,16 +511,30 @@ export function buildMapTrack(RAPIER, world, scene, gltf, opts) {
   });
 
   for (const w of map.walls) {
+    const { positions, indices } = opts.wallLimit != null
+      ? cullStrayWallTriangles(w, track, opts.wallLimit)
+      : w;
     track.registerCollider(
       0,
       track.length,
-      RAPIER.ColliderDesc.trimesh(w.positions, w.indices)
+      RAPIER.ColliderDesc.trimesh(positions, indices)
         .setFriction(0.05) // slippery, as the generated barriers are
         .setRestitution(0.0)
     );
   }
-  for (const s of map.solids) {
+  for (const vertices of map.solids) {
+    const s = fitSolidBox(vertices, track);
     const pr = track.project(s.position);
+    // Even track-frame-fitted (see fitSolidBox), a solid whose own
+    // CENTRE still lands well inside wallLimit is not a real roadside
+    // barrier — found on the Grand Prix, where a few PitWall/TyreWall
+    // pieces right at the pit exit's merge don't run along the main
+    // track's frame at all (that frame is what fitSolidBox has to
+    // assume), so even the fit still lands them in the road. Dropped
+    // rather than kept undersized: a short gap in a wall that stands
+    // metres further out is harmless; the same piece left solid where
+    // the merge actually drives is the invisible stop this is fixing.
+    if (opts.wallLimit != null && Math.abs(pr.t) < opts.wallLimit * 0.5) continue;
     track.registerCollider(
       pr.s,
       pr.s,
