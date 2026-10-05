@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GROUP, ALL } from "../vehicle/vehicle.js";
-import { trafficParts, TRAFFIC_MODELS } from "./traffic-models.js";
+import { trafficParts, trafficWheels, TRAFFIC_MODELS } from "./traffic-models.js";
 import { idmAccel, cornerLookahead, avoidanceTarget, slew } from "./traffic-logic.js";
 
 // ---------------------------------------------------------------------
@@ -39,6 +39,10 @@ const _fr = {};
 const _m = new THREE.Matrix4();
 const _basis = new THREE.Matrix4();
 const _part = new THREE.Matrix4();
+const _wm = new THREE.Matrix4();
+const _t = new THREE.Matrix4();
+const _spin = new THREE.Matrix4();
+const _flip = new THREE.Matrix4().makeRotationY(Math.PI);
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _one = new THREE.Vector3(1, 1, 1);
@@ -85,6 +89,7 @@ export class Traffic {
         this.cars.push({
           kind,
           truck,
+          spin: 0, // wheel angle, radians
           half: TRAFFIC_MODELS[kind]?.half ?? HALF,
           dir,
           laneT: -dir * lane, // keep left: left of the direction of travel
@@ -207,6 +212,7 @@ export class Traffic {
       }
 
       c.speed = Math.max(0, c.speed + idmAccel(c.speed, target, gap, vObs) * dt);
+      c.spin += (c.speed * dt) / (trafficWheels(c.kind)?.radius || 0.35);
       c.s = (((c.s + c.dir * c.speed * dt) % L) + L) % L;
 
       c.prev.p.copy(c.cur.p);
@@ -317,6 +323,25 @@ export class Traffic {
         this.modelParts.push(inst);
       }
       for (const c of group) c.insts = insts;
+
+      // Wheels: their own instanced meshes (four per vehicle), so they can
+      // turn. Every wheel is drawn from the model's front-left one, the far
+      // side turned round to face outward.
+      const ws = trafficWheels(kind);
+      if (ws) {
+        const winsts = [];
+        for (const { geometry, material } of ws.parts) {
+          const inst = new THREE.InstancedMesh(geometry, material, group.length * 4);
+          inst.castShadow = true;
+          inst.frustumCulled = false;
+          this.scene.add(inst);
+          winsts.push(inst);
+          this.modelParts.push(inst);
+        }
+        for (const c of group) c.wheelInsts = winsts;
+        this.wheelDrop ??= {};
+        this.wheelDrop[kind] = drop;
+      }
     }
     for (const c of sedans) c.insts = this.parts;
   }
@@ -331,6 +356,17 @@ export class Traffic {
         const locals = inst.userData.local;
         for (let j = 0; j < locals.length; j++) {
           inst.setMatrixAt(c.slot * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
+        }
+      }
+      if (c.wheelInsts) {
+        const ws = trafficWheels(c.kind);
+        _spin.makeRotationX(-c.spin); // forward is -Z: the tops roll toward it
+        for (let k = 0; k < 4; k++) {
+          const cn = ws.corners[k];
+          _wm.copy(_m).multiply(this.wheelDrop[c.kind]).multiply(_t.makeTranslation(cn.x, cn.y, cn.z));
+          if (cn.x > 0) _wm.multiply(_flip); // far side: face the outside outward
+          _wm.multiply(_spin);
+          for (const inst of c.wheelInsts) inst.setMatrixAt(c.slot * 4 + k, _wm);
         }
       }
     });

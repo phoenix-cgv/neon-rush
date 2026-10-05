@@ -2,7 +2,7 @@ import * as THREE from "three";
 import mapUrl from "../../assets/maps/CityTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import { BlockyCrowd } from "./blocky-people.js";
-import { CityNature } from "./city-nature.js";
+import { CityNature, loadCityProps } from "./city-nature.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
@@ -25,7 +25,10 @@ import { CityNature } from "./city-nature.js";
 // None of the scenery needs a collider.
 // ---------------------------------------------------------------------
 
-buildCity.preload = () => loadMap(mapUrl);
+buildCity.preload = async () => {
+  await loadCityProps(); // the street's tree, planters, wheat, lamps and fences
+  return loadMap(mapUrl);
+};
 
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildCity(RAPIER, world, scene, gltf) {
@@ -44,7 +47,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // Likewise the cone trees and cone grass tufts (the unnamed trunks are
     // the map's "Cylinder"s): CityNature plants textured, wind-blown ones at
     // the same TreePit and GreenIsland spots.
-    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|Cylinder)/,
+    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder)/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
@@ -98,6 +101,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 68 },
     // Called every frame by main.js: the wind.
     update: (t) => nature.update(t),
+    nature,
     spawn: gate.position,
     quaternion: gate.quaternion,
     // Late-afternoon light to suit the refined map (its lit windows, coral

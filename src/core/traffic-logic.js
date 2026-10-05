@@ -49,8 +49,10 @@ export function cornerLookahead(v, comfort = 2.5) {
 export function avoidanceTarget(laneT, lat, hazard, roadHalf, o = {}) {
   const { look = 40, maxShift = 2.3, overlap = 3.0, edgeMargin = 1.1 } = o;
   if (!hazard || hazard.gap > look || Math.abs(hazard.lat - lat) > overlap) return laneT;
-  // Away from the hazard; if dead centre on it, toward the nearer kerb.
-  const side = hazard.lat === lat ? Math.sign(laneT) || 1 : Math.sign(lat - hazard.lat);
+  // Always toward its own kerb, never across the road: sliding toward the
+  // centre to get "away" from a hazard on the kerb side put oncoming cars
+  // squarely in the player's path and left both stopped nose to nose.
+  const side = Math.sign(laneT) || Math.sign(lat - hazard.lat) || 1;
   const urgency = 1 - Math.max(0, hazard.gap) / look; // 0 far .. 1 close
   const want = laneT + side * maxShift * Math.min(1, 0.4 + urgency);
   const limit = Math.max(0, roadHalf - edgeMargin);

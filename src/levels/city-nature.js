@@ -1,5 +1,11 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import treeUrl from "../../assets/props/ornamental-tree.glb?url";
+import planterUrl from "../../assets/props/planter-box.glb?url";
+import wheatUrl from "../../assets/props/wheat-plant.glb?url";
+import lampUrl from "../../assets/props/lamp-post.glb?url";
+import fenceUrl from "../../assets/props/chain-link-fence.glb?url";
 
 // ---------------------------------------------------------------------
 // City Track vegetation: trees and grass built from generated textures and
@@ -124,54 +130,22 @@ function needleTexture() {
   }, { repeat: true });
 }
 
-function frondTexture() {
-  return canvasTex(128, 256, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    g.strokeStyle = "#3a6a2a";
-    g.lineWidth = 3;
-    g.beginPath();
-    g.moveTo(w / 2, h);
-    g.lineTo(w / 2, 4);
-    g.stroke();
-    for (let y = 14; y < h - 4; y += 9) {
-      const t = 1 - y / h; // 0 at the base, 1 at the tip
-      const len = (w / 2 - 4) * (1 - Math.pow(t - 0.35, 2) * 1.6);
-      for (const s of [-1, 1]) {
-        const grad = g.createLinearGradient(w / 2, y, w / 2 + s * len, y + 18);
-        grad.addColorStop(0, "#2f6d2a");
-        grad.addColorStop(1, "#7fbe4a");
-        g.strokeStyle = grad;
-        g.lineWidth = 7;
-        g.beginPath();
-        g.moveTo(w / 2, y);
-        g.lineTo(w / 2 + s * Math.max(6, len), y + 16);
-        g.stroke();
+function pathTexture() {
+  const r = rng(91);
+  return canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = "#b9b2a2";
+    g.fillRect(0, 0, w, h);
+    // running-bond pavers
+    const bw = 32, bh = 16;
+    for (let row = 0; row * bh < h; row++) {
+      for (let col = -1; col * bw < w; col++) {
+        const x = col * bw + (row % 2 ? bw / 2 : 0);
+        const tone = 150 + Math.floor(r() * 50);
+        g.fillStyle = `rgb(${tone},${tone - 6},${tone - 18})`;
+        g.fillRect(x + 1, row * bh + 1, bw - 2, bh - 2);
       }
     }
-  });
-}
-
-function tuftTexture() {
-  const r = rng(51);
-  return canvasTex(128, 128, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    for (let i = 0; i < 20; i++) {
-      const x = 10 + r() * (w - 20);
-      const tipX = x + (r() - 0.5) * 36;
-      const top = 10 + r() * 50;
-      const grad = g.createLinearGradient(0, h, 0, top);
-      grad.addColorStop(0, "#1a4a1c");
-      grad.addColorStop(0.6, "#3f8c32");
-      grad.addColorStop(1, "#9bd46a");
-      g.fillStyle = grad;
-      g.beginPath();
-      g.moveTo(x - 3, h);
-      g.quadraticCurveTo(x + (tipX - x) * 0.2, h * 0.5, tipX, top);
-      g.quadraticCurveTo(x + (tipX - x) * 0.3, h * 0.55, x + 3, h);
-      g.closePath();
-      g.fill();
-    }
-  });
+  }, { repeat: true });
 }
 
 function lawnTexture() {
@@ -224,10 +198,11 @@ function windify(material, mode) {
         #endif
         float ph = ip.x * 0.31 + ip.z * 0.17;
         ${
-          mode === "grass"
-            ? `float bend = uv.y * uv.y;
-               transformed.x += sin(uTime * 1.8 + ph + position.x * 2.0) * 0.16 * bend * uSway;
-               transformed.z += cos(uTime * 1.5 + ph * 1.3) * 0.12 * bend * uSway;`
+          mode === "crop"
+            ? `float bend = max(position.y, 0.0);
+               bend *= bend;
+               transformed.x += sin(uTime * 1.9 + ph + position.x * 3.0) * 0.17 * bend * uSway;
+               transformed.z += cos(uTime * 1.6 + ph * 1.3) * 0.12 * bend * uSway;`
             : `float hgt = max(position.y, 0.0);
                float sway = uSway * hgt * 0.016;
                transformed.x += sin(uTime * 1.2 + ph + position.y * 0.6) * sway;
@@ -338,58 +313,60 @@ function pineGeometry() {
   return mergeGeometries(parts, false);
 }
 
-function palmTrunkGeometry(lean) {
-  const segs = 9;
-  const parts = [];
-  let x = 0, y = 0, z = 0;
-  for (let i = 0; i < segs; i++) {
-    const t = i / (segs - 1);
-    const len = 0.78;
-    const r0 = 0.22 - t * 0.07;
-    const g = new THREE.CylinderGeometry(r0 - 0.012, r0, len, 7, 1).translate(0, len / 2, 0);
-    const tilt = lean * (0.35 + t);
-    g.rotateZ(tilt);
-    g.translate(x, y, z);
-    parts.push(g);
-    x += -Math.sin(tilt) * len;
-    y += Math.cos(tilt) * len;
-  }
-  return { geo: mergeGeometries(parts, false), top: new THREE.Vector3(x, y, z) };
+// ------------------------------------------------------------ props (GLBs)
+const loader = new GLTFLoader();
+let propsLoading = null;
+let props = null;
+
+/** Bake a prop's meshes into world-space geometry with its own (vertex-coloured) material. */
+function bake(gltf) {
+  gltf.scene.updateMatrixWorld(true);
+  const out = [];
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh) return;
+    const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    const material = o.material.clone();
+    material.vertexColors = !!geometry.attributes.color;
+    material.side = THREE.DoubleSide;
+    out.push({ geometry, material });
+  });
+  return out;
 }
 
-function frondGeometry(top, seed) {
-  const r = rng(seed);
-  const parts = [];
-  const fronds = 9;
-  for (let i = 0; i < fronds; i++) {
-    const g = new THREE.PlaneGeometry(1.5, 3.3, 1, 8).translate(0, 1.65, 0);
-    const p = g.attributes.position;
-    for (let j = 0; j < p.count; j++) {
-      const t = p.getY(j) / 3.3;
-      p.setZ(j, p.getZ(j) - t * t * 1.5); // droop outward and down
-      p.setY(j, p.getY(j) * (1 - t * 0.12));
-    }
-    g.rotateX(-1.05 + (r() - 0.5) * 0.4); // lay the frond out, tip up a little
-    g.rotateY((i / fronds) * Math.PI * 2 + (r() - 0.5) * 0.3);
-    g.translate(top.x, top.y, top.z);
-    g.computeVertexNormals();
-    parts.push(g);
-  }
-  return mergeGeometries(parts, false);
+/** Fetch the GL props once (the tree, planter box, wheat, lamp post, fence). */
+export function loadCityProps() {
+  propsLoading ??= Promise.all(
+    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl]].map(
+      async ([name, url]) => [name, bake(await loader.loadAsync(url))]
+    )
+  )
+    .then((entries) => (props = Object.fromEntries(entries)))
+    .catch((err) => {
+      console.error("[city-nature] could not load the city props; the street is left bare", err);
+      return (props = null);
+    });
+  return propsLoading;
 }
 
-function tuftGeometry() {
-  const parts = [];
-  for (let i = 0; i < 3; i++) {
-    const g = new THREE.PlaneGeometry(0.75, 0.6, 1, 2).translate(0, 0.3, 0);
-    g.rotateY((i / 3) * Math.PI);
-    parts.push(g);
+// ------------------------------------------------------------------ helpers
+const distToSegment = (px, pz, ax, az, bx, bz) => {
+  const dx = bx - ax, dz = bz - az;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz || 1)));
+  return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+};
+
+/** Does the segment (a -> b) cross the box (x/z extents), grown by `pad`? */
+function segmentHitsBox(ax, az, bx, bz, box, pad) {
+  const x0 = box.min.x - pad, x1 = box.max.x + pad, z0 = box.min.z - pad, z1 = box.max.z + pad;
+  let t0 = 0, t1 = 1;
+  const dx = bx - ax, dz = bz - az;
+  for (const [p, q] of [[-dx, ax - x0], [dx, x1 - ax], [-dz, az - z0], [dz, z1 - az]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; }
+    else { if (r < t0) return false; if (r < t1) t1 = r; }
   }
-  const g = mergeGeometries(parts, false);
-  // upward normals: lit like the ground they stand on, not like a wall
-  const n = g.attributes.normal;
-  for (let i = 0; i < n.count; i++) n.setXYZ(i, 0, 1, 0);
-  return g;
+  return true;
 }
 
 // -------------------------------------------------------------------- main
@@ -397,8 +374,8 @@ export class CityNature {
   /**
    * @param {THREE.Scene} scene
    * @param {object} track
-   * @param {object} gltf  the loaded map (its TreePit and GreenIsland nodes place everything)
-   * @param {THREE.Group} mapGroup  the built map, whose "Grass Light" material gets the lawn
+   * @param {object} gltf  the loaded map: its TreePit nodes place the trees, its big cubes are the buildings
+   * @param {THREE.Group} mapGroup  the built map, whose ground gets the lawn
    */
   constructor(scene, track, gltf, mapGroup) {
     this.scene = scene;
@@ -406,9 +383,9 @@ export class CityNature {
     this.disposables = [];
     const own = (o) => (this.disposables.push(o), o);
 
-    // Where things go.
+    // ---- what is on the map
     const pits = [];
-    const islands = [];
+    const buildings = [];
     const box = new THREE.Box3();
     gltf.scene.updateMatrixWorld(true);
     gltf.scene.traverse((o) => {
@@ -416,74 +393,165 @@ export class CityNature {
       if (/^TreePit/.test(o.name)) {
         box.setFromObject(o);
         pits.push(new THREE.Vector3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2));
-      } else if (/^GreenIsland/.test(o.name)) {
-        islands.push(box.setFromObject(o).clone());
+      } else if (/^Cube/.test(o.name)) {
+        // a building: a tall block that stands on the ground (not a roof unit, awning or balcony)
+        box.setFromObject(o);
+        const w = box.max.x - box.min.x, d = box.max.z - box.min.z;
+        if (box.max.y > 6 && w > 6 && d > 6 && box.min.y < 0.5) buildings.push(box.clone());
       }
     });
 
-    // Textures
+    // ---- textures
     const leaf = own(leafTexture());
     const bark = own(barkTexture());
     const needles = own(needleTexture());
-    const frond = own(frondTexture());
-    const tuft = own(tuftTexture());
     const lawn = own(lawnTexture());
+    const pave = own(pathTexture());
 
-    // The lawn on the islands (the map's flat "Grass Light" material).
+    // ---- the ground is lawn: the map's flat graphite plane, textured green
     mapGroup.traverse((o) => {
-      if (o.isMesh && o.material?.name === "Grass Light") lawnify(o.material, lawn);
+      if (o.isMesh && /^City blocks/.test(o.material?.name ?? "")) {
+        o.material.color.setRGB(0.62, 0.82, 0.55);
+        lawnify(o.material, lawn);
+      }
     });
 
-    // ---- trees
-    const barkMat = own(new THREE.MeshStandardMaterial({ map: bark, roughness: 0.95 }));
+    // ---- paths from the pavement to every building's door
+    // Doors face +Z (the map's -Y). A short forecourt straight out from the
+    // door, then a straight run to the pavement's outer edge. A building whose
+    // run would cut across another is left without a path.
+    const paths = [];
+    const fr = {};
+    for (const b of buildings) {
+      const cx = (b.min.x + b.max.x) / 2;
+      const e = { x: cx, z: b.max.z };
+      const f = { x: cx, z: b.max.z + 2.6 };
+      const pr = track.project(new THREE.Vector3(f.x, 0, f.z));
+      track.frameAt(pr.s, fr);
+      const side = Math.sign(pr.t || 1);
+      const t = {
+        x: fr.position.x + fr.right.x * side * 11.9,
+        z: fr.position.z + fr.right.z * side * 11.9,
+        tx: fr.tangent.x,
+        tz: fr.tangent.z,
+      };
+      if (Math.hypot(t.x - f.x, t.z - f.z) > 46) continue;
+      let clear = true;
+      for (const o of buildings) {
+        if (o === b) {
+          if (segmentHitsBox(f.x, f.z, t.x, t.z, o, 0.2)) clear = false;
+        } else if (segmentHitsBox(f.x, f.z, t.x, t.z, o, 1.0) || segmentHitsBox(e.x, e.z, f.x, f.z, o, 0.4)) {
+          clear = false;
+        }
+        if (!clear) break;
+      }
+      if (clear) paths.push({ e, f, t });
+    }
+    this.pathCount = paths.length;
+
+    if (paths.length) {
+      const W = 0.85; // half width
+      const pos = [], uv = [], idx = [];
+      const addStrip = (pts, y0, y1) => {
+        // pts: [{x,z}], height eased from y0 to y1 along the whole strip
+        let len = 0;
+        const L = pts.reduce((a, p, i) => a + (i ? Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) : 0), 0);
+        let base = pos.length / 3;
+        pts.forEach((p, i) => {
+          if (i) len += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z);
+          const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
+          let dx = c.x - a.x, dz = c.z - a.z;
+          const m = Math.hypot(dx, dz) || 1;
+          dx /= m; dz /= m;
+          const nx = -dz, nz = dx;
+          const y = y0 + (y1 - y0) * (len / L);
+          pos.push(p.x + nx * W, y, p.z + nz * W, p.x - nx * W, y, p.z - nz * W);
+          uv.push(0, len / 1.7, 1, len / 1.7);
+          if (i) {
+            const k = base + (i - 1) * 2;
+            idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3);
+          }
+        });
+      };
+      for (const pth of paths) addStrip([pth.e, pth.f, pth.t], -0.045, 0.128);
+      const g = own(new THREE.BufferGeometry());
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(g, own(new THREE.MeshStandardMaterial({
+        map: pave, roughness: 0.9, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      })));
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      this.objects.push(mesh);
+    }
+
+    // ---- trees stand at the map's paving squares, but never inside a building or on a path
+    const clearOfBuildings = (p, pad) =>
+      !buildings.some((b) => p.x > b.min.x - pad && p.x < b.max.x + pad && p.z > b.min.z - pad && p.z < b.max.z + pad);
+    const clearOfPaths = (p, pad) =>
+      !paths.some((q) => distToSegment(p.x, p.z, q.e.x, q.e.z, q.f.x, q.f.z) < pad || distToSegment(p.x, p.z, q.f.x, q.f.z, q.t.x, q.t.z) < pad);
+    const spots = pits.filter((p) => clearOfBuildings(p, 3.4) && clearOfPaths(p, 2.4));
+    this.treeCount = spots.length;
+
+    const barkMat = own(windify(new THREE.MeshStandardMaterial({ map: bark, roughness: 0.95 }), "tree"));
     const leafMat = own(windify(new THREE.MeshStandardMaterial({
       map: leaf, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85,
       // a little self-light from the same texture: leaves seen against the
       // low sun would otherwise go black
       emissive: 0x3d7a2c, emissiveMap: leaf, emissiveIntensity: 0.5,
     }), "leaf"));
-    const needleMat = own(windify(new THREE.MeshStandardMaterial({ map: needles, side: THREE.DoubleSide, roughness: 0.9, emissive: 0x2f6a30, emissiveMap: needles, emissiveIntensity: 0.3 }), "tree"));
-    const frondMat = own(windify(new THREE.MeshStandardMaterial({
-      map: frond, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.8,
-      emissive: 0x4f9a35, emissiveMap: frond, emissiveIntensity: 0.6,
-    }), "leaf"));
-    const trunkTree = windify(barkMat, "tree");
+    const needleMat = own(windify(new THREE.MeshStandardMaterial({
+      map: needles, side: THREE.DoubleSide, roughness: 0.9,
+      emissive: 0x2f6a30, emissiveMap: needles, emissiveIntensity: 0.3,
+    }), "tree"));
 
-    const lean = 0.14;
-    const palm = palmTrunkGeometry(lean);
-    const variants = [
-      { kind: "broad", parts: [[trunkGeometry(3.6, 0.3, 0.17, 3, 5), trunkTree], [canopyGeometry(101), leafMat]] },
-      { kind: "broad", parts: [[trunkGeometry(3.2, 0.28, 0.16, 4, 7), trunkTree], [canopyGeometry(202, { cards: 76, rx: 2.2, ry: 1.8, cy: 4.6 }), leafMat]] },
-      { kind: "broad", parts: [[trunkGeometry(4.0, 0.32, 0.18, 3, 9), trunkTree], [canopyGeometry(303, { cards: 104, rx: 2.8, ry: 2.2, cy: 5.4 }), leafMat]] },
-      { kind: "pine", parts: [[trunkGeometry(3.0, 0.26, 0.14, 0, 3), trunkTree], [pineGeometry(), needleMat]] },
-      { kind: "palm", parts: [[palm.geo, trunkTree], [frondGeometry(palm.top, 404), frondMat]] },
+    // Three kinds: broadleaf, pine, and the provided ornamental tree (which
+    // replaces the palms).
+    const kinds = [
+      { parts: [[trunkGeometry(3.6, 0.3, 0.17, 3, 5), barkMat], [canopyGeometry(101), leafMat]] },
+      { parts: [[trunkGeometry(3.2, 0.28, 0.16, 4, 7), barkMat], [canopyGeometry(202, { cards: 76, rx: 2.2, ry: 1.8, cy: 4.6 }), leafMat]] },
+      { parts: [[trunkGeometry(4.0, 0.32, 0.18, 3, 9), barkMat], [canopyGeometry(303, { cards: 104, rx: 2.8, ry: 2.2, cy: 5.4 }), leafMat]] },
+      { parts: [[trunkGeometry(3.0, 0.26, 0.14, 0, 3), barkMat], [pineGeometry(), needleMat]] },
     ];
-    // which variant stands at which pit (deterministic)
+    if (props?.tree) {
+      kinds.push({
+        ornamental: true,
+        parts: props.tree.map(({ geometry, material }) => [geometry, own(windify(material, "tree"))]),
+      });
+    }
     const pickR = rng(777);
-    const buckets = variants.map(() => []);
-    pits.forEach((p) => {
+    const buckets = kinds.map(() => []);
+    spots.forEach((p) => {
       const t = pickR();
-      const v = t < 0.5 ? Math.floor(pickR() * 3) : t < 0.8 ? 3 : 4;
+      const nBroad = 3;
+      // about half broadleaf, a quarter pine, a quarter ornamental (when loaded)
+      let v;
+      if (t < 0.45) v = Math.floor(pickR() * nBroad);
+      else if (t < 0.7 || !props?.tree) v = 3;
+      else v = 4;
       buckets[v].push(p);
     });
 
     const placeR = rng(888);
     const tint = new THREE.Color();
     const warm = [0xc9a33a, 0xd2762c, 0xb8442a]; // a few late-season trees
-    buckets.forEach((spots, vi) => {
-      if (!spots.length) return;
-      for (const [geo, mat] of variants[vi].parts) {
-        const inst = own(new THREE.InstancedMesh(geo, mat, spots.length));
+    buckets.forEach((list, vi) => {
+      if (!list.length) return;
+      for (const [geo, mat] of kinds[vi].parts) {
+        const inst = own(new THREE.InstancedMesh(geo, mat, list.length));
         inst.castShadow = true;
         inst.receiveShadow = mat !== leafMat;
         inst.frustumCulled = false;
-        spots.forEach((p, i) => {
-          const sc = 0.85 + placeR() * 0.45;
+        list.forEach((p, i) => {
+          const sc = kinds[vi].ornamental ? 1.1 + placeR() * 0.5 : 0.85 + placeR() * 0.45;
           _q.setFromAxisAngle(_v.set(0, 1, 0), placeR() * Math.PI * 2);
           _m.compose(p, _q, _s.set(sc, sc, sc));
           inst.setMatrixAt(i, _m);
-          if (mat === leafMat || mat === frondMat) {
-            const accent = variants[vi].kind === "broad" && placeR() < 0.18;
+          if (mat === leafMat) {
+            const accent = placeR() < 0.18;
             tint.setHex(accent ? warm[Math.floor(placeR() * warm.length)] : 0xffffff);
             if (!accent) tint.offsetHSL((placeR() - 0.5) * 0.04, 0, (placeR() - 0.5) * 0.16);
             inst.setColorAt(i, tint);
@@ -496,46 +564,65 @@ export class CityNature {
       }
     });
 
-    // ---- grass tufts
-    const spotsG = [];
-    const gr = rng(999);
-    for (const b of islands) {
-      const area = (b.max.x - b.min.x) * (b.max.z - b.min.z);
-      const n = Math.min(1400, Math.floor(area * 0.55));
-      for (let i = 0; i < n; i++) {
-        spotsG.push(new THREE.Vector3(b.min.x + gr() * (b.max.x - b.min.x), b.max.y, b.min.z + gr() * (b.max.z - b.min.z)));
+    // ---- street dressing from the provided props
+    if (props) {
+      const addInstances = (parts, mats4, { wind = null, shadow = true } = {}) => {
+        if (!mats4.length) return;
+        for (const { geometry, material } of parts) {
+          const mat = wind ? own(windify(material.clone(), wind)) : own(material.clone());
+          const inst = own(new THREE.InstancedMesh(geometry, mat, mats4.length));
+          inst.castShadow = shadow;
+          inst.receiveShadow = true;
+          inst.frustumCulled = false;
+          mats4.forEach((m4, i) => inst.setMatrixAt(i, m4));
+          inst.instanceMatrix.needsUpdate = true;
+          scene.add(inst);
+          this.objects.push(inst);
+        }
+      };
+      const place = (x, y, z, yaw = 0, sc = 1) =>
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(x, y, z),
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw),
+          new THREE.Vector3(sc, sc, sc)
+        );
+
+      // Planter boxes either side of each door, with wheat growing in them.
+      const planters = [], wheat = [], lamps = [];
+      const wr = rng(4242);
+      const GROUND = -0.05;
+      paths.forEach((pth, i) => {
+        for (const side of [-1, 1]) {
+          const px = pth.e.x + side * 1.7;
+          const pz = pth.e.z + 0.8;
+          planters.push(place(px, GROUND, pz, 0));
+          for (let k = 0; k < 6; k++) {
+            wheat.push(place(px + (wr() - 0.5) * 0.7, GROUND + 0.74, pz + (wr() - 0.5) * 0.7, wr() * 6.28, 0.85 + wr() * 0.5));
+          }
+        }
+        // a lamp post where the path meets the pavement, on every other path
+        if (i % 2 === 0) lamps.push(place(pth.t.x + pth.tx * 1.7, 0.12, pth.t.z + pth.tz * 1.7, 0));
+      });
+      addInstances(props.planter, planters);
+      addInstances(props.wheat, wheat, { wind: "crop", shadow: false });
+      addInstances(props.lamp, lamps);
+
+      // Chain-link fence along stretches of the pavement's outer edge, never
+      // across a path.
+      const fences = [];
+      for (let sPos = 0; sPos < track.length - 4; sPos += 4) {
+        const band = Math.floor(sPos / 70);
+        if (band % 3 !== 1) continue;
+        const side = band % 2 ? 1 : -1;
+        track.frameAt(sPos + 2, fr);
+        const x = fr.position.x + fr.right.x * side * 12.5;
+        const z = fr.position.z + fr.right.z * side * 12.5;
+        if (paths.some((q) => Math.hypot(q.t.x - x, q.t.z - z) < 4.5)) continue;
+        if (!clearOfBuildings({ x, z }, 0.4)) continue;
+        fences.push(place(x, 0.12, z, Math.atan2(-fr.tangent.z, fr.tangent.x)));
       }
+      addInstances(props.fence, fences);
     }
-    // along the pavement's outer edge, both sides of the road
-    const fr = {};
-    for (let s = 0; s < track.length; s += 1.7) {
-      track.frameAt(s, fr);
-      for (const side of [-1, 1]) {
-        if (gr() < 0.45) continue;
-        const lat = side * (12.4 + gr() * 2.6);
-        spotsG.push(new THREE.Vector3(fr.position.x + fr.right.x * lat, fr.position.y - 0.08, fr.position.z + fr.right.z * lat));
-      }
-    }
-    // A little emission from the same texture, so tufts keep their green
-    // in the dim late light instead of reading as black spikes.
-    const grassMat = own(windify(new THREE.MeshStandardMaterial({
-      map: tuft, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 0.95,
-      emissive: 0x4a8a3a, emissiveMap: tuft, emissiveIntensity: 0.45,
-    }), "grass"));
-    const grass = own(new THREE.InstancedMesh(own(tuftGeometry()), grassMat, spotsG.length));
-    grass.frustumCulled = false;
-    grass.receiveShadow = true;
-    spotsG.forEach((p, i) => {
-      const sc = 0.7 + gr() * 0.9;
-      _q.setFromAxisAngle(_v.set(0, 1, 0), gr() * Math.PI);
-      _m.compose(p, _q, _s.set(sc, sc * (0.8 + gr() * 0.6), sc));
-      grass.setMatrixAt(i, _m);
-      grass.setColorAt(i, tint.setHSL(0.27 + (gr() - 0.5) * 0.06, 0.45 + gr() * 0.2, 0.55 + gr() * 0.25));
-    });
-    grass.instanceMatrix.needsUpdate = true;
-    grass.instanceColor.needsUpdate = true;
-    scene.add(grass);
-    this.objects.push(grass);
   }
 
   /** Advance the wind. t in seconds. */

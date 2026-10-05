@@ -47,6 +47,12 @@ test("avoidance: tucks toward its own kerb, away from the hazard", () => {
   assert.ok(l < -3.5);
 });
 
+test("avoidance: never crosses toward the centre, whichever side the hazard is on", () => {
+  // hazard on the kerb side of an oncoming car: it must not slide inward
+  assert.ok(avoidanceTarget(3.5, 3.5, { lat: 5.5, gap: 10 }, 7) >= 3.5);
+  assert.ok(avoidanceTarget(-3.5, -3.5, { lat: -5.5, gap: 10 }, 7) <= -3.5);
+});
+
 test("avoidance: never leaves the road", () => {
   const t = avoidanceTarget(3.5, 3.5, { lat: 3.4, gap: 2 }, 7);
   assert.ok(t <= 7 - 1.1 + 1e-9);
