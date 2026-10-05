@@ -198,7 +198,14 @@ function glowTexture() {
 
 export class CarRig {
   /** @param {number} paint  body colour, so a field of cars is legible */
-  constructor(paint = PAINT) {
+  /**
+   * @param {number} paint  body colour
+   * @param {object} [opts]  { glossy }: a clear coat over the paint (the
+   *   player's car). MeshPhysicalMaterial's clear coat is a second layer
+   *   of lighting on every pixel of the body, so the rivals, five cars
+   *   seen mostly at a distance, get the plain paint instead.
+   */
+  constructor(paint = PAINT, { glossy = true } = {}) {
     this.root = new THREE.Group();
     this.root.name = "CarRig";
 
@@ -208,19 +215,21 @@ export class CarRig {
 
     const h = CAR.halfExtents; // collider: 0.85 x 0.27 x 2.0
 
-    const bodyMat = new THREE.MeshPhysicalMaterial({
-      color: paint,
-      // Solid colour, not chrome: low metalness keeps the paint reading as
-      // the colour it is under any light, instead of mirroring the sky.
-      metalness: 0.15,
-      roughness: 0.32,
-      // ...under a glossy clear coat, like real car paint: a sharp layer of
-      // highlights and reflections over the colour. At night it is what
-      // makes a car stand out, catching every floodlight and headlight
-      // as it passes. Damage dulls it (setDamage).
-      clearcoat: 1,
-      clearcoatRoughness: 0.06,
-    });
+    // Solid colour, not chrome: low metalness keeps the paint reading as
+    // the colour it is under any light, instead of mirroring the sky.
+    const bodyMat = glossy
+      ? new THREE.MeshPhysicalMaterial({
+          color: paint,
+          metalness: 0.15,
+          roughness: 0.32,
+          // ...under a glossy clear coat, like real car paint: a sharp
+          // layer of highlights and reflections over the colour. At night
+          // it is what makes a car stand out, catching every floodlight
+          // and headlight as it passes. Damage dulls it (setDamage).
+          clearcoat: 1,
+          clearcoatRoughness: 0.06,
+        })
+      : new THREE.MeshStandardMaterial({ color: paint, metalness: 0.15, roughness: 0.32 });
     const darkMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(paint).multiplyScalar(0.55),
       metalness: 0.5,
@@ -781,9 +790,11 @@ export class CarRig {
     // damaged long before the hue shift is obvious.
     this.bodyMat.roughness = this.cleanRoughness + (0.92 - this.cleanRoughness) * k;
     this.bodyMat.metalness = this.cleanMetalness * (1 - 0.75 * k);
-    this.bodyMat.clearcoat = 1 - 0.85 * k;
+    if (this.bodyMat.isMeshPhysicalMaterial) {
+      this.bodyMat.clearcoat = 1 - 0.85 * k;
+      this.bodyMat.clearcoatRoughness = 0.06 + 0.5 * k;
+    }
     if (this.bodyMat.userData.scuff) this.bodyMat.userData.scuff.uDamage.value = k;
-    this.bodyMat.clearcoatRoughness = 0.06 + 0.5 * k;
 
     // Broken headlights. Dulled paint alone is easy to miss at chase-camera
     // distance — a lamp that has gone out is read instantly, and it is the

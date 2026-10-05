@@ -246,8 +246,10 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       // dimmer than before but still clearly visible against the night.
       pools: [
         // 5000 (was 7000) with a softer edge: a pool of light on the road
-        // you drive through, not a white-out under each tower.
-        { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 5000, distance: 70, angle: 0.8, penumbra: 0.9, fade: 40 },
+        // you drive through, not a white-out under each tower. Three real
+        // lights (was four): every lit pixel pays for each one, and the
+        // fourth nearest tower is usually too far to light anything seen.
+        { material: "FloodlightGlow", count: 3, type: "spot", color: 0xdfe8ff, intensity: 5000, distance: 70, angle: 0.8, penumbra: 0.9, fade: 40 },
         // Gliding, not hopping: two steady lights sliding along the strips a
         // little ahead of the car (see LightPool's `glide`). Hopping from
         // strip to strip faded them in and out at every one, and the

@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test src/**/*.test.js",
+    "pack:map": "node tools/pack-map.mjs"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +19,9 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
+    "meshoptimizer": "^1.3.0",
     "vite": "^7.3.6"
   }
 }

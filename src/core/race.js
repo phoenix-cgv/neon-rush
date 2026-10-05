@@ -80,7 +80,7 @@ export class Race {
       );
       vehicle.setTrack(track, s);
 
-      const rig = new CarRig(colours[i % colours.length]);
+      const rig = new CarRig(colours[i % colours.length], { glossy: i === 0 }); // clear coat for the player only
       scene.add(rig.root);
 
       const progress = new Progress(track, {
