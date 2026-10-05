@@ -642,6 +642,7 @@ export class CarRig {
 
   /** Redraw the shell as pristine + accumulated dents, scaled by `shown`. */
   #reshape(shown) {
+    if (!this.bodyMesh) return; // the car model has no single shell to dent
     const pos = this.bodyMesh.geometry.attributes.position;
     const a = pos.array;
     const p = this.pristine;

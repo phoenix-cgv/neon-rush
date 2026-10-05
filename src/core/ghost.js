@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { Vehicle } from "../vehicle/vehicle.js";
 import { CarRig } from "../vehicle/car-rig.js";
 import { ReplayController } from "./determinism.js";
+import { AIController, PERSONALITIES } from "../ai/driver.js";
+import { wrapDelta, lapDistance, shouldAutopilot } from "./ghost-logic.js";
 
 // ---------------------------------------------------------------------
 // Ghost: your own best lap, driving itself alongside you.
@@ -54,7 +56,20 @@ export class Ghost {
     this.vehicle.savePreviousState();
 
     this.recording = recording;
-    this.finished = false;
+    this.track = track;
+
+    // A ghost is its recording, but a recording cannot steer round
+    // anything it did not meet the first time. When the replay stalls or
+    // runs out before the line, the ghost drives itself home with the same
+    // AI the Grand Prix rivals use, so it always reaches the finish.
+    this.mode = "replay"; // replay -> ai -> home
+    this.driver = new AIController(track, PERSONALITIES.clean, 11);
+    this.stalledFor = 0;
+    this.racedSteps = 0;
+    this.lastS = recording.start.s;
+    this.travelled = 0;
+    const endKey = recording.keys?.[recording.frames.length];
+    this.total = lapDistance(recording.start.s, endKey?.s ?? recording.start.s, track.length);
     this.replay = new ReplayController(recording);
     this.rig = new CarRig(GHOST_PAINT);
     this.#makeTranslucent();
@@ -83,21 +98,56 @@ export class Ghost {
    * rather than holding the last input forever.
    */
   step(dt, racing) {
-    // Back onto the recorded line if it has strayed (see KEY_EVERY).
-    const key = racing ? this.recording.keys?.[this.replay.frame] : null;
-    if (key) {
-      const t = this.vehicle.body.translation();
-      const off = Math.hypot(t.x - key.t[0], t.y - key.t[1], t.z - key.t[2]);
-      // The last snapshot is the finish line itself. It is applied once,
-      // however far off: a ghost that crashed late in the lap still
-      // finishes it, and the snap is not repeated, so it then rolls on
-      // past the line instead of being pinned there.
-      const last = this.replay.frame === this.recording.frames.length;
-      if (last ? !this.finished : off > SNAP_DISTANCE) this.vehicle.restoreState(key);
-      if (last) this.finished = true;
+    const v = this.vehicle;
+    if (!racing) {
+      v.savePreviousState();
+      v.step(dt, HOLD);
+      return;
     }
-    this.vehicle.savePreviousState();
-    this.vehicle.step(dt, racing ? this.replay.update() : HOLD);
+    this.racedSteps++;
+
+    // Distance covered round the lap, so "has it finished" does not depend
+    // on where the recording happened to start.
+    const L = this.track.length;
+    this.travelled += wrapDelta(this.lastS, v.s, L);
+    this.lastS = v.s;
+    const home = this.travelled >= this.total - 2;
+
+    if (this.mode === "replay") {
+      // Back onto the recorded line if it has strayed (see KEY_EVERY).
+      const key = this.recording.keys?.[this.replay.frame];
+      if (key && this.replay.frame < this.recording.frames.length) {
+        const t = v.body.translation();
+        const off = Math.hypot(t.x - key.t[0], t.y - key.t[1], t.z - key.t[2]);
+        if (off > SNAP_DISTANCE) v.restoreState(key);
+      }
+      // Stalled: crashed and not moving although the recording says it
+      // should be on the throttle. Snapping back covers a hit it can recover
+      // from; this covers one it cannot, and any ghost saved without
+      // snapshots.
+      const wantsGo = this.replay.frame > 90 && this.replay.controls.throttle > 0.3;
+      this.stalledFor = wantsGo && Math.abs(v.speed) < 1.5 ? this.stalledFor + dt : 0;
+      if (
+        shouldAutopilot({
+          stalledFor: this.stalledFor,
+          replayDone: this.replay.finished,
+          travelled: this.travelled,
+          total: this.total,
+        })
+      ) {
+        this.mode = "ai"; // the same driver the Grand Prix rivals use
+      } else if (this.replay.finished && home) {
+        this.mode = "home";
+      }
+    }
+    if (this.mode === "ai" && home) this.mode = "home";
+
+    v.savePreviousState();
+    const controls =
+      this.mode === "replay" ? this.replay.update()
+      : this.mode === "ai" ? this.driver.update(v, dt, [])
+      : HOLD; // home: coast to a stop past the line
+    v.step(dt, controls);
   }
 
   /** After world.step(). */
@@ -111,7 +161,7 @@ export class Ghost {
     this.rig.sync(this.vehicle.state);
 
     // Display only: the physics ghost keeps its exact recorded line.
-    const t = Math.min(1, this.replay.frame / OFFSET_FADE);
+    const t = Math.min(1, this.racedSteps / OFFSET_FADE);
     const k = 1 - t * t * (3 - 2 * t); // smoothstep, 1 -> 0
     if (k > 0.001) {
       _side.set(1, 0, 0).applyQuaternion(this.rig.root.quaternion);
