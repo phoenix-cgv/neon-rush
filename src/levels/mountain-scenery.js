@@ -240,13 +240,15 @@ export class MountainScenery {
       const n = 9;
       for (let i = 0; i < n; i++) {
         const ang = (i / n) * Math.PI * 2 + sr() * 0.3;
-        const rad = 620 + sr() * 120;
-        const width = 520 + sr() * 260;
+        const width = 380 + sr() * 200;
+        // the whole footprint stays outside the terrain (a 260 m half-width square,
+        // 370 m at the corners), so no mountain can reach the track
+        const rad = 400 + width * 0.62 + sr() * 50;
         const sc = width / models.range.width;
         const g = new THREE.Group();
         for (const { geometry, material } of models.range.parts) g.add(new THREE.Mesh(geometry, material));
         g.scale.set(sc, sc * (0.9 + sr() * 0.5), sc);
-        g.position.set(cx + Math.cos(ang) * rad, -25, cz + Math.sin(ang) * rad);
+        g.position.set(Math.cos(ang) * rad, -25, Math.sin(ang) * rad);
         g.rotation.y = sr() * 6.28;
         this.group.add(g);
       }
@@ -321,8 +323,7 @@ export class MountainScenery {
     });
   }
 
-  // Light running along the road through the tunnel: a bright centre streak
-  // and two side lines, each pulsing forward in the direction of travel.
+  // One steady orange line along each guardrail through the tunnel.
   #neonTunnel(track, s0, s1) {
     const fr = {};
     const step = 2;
@@ -354,12 +355,10 @@ export class MountainScenery {
           void main(){
             float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
             float core = pow(edge, 0.6);
-            // pulses run forward along the tunnel; a faint base keeps the line lit between them
-            float ph = fract(vUv.y / 14.0 - uTime * uSpeed * 0.9);
-            float pulse = smoothstep(0.0, 0.08, ph) * (1.0 - smoothstep(0.08, 0.5, ph));
+            // one steady line: bright core, soft edge, faded out at the tunnel mouths
             float fade = smoothstep(uS0 - 6.0, uS0 + 4.0, vUv.y) * (1.0 - smoothstep(uS1 - 4.0, uS1 + 6.0, vUv.y));
-            float a = core * (0.6 + 1.1 * pulse) * fade;
-            gl_FragColor = vec4(uColor * (0.6 + 1.4 * pulse) * a, a);
+            float a = core * fade;
+            gl_FragColor = vec4(uColor * 1.6 * a, a);
           }`,
         transparent: true,
         blending: THREE.AdditiveBlending,

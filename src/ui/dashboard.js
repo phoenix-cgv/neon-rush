@@ -40,6 +40,14 @@ export class Dashboard {
       font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; color:${CREAM};`;
     document.body.appendChild(this.root);
 
+    // Enter starts the round on the level shown, unless Settings or Credits is open.
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" || e.repeat || !this.open || this.panelOpen) return;
+      e.preventDefault();
+      this.onClick?.();
+      this.#act("play");
+    });
+
     this.root.addEventListener("click", (e) => {
       const el = e.target.closest("[data-act]");
       if (!el || el.disabled) return;
@@ -120,7 +128,7 @@ export class Dashboard {
           cursor:pointer;padding:.9rem 1.2rem;background:${ORANGE};color:${CREAM}">
           <span style="font:400 1.45rem/1 ${DISPLAY};letter-spacing:.06em;text-transform:uppercase">Pull Off</span>
           <span style="font-size:1.4rem;line-height:1">&rarr;</span></button>
-        <div style="${label};font-size:8px;margin-top:12px;opacity:.7;color:${CREAM}">Start the round</div>
+        <div style="${label};font-size:8px;margin-top:12px;opacity:.7;color:${CREAM}">Start the round &middot; press Enter</div>
       </div>
 
       <div style="position:absolute;left:44px;bottom:calc(6vh + 24px);display:flex;gap:2.4rem">

@@ -1,3 +1,4 @@
+import { loadingScreen } from "./ui/loading-screen.js";
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 
@@ -293,31 +294,25 @@ let levelName = requestedOk ? requested : ORDER[0];
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
-const loadingNote = document.createElement("div");
-loadingNote.style.cssText =
-  "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);" +
-  "font:600 18px system-ui,sans-serif;color:#fff;background:rgba(10,16,22,.72);" +
-  "padding:12px 20px;border-radius:8px;pointer-events:none;display:none;z-index:10";
-document.body.appendChild(loadingNote);
+const LEVEL_TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Grand Prix" };
+let bootDone = false; // the loading screen stays up until the title page is ready
 
 async function loadLevel(name) {
   if (loading) return;
   let asset;
   if (LEVELS[name].preload) {
     loading = name;
-    loadingNote.textContent = `Loading ${name}…`;
-    loadingNote.style.display = "block";
+    loadingScreen.show(LEVEL_TITLES[name] ?? name);
     try {
       asset = await LEVELS[name].preload();
     } catch (err) {
       console.error(`[loadLevel] could not load map "${name}"`, err);
-      loadingNote.textContent = `Could not load ${name} — see console`;
-      setTimeout(() => (loadingNote.style.display = "none"), 4000);
+      loadingScreen.fail(`Could not load ${name} — see console`);
       loading = null;
       return;
     }
     loading = null;
-    loadingNote.style.display = "none";
+    if (bootDone) loadingScreen.hide();
   }
   if (level) {
     // Before applyLighting below replaces scene.fog for the new level:
@@ -481,6 +476,8 @@ function showDashboard() {
 window.addEventListener("pointerdown", () => { audio.unlock(); applyAssists(); }, { once: true });
 let orbit = 0;
 showDashboard();
+bootDone = true;
+loadingScreen.hide();
 
 let last = performance.now();
 let accumulator = 0;
