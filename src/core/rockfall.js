@@ -196,7 +196,13 @@ export class Rockfall {
       pos.setXYZ(i, _v.x, _v.y, _v.z);
     }
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x7a6f66, roughness: 0.95, flatShading: true });
+    // A warm, lighter ochre rather than the grey-brown it was: that grey
+    // sat almost exactly on top of the Mountain's own rockified terrain
+    // colour (REFINED's "Mountain Rock", a similar grey-brown), so a
+    // settled boulder read as part of the cliff behind it rather than an
+    // obstacle in the road — a settled rock is meant to be a real, seen
+    // hazard, not a disguised one.
+    const mat = new THREE.MeshStandardMaterial({ color: 0xa87f52, roughness: 0.85, flatShading: true });
     this.boulders = new THREE.InstancedMesh(geo, mat, MAX_ROCKS);
     this.boulders.castShadow = true;
     this.boulders.receiveShadow = true;
