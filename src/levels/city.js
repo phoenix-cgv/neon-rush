@@ -89,6 +89,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
       envIntensity: 0.18,
       bloom: { threshold: 2.2, strength: 0.35, radius: 0.3 },
       emissive: { LampGlow: 0, "Warm Window Light": 0.25 },
+      glow: 0x35d0ff, // the billboards' cyan
     },
     dispose: () => {
       map.dispose();

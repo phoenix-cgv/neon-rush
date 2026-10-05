@@ -133,6 +133,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       envIntensity: 0.6,
       bloom: { threshold: 1.5, strength: 0.45, radius: 0.25 },
       headlights: true,
+      glow: 0xff3cc8, // neon magenta against the night
       emissive: { TunnelLights: 0.45 },
       materials: { Asphalt: { roughness: 0.32 }, AsphaltWorn: { roughness: 0.4 } },
       pools: [

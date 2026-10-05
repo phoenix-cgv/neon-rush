@@ -30,6 +30,8 @@ import { SkyEnvironment } from "./lighting/sky-environment.js";
 import { PostFX } from "./lighting/post.js";
 import { LevelLights } from "./lighting/level-lights.js";
 import { addFakeHeadlights } from "./lighting/fake-headlights.js";
+import { CheckpointGates } from "./lighting/checkpoint-gates.js";
+import { BoostTrails } from "./lighting/boost-trail.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -160,6 +162,7 @@ const levelLights = new LevelLights(scene);
 //                floodlights up at night without touching the .glb
 //   materials    { materialName: { roughness, metalness, ... } } overrides,
 //                e.g. wet asphalt at night
+//   glow         the level's effect colour: checkpoint gates, boost trail
 const LIGHT_DEFAULTS = {
   sun: [60, 80, 30],
   sunColor: 0xfff3dc,
@@ -256,6 +259,12 @@ const smoke = new Smoke(scene, MINIMAP_LAYER);
 // race clock back instead of filling the boost meter. One listener for
 // the whole game: `director` is reassigned on every loadLevel, and this
 // closure always reads whatever it currently is.
+// The player's checkpoints dissolve their gates. Every car's Progress
+// emits on this bus, so filter to the player's.
+gameplayEvents.on("checkpoint", (e) => {
+  if (e.progress === progress) gates?.pass(e.checkpoint);
+});
+
 gameplayEvents.on("pickup-collected", (e) => {
   if (!e.timeBonus) return;
   director?.addTime(e.timeBonus);
@@ -327,6 +336,8 @@ let rockfall = null; // falling rocks, on levels that ask for them
 let crosswind = null; // lateral gusts, on levels that ask for them
 let fogPatch = null; // visibility hazard, on levels that ask for it
 let pits = null; // the pit lane, on maps that have one
+let gates = null; // checkpoint gates (presentation only — Progress does the counting)
+let trails = null; // drift / boost ribbons behind every car
 let director = null; // start lights, laps and the flag, on levels that race
 let ghost = null; // your own best lap, replayed alongside you
 let ghostBestLap = null; // its time, for the HUD — fixed for the level's visit, like the ghost itself
@@ -427,6 +438,10 @@ async function loadLevel(name) {
   recorder = null;
   pits?.dispose();
   pits = null;
+  gates?.dispose();
+  gates = null;
+  trails?.dispose();
+  trails = null;
   pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
@@ -455,6 +470,8 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    gates = new CheckpointGates(level.track, scene, { color: level.lit?.glow });
+    trails = new BoostTrails(scene, race.cars, { color: level.lit?.glow });
     if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch, skyUniforms);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
@@ -707,6 +724,8 @@ function frame(now) {
   // itself is a force field, already applied in the fixed step above.
   crosswind?.render(frameDt);
   pickups?.render();
+  gates?.update(frameDt);
+  trails?.update(frameDt);
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
@@ -771,6 +790,8 @@ window.__dbg = {
   get fogPatch() { return fogPatch; },
   get ghost() { return ghost; },
   get pits() { return pits; },
+  get gates() { return gates; },
+  get trails() { return trails; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),

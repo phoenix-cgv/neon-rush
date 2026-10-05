@@ -137,6 +137,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       envIntensity: 0.35,
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
       headlights: true,
+      glow: 0xff9a3c, // the setting sun
     },
     dispose: map.dispose,
   };
