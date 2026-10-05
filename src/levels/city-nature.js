@@ -9,6 +9,7 @@ import fenceUrl from "../../assets/props/chain-link-fence.glb?url";
 import binUrl from "../../assets/props/wheelie-bin.glb?url";
 import paperUrl from "../../assets/props/wastepaper-bin.glb?url";
 import shrubUrl from "../../assets/props/evergreen-shrub.glb?url";
+import stallUrl from "../../assets/props/market-stall.glb?url";
 
 // ---------------------------------------------------------------------
 // City Track vegetation: trees and grass built from generated textures and
@@ -201,7 +202,7 @@ function bake(gltf) {
 /** Fetch the GL props once (tree, planter box, wheat, lamp post, fence, bins, shrub). */
 export function loadCityProps() {
   propsLoading ??= Promise.all(
-    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl], ["bin", binUrl], ["paper", paperUrl], ["shrub", shrubUrl]].map(
+    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl], ["bin", binUrl], ["paper", paperUrl], ["shrub", shrubUrl], ["stall", stallUrl]].map(
       async ([name, url]) => [name, bake(await loader.loadAsync(url))]
     )
   )
@@ -232,6 +233,37 @@ function segmentHitsBox(ax, az, bx, bz, box, pad) {
     else { if (r < t0) return false; if (r < t1) t1 = r; }
   }
   return true;
+}
+
+/**
+ * More plots between the map's own: houses and low blocks wherever there is
+ * room beside the circuit. Same clearances the map used (the nearest corner
+ * well outside the road, pavement and lamp line), with a gap to every other
+ * building and to every tree.
+ * @returns {THREE.Box3[]}
+ */
+function infillPlots(track, buildings, pits, want) {
+  const r = rng(2024);
+  const out = [];
+  const sizes = [[9, 9], [10, 12], [12, 10], [13, 13], [9, 14], [11, 11]];
+  const probe = new THREE.Vector3();
+  for (let n = 0; n < 9000 && out.length < want; n++) {
+    const x = -380 + r() * 560;
+    const z = -220 + r() * 440;
+    const [w, d] = sizes[Math.floor(r() * sizes.length)];
+    const h = 11 + r() * 15;
+    const half = Math.hypot(w, d) / 2;
+    const dist = track.project(probe.set(x, 0, z)).distance;
+    if (dist < half + 12.5 || dist > 170) continue;
+    let ok = true;
+    for (const o of [...buildings, ...out]) {
+      const oh = 0.5 * Math.hypot(o.max.x - o.min.x, o.max.z - o.min.z);
+      if (Math.hypot(x - (o.min.x + o.max.x) / 2, z - (o.min.z + o.max.z) / 2) < half + oh + 2.2) { ok = false; break; }
+    }
+    if (!ok || pits.some((p) => Math.hypot(x - p.x, z - p.z) < half + 3.2)) continue;
+    out.push(new THREE.Box3(new THREE.Vector3(x - w / 2, 0, z - d / 2), new THREE.Vector3(x + w / 2, h, z + d / 2)));
+  }
+  return out;
 }
 
 // -------------------------------------------------------------------- main
@@ -287,6 +319,10 @@ export class CityNature {
     });
 
     // ---- the buildings: modelled designs on the map's plots
+    // denser: infill plots between the map's own
+    const infill = infillPlots(track, buildings, pits, 110);
+    buildings.push(...infill);
+    this.infillCount = infill.length;
     this.buildings = new CityBuildings(scene, buildings, track);
     const doorOf = new Map(this.buildings.placed.map((p) => [p.index, p]));
 
@@ -474,7 +510,7 @@ export class CityNature {
         papers.push(place(p.x + fr.tangent.x * 1.5, p.y, p.z + fr.tangent.z * 1.5, faceRoad(p.x, p.z), 2.4));
       }
       this.buildings.placed.forEach((pl, i) => {
-        if (i % 3 !== 0) return;
+        if (pl.noDoor || i % 3 !== 0) return;
         const bx = pl.x + pl.halfW + 0.8;
         const bz = pl.z + 0.7;
         if (!clearOfPaths({ x: bx, z: bz }, 1.2)) return;
@@ -487,6 +523,7 @@ export class CityNature {
       // loose line along the pavement's outer edge.
       const shrubs = [];
       this.buildings.placed.forEach((pl) => {
+        if (pl.noDoor) return;
         const off = Math.max(2.8, Math.min(pl.halfW - 0.9, 3.8));
         for (const side of [-1, 1]) shrubs.push(place(pl.x + side * off, GROUND, pl.z + 0.9, wr() * 6.28, 0.95 + wr() * 0.4));
       });
@@ -500,6 +537,51 @@ export class CityNature {
         shrubs.push(place(x, 0.12, z, wr() * 6.28, 1.0 + wr() * 0.5));
       }
       addInstances(props.shrub, shrubs);
+
+      // A market: stalls along the pavement where the low shopfronts
+      // cluster. The stretch with the most low-rise plots within reach is
+      // found by scanning the lap in 10 m steps and taking the best 80 m.
+      const low = buildings.filter((b) => b.max.y < 26).map((b) => [(b.min.x + b.max.x) / 2, (b.min.z + b.max.z) / 2]);
+      const step = 10;
+      const score = [];
+      for (let sPos = 0; sPos < track.length; sPos += step) {
+        track.frameAt(sPos, fr);
+        score.push(low.reduce((a, [lx, lz]) => a + (Math.hypot(lx - fr.position.x, lz - fr.position.z) < 38 ? 1 : 0), 0));
+      }
+      let bestAt = 0, bestSum = -1;
+      for (let i = 0; i < score.length; i++) {
+        let sum = 0;
+        for (let k = 0; k < 8; k++) sum += score[(i + k) % score.length];
+        if (sum > bestSum) { bestSum = sum; bestAt = i; }
+      }
+      const stalls = [];
+      const stallTints = [0xffffff, 0xffe3b8, 0xdff0ff, 0xf6d3d0, 0xe3f2cf];
+      this.stallCount = 0;
+      for (let k = 0; k < 20; k++) {
+        const sPos = bestAt * step + k * 4;
+        const side = k % 2 ? 1 : -1;
+        track.frameAt(sPos, fr);
+        const x = fr.position.x + fr.right.x * side * 9.6;
+        const z = fr.position.z + fr.right.z * side * 9.6;
+        if (paths.some((q) => Math.hypot(q.t.x - x, q.t.z - z) < 3.5)) continue;
+        stalls.push(place(x, 0.12, z, faceRoad(x, z)));
+        this.stallCount++;
+      }
+      if (stalls.length && props.stall) {
+        props.stall.forEach(({ geometry, material }) => {
+          const inst = own(new THREE.InstancedMesh(geometry, own(material.clone()), stalls.length));
+          inst.castShadow = true;
+          inst.frustumCulled = false;
+          stalls.forEach((m4, i) => {
+            inst.setMatrixAt(i, m4);
+            inst.setColorAt(i, tint.setHex(stallTints[i % stallTints.length]));
+          });
+          inst.instanceMatrix.needsUpdate = true;
+          inst.instanceColor.needsUpdate = true;
+          scene.add(inst);
+          this.objects.push(inst);
+        });
+      }
 
       // Chain-link fence along stretches of the pavement's outer edge, never
       // across a path.

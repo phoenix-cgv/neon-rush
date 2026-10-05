@@ -8,6 +8,10 @@ import smallUrl from "../../assets/buildings/kenney-small.glb?url";
 import largeUrl from "../../assets/buildings/kenney-large.glb?url";
 import towerUrl from "../../assets/buildings/skyscraper.glb?url";
 import landmarkUrl from "../../assets/buildings/skyscraper-poly.glb?url";
+import wardUrl from "../../assets/buildings/ward-block.glb?url";
+import clinicUrl from "../../assets/buildings/clinic-annexe.glb?url";
+import emergencyUrl from "../../assets/buildings/emergency-block.glb?url";
+import coreUrl from "../../assets/buildings/stair-core.glb?url";
 
 // ---------------------------------------------------------------------
 // The City Track's buildings: five modelled designs standing where the
@@ -33,6 +37,11 @@ const MODELS = {
   tower: { url: towerUrl, trim: true, tall: true },
   // a slim stepped skyscraper, placed separately on the few plots with room
   landmark: { url: landmarkUrl, landmark: true },
+  // the hospital campus: placed together, never at random
+  ward: { url: wardUrl, special: true },
+  emergency: { url: emergencyUrl, special: true },
+  clinic: { url: clinicUrl, special: true },
+  core: { url: coreUrl, special: true }, // the stair and lift tower beside the ward block
 };
 
 const TINTS = [0xffffff, 0xf0dcc0, 0xe6b8a2, 0xb9d3cf, 0xdbe0c8, 0xf3cfa4];
@@ -170,7 +179,48 @@ export class CityBuildings {
       }
     }
 
-    const ids2 = ids.filter((id) => !MODELS[id].landmark);
+        // The hospital campus: the biggest free plots get a ward block, with an
+    // emergency entrance block and a clinic annexe on the nearest plots and
+    // a stair-and-lift tower against the ward's side. Two campuses, far apart.
+    if (models.ward && models.emergency && models.clinic && track) {
+      const info = (b, i) => ({ i, b, cx: (b.min.x + b.max.x) / 2, cz: (b.min.z + b.max.z) / 2, w: b.max.x - b.min.x, d: b.max.z - b.min.z });
+      const free = () => boxes.map(info).filter((q) => !taken.has(q.i) && q.b.max.y < 55);
+      const fit = (m, q, lo, hi) => Math.max(lo, Math.min(hi, Math.min((q.w * 0.96) / m.w, (q.d * 0.96) / m.d)));
+      const sites = [];
+      for (const q of free().filter((q) => q.w >= 11 && q.d >= 9).sort((a, b) => b.w * b.d - a.w * a.d)) {
+        if (sites.every((o) => Math.hypot(o.cx - q.cx, o.cz - q.cz) > 160)) sites.push(q);
+        if (sites.length >= 2) break;
+      }
+      for (const q of sites) {
+        taken.add(q.i);
+        const sw = fit(models.ward, q, 0.7, 1.35);
+        assign.push({ id: "ward", s: sw, sy: sw, x: q.cx, z: q.b.max.z, index: q.i });
+        // the stair tower against the ward's right-hand side, back to back
+        const sc = sw * 1.15;
+        assign.push({
+          id: "core", s: sc, sy: sc,
+          x: q.cx + (models.ward.w * sw) / 2 + (models.core.w * sc) / 2 - 0.3,
+          z: q.b.max.z - (models.ward.d * sw) / 2 + (models.core.d * sc) / 2,
+          index: -1, noDoor: true,
+        });
+        const near = free()
+          .filter((o) => o.w >= 7 && o.d >= 5)
+          .sort((a, b) => Math.hypot(a.cx - q.cx, a.cz - q.cz) - Math.hypot(b.cx - q.cx, b.cz - q.cz));
+        const [em, cl] = [near[0], near[1]];
+        if (em) {
+          taken.add(em.i);
+          const se = fit(models.emergency, em, 0.6, 1.4);
+          assign.push({ id: "emergency", s: se, sy: se, x: em.cx, z: em.b.max.z, index: em.i });
+        }
+        if (cl) {
+          taken.add(cl.i);
+          const sl = fit(models.clinic, cl, 0.6, 1.5);
+          assign.push({ id: "clinic", s: sl, sy: sl, x: cl.cx, z: cl.b.max.z, index: cl.i });
+        }
+      }
+    }
+
+    const ids2 = ids.filter((id) => !MODELS[id].landmark && !MODELS[id].special);
     const used = Object.fromEntries(ids.map((id) => [id, 0]));
     boxes.forEach((b, i) => {
       if (taken.has(i)) return;
@@ -232,7 +282,7 @@ export class CityBuildings {
         this.meshes.push(inst);
       }
     }
-    this.placed = assign.map((a) => ({ index: a.index, x: a.x, z: a.z, halfW: (models[a.id].w * a.s) / 2 }));
+    this.placed = assign.map((a) => ({ index: a.index, x: a.x, z: a.z, halfW: (models[a.id].w * a.s) / 2, noDoor: !!a.noDoor, id: a.id }));
     this.counts = Object.fromEntries(ids.map((id) => [id, assign.filter((a) => a.id === id).length]));
   }
 
