@@ -324,6 +324,22 @@ function fitSolidBox(positions, track) {
   return { position, quaternion, half };
 }
 
+/** Are every one of a fitted solid's 8 corners at least `safe` from the centreline? */
+function cornersClearOf(s, track, safe) {
+  const ax = new THREE.Vector3(1, 0, 0).applyQuaternion(s.quaternion);
+  const ay = new THREE.Vector3(0, 1, 0).applyQuaternion(s.quaternion);
+  const az = new THREE.Vector3(0, 0, 1).applyQuaternion(s.quaternion);
+  const corner = new THREE.Vector3();
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    corner.copy(s.position)
+      .addScaledVector(ax, sx * s.half.x)
+      .addScaledVector(ay, sy * s.half.y)
+      .addScaledVector(az, sz * s.half.z);
+    if (Math.abs(track.project(corner, null).t) < safe) return false;
+  }
+  return true;
+}
+
 /**
  * Turn a loaded glTF into draw-ready merged meshes plus the data a Track
  * needs. Done once per map and cached on the gltf, because it is the
@@ -525,16 +541,18 @@ export function buildMapTrack(RAPIER, world, scene, gltf, opts) {
   for (const vertices of map.solids) {
     const s = fitSolidBox(vertices, track);
     const pr = track.project(s.position);
-    // Even track-frame-fitted (see fitSolidBox), a solid whose own
-    // CENTRE still lands well inside wallLimit is not a real roadside
-    // barrier — found on the Grand Prix, where a few PitWall/TyreWall
-    // pieces right at the pit exit's merge don't run along the main
-    // track's frame at all (that frame is what fitSolidBox has to
-    // assume), so even the fit still lands them in the road. Dropped
-    // rather than kept undersized: a short gap in a wall that stands
-    // metres further out is harmless; the same piece left solid where
-    // the merge actually drives is the invisible stop this is fixing.
-    if (opts.wallLimit != null && Math.abs(pr.t) < opts.wallLimit * 0.5) continue;
+    // Even track-frame-fitted (see fitSolidBox), a solid can still
+    // reach into the road — found on the Grand Prix, where a few
+    // PitWall/TyreWall pieces right at the pit exit's merge don't run
+    // along the main track's frame at all (that frame is what
+    // fitSolidBox has to assume), so the fit gives them a CENTRE that
+    // sits safely outboard while an elongated, wrongly-angled box still
+    // pokes a CORNER into the road — a centre-only check missed
+    // exactly that. Checking all 8 corners catches it. Dropped rather
+    // than kept undersized: a short gap in a wall that stands metres
+    // further out is harmless; the same piece left solid where the
+    // merge actually drives is the invisible stop this is fixing.
+    if (opts.wallLimit != null && !cornersClearOf(s, track, opts.wallLimit * 0.5)) continue;
     track.registerCollider(
       pr.s,
       pr.s,
