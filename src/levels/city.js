@@ -83,7 +83,8 @@ export function buildCity(RAPIER, world, scene, gltf) {
       sunColor: 0xfff4e2,
       sunIntensity: 4.2,
       hemi: [0x9ea7ab, 0x3b3833, 0.4],
-      sky: { top: 0x2c66a3, horizon: 0xcfd9dc, bottom: 0x8d918a },
+      // Fair-weather cumulus drifting over, and a small, fierce sun.
+      sky: { top: 0x2c66a3, horizon: 0xcfd9dc, bottom: 0x8d918a, clouds: 0.35, cloudColor: 0xf2f5f7, sunDisc: 14, sunSize: 0.028 },
       fog: [0xc4cfd3, 140, 760],
       exposure: 1.0,
       envIntensity: 0.18,

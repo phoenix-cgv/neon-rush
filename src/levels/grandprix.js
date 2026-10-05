@@ -123,11 +123,12 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // The asphalt is glossy because it is wet, so it picks up the
     // floodlights, the tunnel strips and the headlights as streaks.
     lit: {
-      sun: [-60, 95, 40], // the moon
+      sun: [-80, 45, 60], // the moon, low enough to be seen from the chase camera
       sunColor: 0x9fb4ff,
       sunIntensity: 0.45,
       hemi: [0x2a3550, 0x0a0a10, 0.3],
-      sky: { top: 0x03050c, horizon: 0x1b2140, bottom: 0x050508 },
+      // Stars between thin, dark clouds, and a pale moon.
+      sky: { top: 0x03050c, horizon: 0x1b2140, bottom: 0x050508, clouds: 0.25, cloudColor: 0x141a2c, stars: 1, sunDisc: 3, sunSize: 0.022 },
       fog: [0x0d1222, 140, 700],
       exposure: 1.1,
       envIntensity: 0.6,

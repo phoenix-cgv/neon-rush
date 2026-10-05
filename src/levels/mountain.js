@@ -131,7 +131,8 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       sunColor: 0xff9a55,
       sunIntensity: 3.0,
       hemi: [0x5a78b8, 0x2b2a35, 1.0],
-      sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640 },
+      // A big low sun, and dusky clouds lit orange on the side facing it.
+      sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640, clouds: 0.4, cloudColor: 0x7a5d6c, sunDisc: 10, sunSize: 0.045 },
       fog: [0x9a8590, 200, 900],
       exposure: 1.05,
       envIntensity: 0.35,

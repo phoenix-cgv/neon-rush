@@ -27,6 +27,7 @@ import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { SkyEnvironment } from "./lighting/sky-environment.js";
+import { Sky } from "./lighting/sky.js";
 import { PostFX } from "./lighting/post.js";
 import { LevelLights } from "./lighting/level-lights.js";
 import { addFakeHeadlights } from "./lighting/fake-headlights.js";
@@ -90,48 +91,13 @@ sun.layers.enable(MAP_WORLD_LAYER);
 scene.add(sun, sun.target);
 
 // --- sky ---------------------------------------------------------------
-// A gradient dome instead of a flat clear colour. Costs one inverted
-// sphere and a nine-line shader, and it is the difference between a
-// horizon and a blank wall. (Level 1's real sky shader — day to dusk to
-// night — replaces this; the uniforms are already here for it.)
-const skyUniforms = {
-  uTop: { value: new THREE.Color(0x3f7fb5) },
-  uHorizon: { value: new THREE.Color(0xcfe2ea) },
-  uBottom: { value: new THREE.Color(0x6f7d6a) },
-};
+// A dome with a gradient, sun or moon, drifting clouds and stars; see
+// src/lighting/sky.js. `skyUniforms` is handed to the Mountain's fog
+// patch, which tints the gradient's three colours as it thickens.
 const SKY_RADIUS = 900;
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(SKY_RADIUS, 24, 16),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: skyUniforms,
-    vertexShader: `
-      varying vec3 vDir;
-      void main() {
-        vDir = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: `
-      uniform vec3 uTop, uHorizon, uBottom;
-      varying vec3 vDir;
-      void main() {
-        float h = vDir.y;
-        vec3 c = h > 0.0
-          ? mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.55))
-          : mix(uHorizon, uBottom, pow(clamp(-h, 0.0, 1.0), 0.4));
-        gl_FragColor = vec4(c, 1.0);
-        // Tone-map and encode like every built-in material does. Without
-        // these the dome skipped both, so it looked different from the
-        // rest of the scene and changed with the quality setting (the
-        // bloom path applies them at the end, the direct path did not).
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
-  })
-);
-sky.frustumCulled = false;
-scene.add(sky);
+const sky = new Sky(SKY_RADIUS);
+const skyUniforms = sky.uniforms;
+scene.add(sky.mesh);
 
 // Reflections baked from that same dome (src/lighting/sky-environment.js),
 // bloom and tone mapping (src/lighting/post.js), and any extra lights a
@@ -148,7 +114,8 @@ const levelLights = new LevelLights(scene);
 //   sun          sun position relative to the car (sets its direction)
 //   sunColor, sunIntensity
 //   hemi         [sky colour, ground colour, intensity] of the fill light
-//   sky          { top, horizon, bottom } colours of the gradient dome
+//   sky          { top, horizon, bottom, clouds, cloudColor, stars, sunDisc,
+//                sunSize } — see src/lighting/sky.js
 //   fog          [colour, near, far]
 //   exposure     tone-mapping exposure
 //   envIntensity how strongly the sky-baked environment lights and
@@ -189,9 +156,7 @@ function applyLighting(lit, track = null) {
   hemi.color.set(L.hemi[0]);
   hemi.groundColor.set(L.hemi[1]);
   hemi.intensity = L.hemi[2];
-  skyUniforms.uTop.value.set(dome.top);
-  skyUniforms.uHorizon.value.set(dome.horizon);
-  skyUniforms.uBottom.value.set(dome.bottom);
+  sky.set(dome, L.sun, L.sunColor);
   scene.fog = new THREE.Fog(L.fog[0], L.fog[1], L.fog[2]);
   renderer.toneMappingExposure = L.exposure;
   // After the dome's colours are set: the bake reads them.
@@ -751,7 +716,7 @@ function frame(now) {
   cameraRig.update(frameDt, state, input.look);
 
   levelLights.update(state.position);
-  sky.position.copy(camera.position);
+  sky.update(frameDt, camera);
   sun.target.position.copy(state.position);
   sun.position.copy(state.position).add(SUN_OFFSET);
 
