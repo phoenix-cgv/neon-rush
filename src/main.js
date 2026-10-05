@@ -921,7 +921,10 @@ function frame(now) {
         : null;
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
   cameraRig.update(frameDt, state, input.look);
-  post.speed.update(frameDt, state, camera);
+  // Same flag as the drift-combo mechanic and its sparks: a Grand Prix
+  // feature, so City and the Mountain show only WheelGlow's neon trail
+  // when boosting, not the screen-space shimmer/fringing/vignette too.
+  post.speed.update(frameDt, state, camera, level?.driftBoost === true);
 
   levelLights.update(state.position);
   if (shelter.zones.length) {

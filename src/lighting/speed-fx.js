@@ -92,13 +92,19 @@ export class SpeedFx {
    * @param {number} dt
    * @param {object} state  vehicle.state
    * @param {THREE.Camera} camera
+   * @param {boolean} active  Whether this level shows the screen-space
+   *   boost treatment at all. Grand Prix's own feature, to match its
+   *   drift-combo sparks and title (see Vehicle's #drift): City and the
+   *   Mountain lean on WheelGlow's neon trail alone, so boosting there
+   *   eases this pass back to doing nothing rather than layering a
+   *   shimmer/fringing/vignette punch on top of it.
    */
-  update(dt, state, camera) {
+  update(dt, state, camera, active = true) {
     const u = this.u;
     u.uTime.value += dt;
     // Eased: about a quarter of a second to come on or go off.
     const k = 1 - Math.exp(-dt * 8);
-    u.uBoost.value += ((state.boosting ? 1 : 0) - u.uBoost.value) * k;
+    u.uBoost.value += ((active && state.boosting ? 1 : 0) - u.uBoost.value) * k;
     u.uAspect.value = camera.aspect;
     // Where the tail is on screen: car space -> world -> clip -> 0..1.
     // The camera rig moved the camera this frame; refresh its matrices
