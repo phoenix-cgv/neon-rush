@@ -54,11 +54,36 @@ const place = new THREE.Matrix4()
   .multiply(new THREE.Matrix4().makeScale(SCALE, SCALE, SCALE))
   .multiply(ZUP_TO_YUP);
 
+/**
+ * Make triangle winding agree with the shape's volume. Some parts of the
+ * model (thin plates like the wing) are wound inside-out, and with back-face
+ * culling an inside-out part is simply not drawn — it looks transparent.
+ * A closed part has positive signed volume when it faces outward; if it is
+ * negative, swap two vertices of every triangle.
+ */
+function orientOutward(g) {
+  const p = g.attributes.position;
+  let vol = 0;
+  for (let i = 0; i < p.count; i += 3) {
+    const ax = p.getX(i), ay = p.getY(i), az = p.getZ(i);
+    const bx = p.getX(i + 1), by = p.getY(i + 1), bz = p.getZ(i + 1);
+    const cx = p.getX(i + 2), cy = p.getY(i + 2), cz = p.getZ(i + 2);
+    vol += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+  }
+  if (vol >= 0) return;
+  for (let i = 0; i < p.count; i += 3) {
+    const x = p.getX(i + 1), y = p.getY(i + 1), z = p.getZ(i + 1);
+    p.setXYZ(i + 1, p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2));
+    p.setXYZ(i + 2, x, y, z);
+  }
+}
+
 /** Flat-shaded, with planar UVs so the scratch texture has somewhere to land. */
 function prepare(mesh) {
   let g = mesh.geometry.clone().applyMatrix4(place);
   if (g.index) g = g.toNonIndexed();
   g.deleteAttribute("uv");
+  orientOutward(g);
   g.computeVertexNormals();
   const p = g.attributes.position;
   const uv = new Float32Array(p.count * 2);
@@ -93,6 +118,9 @@ export function applyCarModel(rig) {
   model.traverse((o) => {
     if (!o.isMesh) return;
     const mat = paintFor[o.material.name] ?? o.material;
+    // Belt and braces: a part that is still wound the wrong way (an open
+    // sheet has no volume to judge by) is drawn from both sides.
+    mat.side = THREE.DoubleSide;
     const geo = prepare(o);
     const name = o.name;
     const wm = /^(front|rear)_(?:tire|rim|wheel_inner|spoke|hub)_(-1|1)/.exec(name);
