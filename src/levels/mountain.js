@@ -242,16 +242,6 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Afternoon tipping into evening: the sun low and warm, on its way
-    // down rather than overhead, with a dusk sky and a haze that suits
-    // the climb. sun/hemi/sky/fog/exposure are the refined-palette
-    // tuning (higher, less grazing sun than the lighting-foundation
-    // branch's original); bloom/headlights/detail/glow/strips/pools/
-    // shelter are that branch's own fields. "Mountain Rock"/"Rock
-    // Highlight" are deliberately left out of `detail`: rockify() above
-    // already patches their shader directly (not through addPatch's
-    // stacking), so addDetail() on the same materials would silently
-    // replace rockify's onBeforeCompile instead of adding to it.
     // Dusk proper: the sun about 18 degrees up and deep orange, so shadows
     // run long across the road, and a cool, dimmer fill so the shade they
     // cast reads blue-dark against the lit side. The fill can't go much
