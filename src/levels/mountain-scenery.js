@@ -3,6 +3,10 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import planeUrl from "../../assets/props/airplane-2.glb?url";
 import towerAUrl from "../../assets/props/radio-tower-a.glb?url";
 import towerBUrl from "../../assets/props/radio-tower-b.glb?url";
+import mountainsUrl from "../../assets/props/mountains.glb?url";
+import rockUrl from "../../assets/props/rock-flat-grass.glb?url";
+import tree2Url from "../../assets/props/tree-2.glb?url";
+import autumnUrl from "../../assets/props/autumn-tree.glb?url";
 import goatUrl from "../../assets/props/goat.glb?url";
 import islandUrl from "../../assets/props/island-fox.glb?url";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -13,6 +17,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 //   radio towers   on the highest ground clear of the road, two designs
 //                  alternating, each with a red beacon that pulses
 //   aeroplane      one biplane wandering a looping route across the mountain
+//   range          a ring of distant snow-capped mountains beyond the map
+//   boulders, trees  grass-topped rocks, round-crowned trees and autumn trees scattered on the slopes
 //   goats          small herds grazing on the slopes beside the road
 //   islands        floating islands (one with a fox) far above the mountain
 //   neon streaks   an orange line along each guardrail through the tunnel
@@ -26,7 +32,7 @@ let loading = null;
 let models = null;
 
 /** Merge a glTF's meshes into world-space geometry, re-based so (0,0,0) is the middle of the foot. */
-function bake(gltf, { footY = null, merge = false } = {}) {
+function bake(gltf, { footY = null, merge = false, height: targetH = null } = {}) {
   gltf.scene.updateMatrixWorld(true);
   let parts = [];
   const byMaterial = new Map();
@@ -58,14 +64,20 @@ function bake(gltf, { footY = null, merge = false } = {}) {
   if (footY !== null) {
     const cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2;
     parts.forEach((p) => p.geometry.translate(-cx, -box.min.y + footY, -cz));
-    return { parts, height: box.max.y - box.min.y };
+    const k = targetH ? targetH / (box.max.y - box.min.y) : 1;
+    if (k !== 1) parts.forEach((p) => p.geometry.scale(k, k, k));
+    return { parts, height: (box.max.y - box.min.y) * k, width: Math.max(box.max.x - box.min.x, box.max.z - box.min.z) * k };
   }
   return { parts, height: box.max.y - box.min.y };
 }
 
 export function loadMountainProps() {
-  loading ??= Promise.all([planeUrl, towerAUrl, towerBUrl, goatUrl, islandUrl].map((u) => loader.loadAsync(u)))
-    .then(([plane, a, b, goat, island]) => (models = {
+  loading ??= Promise.all([planeUrl, towerAUrl, towerBUrl, goatUrl, islandUrl, mountainsUrl, rockUrl, tree2Url, autumnUrl].map((u) => loader.loadAsync(u)))
+    .then(([plane, a, b, goat, island, range, rock, tree2, autumn]) => (models = {
+      range: bake(range, { footY: 0 }),
+      rock: bake(rock, { footY: 0 }),
+      tree2: bake(tree2, { footY: 0, height: 9 }),
+      autumn: bake(autumn, { footY: 0, height: 10 }),
       plane: bake(plane),
       towerA: bake(a, { footY: -0.3 }),
       towerB: bake(b, { footY: -0.3 }),
@@ -95,6 +107,8 @@ export class MountainScenery {
     this.goats = [];
     this.islands = [];
     this.towerCount = 0;
+    this.treeCount = 0;
+    this.rockCount = 0;
     this.tunnelUniforms = { uTime: { value: 0 } };
     if (tunnel) this.#neonTunnel(track, tunnel[0], tunnel[1]);
     if (!models) return;
@@ -165,6 +179,77 @@ export class MountainScenery {
       root.add(body);
       this.group.add(root);
       this.plane = { root, cx, cz, alt: top + 75 };
+    }
+
+    // ---- scatter helpers: ground points off the road on the grass slopes
+    const grassOnly = ground.filter((m) => /Grass/.test(m.name));
+    const sr = (() => { let t = 90210; return () => ((t = (Math.imul(t ^ (t >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296); })();
+    const scatterPoints = (count, near, far, maxTries, minSep = 0) => {
+      const pts = [];
+      for (let n = 0; n < maxTries && pts.length < count; n++) {
+        const x = box.min.x + 10 + sr() * (box.max.x - box.min.x - 20);
+        const z = box.min.z + 10 + sr() * (box.max.z - box.min.z - 20);
+        rc.set(probe.set(x, box.max.y + 50, z), down);
+        const hit = rc.intersectObjects(grassOnly, false)[0];
+        if (!hit) continue;
+        const dist = track.project(probe.set(x, hit.point.y, z)).distance;
+        if (dist < near || dist > far) continue;
+        if (hit.face && hit.face.normal.y < 0.6) continue; // not on a cliff face
+        if (minSep && pts.some((q) => Math.hypot(q.x - x, q.z - z) < minSep)) continue;
+        pts.push({ x, y: hit.point.y, z });
+      }
+      return pts;
+    };
+    const instance = (parts, mats) => {
+      if (!mats.length) return;
+      for (const { geometry, material } of parts) {
+        const inst = new THREE.InstancedMesh(geometry, material, mats.length);
+        inst.castShadow = true;
+        inst.receiveShadow = true;
+        inst.frustumCulled = false;
+        mats.forEach((m4, i) => inst.setMatrixAt(i, m4));
+        inst.instanceMatrix.needsUpdate = true;
+        this.group.add(inst);
+      }
+    };
+    const compose = (pt, yaw, sc, sink = 0) =>
+      new THREE.Matrix4().compose(
+        new THREE.Vector3(pt.x, pt.y - sink, pt.z),
+        new THREE.Quaternion().setFromAxisAngle(down.clone().negate(), yaw),
+        new THREE.Vector3(sc, sc * (0.9 + sr() * 0.3), sc)
+      );
+
+    // ---- more trees: round-crowned and autumn, in loose groves beside the road
+    {
+      const t2 = scatterPoints(130, 12, 110, 4000, 6).map((pt) => compose(pt, sr() * 6.28, 0.8 + sr() * 0.6, 0.15));
+      const au = scatterPoints(70, 14, 120, 4000, 8).map((pt) => compose(pt, sr() * 6.28, 0.8 + sr() * 0.6, 0.15));
+      instance(models.tree2.parts, t2);
+      instance(models.autumn.parts, au);
+      this.treeCount += t2.length + au.length;
+    }
+
+    // ---- boulders: grass-topped rocks of every size
+    {
+      const bm = scatterPoints(90, 9, 100, 4000, 4).map((pt) => compose(pt, sr() * 6.28, 2 + Math.pow(sr(), 2) * 6, 0.3));
+      instance(models.rock.parts, bm);
+      this.rockCount = bm.length;
+    }
+
+    // ---- a ring of distant mountains beyond the map, snow-capped, in the haze
+    {
+      const n = 9;
+      for (let i = 0; i < n; i++) {
+        const ang = (i / n) * Math.PI * 2 + sr() * 0.3;
+        const rad = 620 + sr() * 120;
+        const width = 520 + sr() * 260;
+        const sc = width / models.range.width;
+        const g = new THREE.Group();
+        for (const { geometry, material } of models.range.parts) g.add(new THREE.Mesh(geometry, material));
+        g.scale.set(sc, sc * (0.9 + sr() * 0.5), sc);
+        g.position.set(cx + Math.cos(ang) * rad, -25, cz + Math.sin(ang) * rad);
+        g.rotation.y = sr() * 6.28;
+        this.group.add(g);
+      }
     }
 
     // ---- goats grazing on the grass beside the road
