@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import { addPatch } from "./material-patches.js";
 
 // ---------------------------------------------------------------------
 // Wet asphalt: puddles and rain ripples, written INTO three's own
@@ -80,9 +80,7 @@ const COMMON = /* glsl */ `
 
 /** Patch one standard material. Idempotent: a material is patched once. */
 export function makeWet(material) {
-  if (material.userData.wet) return;
-  material.userData.wet = true;
-  material.onBeforeCompile = (shader) => {
+  addPatch(material, "wet", (shader) => {
     Object.assign(shader.uniforms, wetUniforms);
 
     shader.vertexShader = shader.vertexShader
@@ -120,9 +118,5 @@ export function makeWet(material) {
            normal = normalize(normal + (viewMatrix * vec4(slope, 0.0)).xyz);
          }`
       );
-  };
-  // Tell three this is a different program from an unpatched standard
-  // material, or it may reuse the cached one.
-  material.customProgramCacheKey = () => "wet-road";
-  material.needsUpdate = true;
+  });
 }

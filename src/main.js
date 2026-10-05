@@ -34,6 +34,7 @@ import { addFakeHeadlights } from "./lighting/fake-headlights.js";
 import { CheckpointGates } from "./lighting/checkpoint-gates.js";
 import { BoostTrails } from "./lighting/boost-trail.js";
 import { makeWet, wetUniforms } from "./lighting/wet-road.js";
+import { addDetail } from "./lighting/surface-detail.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -103,10 +104,12 @@ scene.add(sky.mesh);
 // Reflections baked from that same dome (src/lighting/sky-environment.js),
 // bloom and tone mapping (src/lighting/post.js), and any extra lights a
 // level declares (src/lighting/level-lights.js). ?env=0 and ?post=0 turn
-// the first two off, for before/after comparisons.
+// the first two off, for before/after comparisons; ?detail=0 does the
+// same for the normal maps (src/lighting/surface-detail.js).
 const skyEnv = params.get("env") === "0" ? null : new SkyEnvironment(renderer, sky.material, SKY_RADIUS);
 const post = new PostFX(renderer, scene, camera);
 const postAllowed = params.get("post") !== "0";
+const detailAllowed = params.get("detail") !== "0"; // ?detail=0: no normal maps, for comparison
 const levelLights = new LevelLights(scene);
 
 // Per-level lighting. A level's `lit` may set any of these; anything it
@@ -135,6 +138,8 @@ const levelLights = new LevelLights(scene);
 //   materials    { materialName: { roughness, metalness, ... } } overrides,
 //                e.g. wet asphalt at night
 //   glow         the level's effect colour: checkpoint gates, boost trail
+//   detail       { materialName: { map, size, strength } } — generated normal
+//                maps, projected without UVs, see src/lighting/surface-detail.js
 //   wet          { materials: [names], puddles, damp, ripples } — puddles and
 //                rain ripples on those materials, see src/lighting/wet-road.js
 const LIGHT_DEFAULTS = {
@@ -200,6 +205,12 @@ function applyLighting(lit, track = null) {
   levelLights.build(L.lights, track, L.pools, L.strips);
   shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
   restyleMaterials(L.emissive, L.materials);
+  if (L.detail && detailAllowed) {
+    scene.traverse((o) => {
+      const d = o.isMesh && o.material?.isMeshStandardMaterial && L.detail[o.material.name];
+      if (d) addDetail(o.material, d);
+    });
+  }
   if (L.wet) {
     scene.traverse((o) => {
       if (o.isMesh && L.wet.materials.includes(o.material?.name)) makeWet(o.material);

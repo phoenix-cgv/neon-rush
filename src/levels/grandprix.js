@@ -139,6 +139,17 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       bloom: { threshold: 1.5, strength: 0.45, radius: 0.25 },
       headlights: true,
       glow: 0xff3cc8, // neon magenta against the night
+      // Generated normal maps (src/lighting/surface-detail.js); the asphalt
+      // is also wet, and the two patches stack (material-patches.js).
+      detail: {
+        Asphalt: { map: "grain", size: 1.5, strength: 0.5 },
+        AsphaltWorn: { map: "grain", size: 1.2, strength: 0.7 },
+        PitAsphalt: { map: "grain", size: 1.5, strength: 0.5 },
+        GravelTrap: { map: "gravel", size: 1.2, strength: 1 },
+        Concrete: { map: "panels", size: 3, strength: 0.7 },
+        TunnelConcrete: { map: "panels", size: 4, strength: 0.7 },
+        Rock: { map: "rock", size: 6, strength: 1.2 },
+      },
       emissive: { TunnelLights: 0.45 },
       wet: { materials: ["Asphalt", "AsphaltWorn", "PitAsphalt"], puddles: 0.45, damp: 0.38, ripples: 1 },
       pools: [

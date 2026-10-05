@@ -91,6 +91,21 @@ export function buildCity(RAPIER, world, scene, gltf) {
       bloom: { threshold: 2.2, strength: 0.35, radius: 0.3 },
       emissive: { LampGlow: 0, "Warm Window Light": 0.25 },
       glow: 0x35d0ff, // the billboards' cyan
+      // Generated normal maps (src/lighting/surface-detail.js): grit in the
+      // road, joints in the paving, courses in the brick, cast panels in
+      // the render and concrete. Size is metres per texture tile.
+      detail: {
+        Asphalt: { map: "grain", size: 1.5, strength: 0.6 },
+        RoadPatch: { map: "grain", size: 1.2, strength: 0.8 },
+        Pavement: { map: "tiles", size: 2, strength: 0.8 },
+        "Pavement Light": { map: "tiles", size: 2, strength: 0.8 },
+        "Facade Brick": { map: "brick", size: 1.2, strength: 1 },
+        "Facade Sandstone": { map: "panels", size: 3, strength: 0.7 },
+        "Facade White": { map: "panels", size: 4, strength: 0.6 },
+        "Facade Slate": { map: "panels", size: 4, strength: 0.6 },
+        "Facade Blue": { map: "panels", size: 4, strength: 0.6 },
+        Concrete: { map: "panels", size: 3, strength: 0.7 },
+      },
     },
     dispose: () => {
       map.dispose();

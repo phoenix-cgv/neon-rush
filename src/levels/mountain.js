@@ -139,6 +139,17 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
       headlights: true,
       glow: 0xff9a3c, // the setting sun
+      // Generated normal maps (src/lighting/surface-detail.js). The low
+      // sun rakes across the rock, which is exactly when bumps show most.
+      detail: {
+        "Fresh Dark Asphalt": { map: "grain", size: 1.5, strength: 0.6 },
+        "Asphalt Shoulder": { map: "grain", size: 1.5, strength: 0.7 },
+        "Mountain Rock": { map: "rock", size: 10, strength: 1.7 },
+        "Rock Highlight": { map: "rock", size: 8, strength: 1.7 },
+        "Tunnel Concrete": { map: "panels", size: 4, strength: 0.7 },
+        "Tunnel Interior": { map: "panels", size: 3, strength: 0.7 },
+        "Bridge Concrete": { map: "panels", size: 4, strength: 0.7 },
+      },
       // The summit tunnel (walls 7.5 m out, roof 6.7 m up) was modelled
       // with no lights. Sodium strips down the roof every 9 m, two real
       // lights following the player between them, and the sky fill
