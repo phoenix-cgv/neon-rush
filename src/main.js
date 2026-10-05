@@ -518,6 +518,7 @@ function frame(now) {
     camera.position.copy(_dashPos);
     camera.lookAt(_dashLook);
     sky.position.copy(camera.position);
+    level.update?.(now / 1000);
     renderer.render(scene, camera);
     input.endFrame();
     return;
@@ -673,6 +674,7 @@ function frame(now) {
   // Flutter only, driven by the render frame like smoke — the gust
   // itself is a force field, already applied in the fixed step above.
   crosswind?.render(frameDt);
+  level.update?.(now / 1000); // per-level animation (the City's wind)
   pickups?.render();
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high

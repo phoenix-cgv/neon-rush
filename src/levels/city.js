@@ -2,6 +2,7 @@ import * as THREE from "three";
 import mapUrl from "../../assets/maps/CityTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import { BlockyCrowd } from "./blocky-people.js";
+import { CityNature } from "./city-nature.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
@@ -40,7 +41,10 @@ export function buildCity(RAPIER, world, scene, gltf) {
     minimap: /^(Road|KerbLeft|KerbRight|Pavement)/,
     // The map's own round-headed pedestrians are left out; the crowd is
     // rebuilt below from the same spots as blocky, voxel-style people.
-    exclude: /^Pedestrian/,
+    // Likewise the cone trees and cone grass tufts (the unnamed trunks are
+    // the map's "Cylinder"s): CityNature plants textured, wind-blown ones at
+    // the same TreePit and GreenIsland spots.
+    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|Cylinder)/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
@@ -64,6 +68,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     });
   });
   const crowd = new BlockyCrowd(scene, track, spots);
+  const nature = new CityNature(scene, track, gltf, map.group);
 
   // The model has a gantry but no line on the road, and a lap that ends at nothing reads as
   // a timing bug. A chequered strip across the road at s = 0.
@@ -91,6 +96,8 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // line, not just "don't crash." 85 s still left room to fumble a
     // hairpin or wait out a gap in traffic and finish anyway.
     race: { laps: 1, timeLimit: 68 },
+    // Called every frame by main.js: the wind.
+    update: (t) => nature.update(t),
     spawn: gate.position,
     quaternion: gate.quaternion,
     // Late-afternoon light to suit the refined map (its lit windows, coral
@@ -107,6 +114,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     },
     dispose: () => {
       crowd.dispose();
+      nature.dispose();
       map.dispose();
       line.material.map.dispose(); // ...but not the texture on it
     },
