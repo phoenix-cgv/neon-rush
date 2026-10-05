@@ -415,7 +415,7 @@ export class CarRig {
 
     // If the car model has been loaded, it replaces the box-built shell and
     // wheel parts above (the rig, materials and damage all stay as they are).
-    applyCarModel(this);
+    this.usesModel = applyCarModel(this);
 
     // Draw-call pass. Everything above stays readable; this makes it cheap.
     // The body is rigid to the chassis pivot, and each wheel's parts are
@@ -446,7 +446,8 @@ export class CarRig {
       this.dentField = new Float32Array(pos.array.length);
       this.bodyMesh.geometry.computeBoundingSphere();
     }
-    this.chassisPivot.add(this.glow);
+    // The model is used as authored, so it gets no underglow.
+    if (!this.usesModel) this.chassisPivot.add(this.glow);
     this.#initScratches(paint);
   }
 

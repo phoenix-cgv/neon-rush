@@ -37,7 +37,16 @@ let model = null; // the parsed scene, once loaded
 export function loadCarModel() {
   loading ??= new GLTFLoader()
     .loadAsync(modelUrl)
-    .then((gltf) => (model = gltf.scene))
+    .then((gltf) => {
+      // The file's own materials are used as authored, with one flag: draw
+      // both faces. Several of its panels (the -1 side windows, thin plates)
+      // face the wrong way, and with the default front-face-only drawing
+      // they are skipped and read as holes.
+      gltf.scene.traverse((o) => {
+        if (o.isMesh) o.material.side = THREE.DoubleSide;
+      });
+      return (model = gltf.scene);
+    })
     .catch((err) => {
       console.error("[car-model] could not load the car model, using the built-in one", err);
       return null;
@@ -49,109 +58,63 @@ export const carModelReady = () => model !== null;
 
 // Model space -> car-local space: rotate, scale, then drop so the model's
 // ground plane (z = 0) is the road under a resting car (y = -comHeight).
-const place = new THREE.Matrix4()
-  .makeTranslation(0, -CAR.comHeight, 0)
-  .multiply(new THREE.Matrix4().makeScale(SCALE, SCALE, SCALE))
+const rotScale = new THREE.Matrix4()
+  .makeScale(SCALE, SCALE, SCALE)
   .multiply(ZUP_TO_YUP);
+const place = new THREE.Matrix4().makeTranslation(0, -CAR.comHeight, 0).multiply(rotScale);
+
+const WHEEL_PART = /^(front|rear)_(?:tire|rim|wheel_inner|spoke|hub)_(-1|1)/;
 
 /**
- * Make triangle winding agree with the shape's volume. Some parts of the
- * model (thin plates like the wing) are wound inside-out, and with back-face
- * culling an inside-out part is simply not drawn — it looks transparent.
- * A closed part has positive signed volume when it faces outward; if it is
- * negative, swap two vertices of every triangle.
- */
-function orientOutward(g) {
-  const p = g.attributes.position;
-  let vol = 0;
-  for (let i = 0; i < p.count; i += 3) {
-    const ax = p.getX(i), ay = p.getY(i), az = p.getZ(i);
-    const bx = p.getX(i + 1), by = p.getY(i + 1), bz = p.getZ(i + 1);
-    const cx = p.getX(i + 2), cy = p.getY(i + 2), cz = p.getZ(i + 2);
-    vol += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
-  }
-  if (vol >= 0) return;
-  for (let i = 0; i < p.count; i += 3) {
-    const x = p.getX(i + 1), y = p.getY(i + 1), z = p.getZ(i + 1);
-    p.setXYZ(i + 1, p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2));
-    p.setXYZ(i + 2, x, y, z);
-  }
-}
-
-/** Flat-shaded, with planar UVs so the scratch texture has somewhere to land. */
-function prepare(mesh) {
-  let g = mesh.geometry.clone().applyMatrix4(place);
-  if (g.index) g = g.toNonIndexed();
-  g.deleteAttribute("uv");
-  orientOutward(g);
-  g.computeVertexNormals();
-  const p = g.attributes.position;
-  const uv = new Float32Array(p.count * 2);
-  for (let i = 0; i < p.count; i++) {
-    uv[i * 2] = p.getX(i) / 2.4 + 0.5;
-    uv[i * 2 + 1] = p.getZ(i) / 4.8 + 0.5;
-  }
-  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-  return g;
-}
-
-/**
- * Swap a CarRig's built-in shell and wheels for the model. Call after the
- * rig has built its wheels and before it merges draw calls.
+ * Swap a CarRig's built-in shell and wheels for the model, exactly as
+ * authored: its own geometry and materials, untouched. The only things
+ * done to it are placing it (rotate, scale, drop to the road) and parking
+ * each wheel's parts under a pivot so the wheel can spin and steer.
+ * Returns true if the model was used.
  */
 export function applyCarModel(rig) {
   if (!model) return false;
 
-  // clear the procedural shell (everything on the pivot but the steering group)
   for (const c of [...rig.chassisPivot.children]) {
     if (c !== rig.steeringGroup) rig.chassisPivot.remove(c);
   }
   for (const w of rig.wheelMeshes) w.mesh.clear();
 
-  const paintFor = {
-    body: rig.bodyMat,
-    light: rig.headMat,
-    red: rig.tailMat,
-  };
+  // Each node is moved, not cloned, so use a fresh copy of the scene.
+  const copy = model.clone(true);
 
-  const wheelParts = [[], [], [], []]; // FL FR RL RR
-  model.traverse((o) => {
-    if (!o.isMesh) return;
-    const mat = paintFor[o.material.name] ?? o.material;
-    // Belt and braces: a part that is still wound the wrong way (an open
-    // sheet has no volume to judge by) is drawn from both sides.
-    mat.side = THREE.DoubleSide;
-    const geo = prepare(o);
-    const name = o.name;
-    const wm = /^(front|rear)_(?:tire|rim|wheel_inner|spoke|hub)_(-1|1)/.exec(name);
-    if (wm) {
-      const idx = (wm[1] === "rear" ? 2 : 0) + (wm[2] === "-1" ? 0 : 1);
-      wheelParts[idx].push({ geo, mat });
-    } else {
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
-      rig.chassisPivot.add(mesh);
-    }
-  });
+  const body = new THREE.Group();
+  body.name = "CarModel";
+  body.matrixAutoUpdate = false;
+  body.matrix.copy(place);
+  rig.chassisPivot.add(body);
 
-  wheelParts.forEach((parts, i) => {
-    if (!parts.length) return;
-    // centre of the wheel from its tyre/rim bounds, so it spins about its axle
-    const box = new THREE.Box3();
-    for (const { geo } of parts) {
-      geo.computeBoundingBox();
-      box.union(geo.boundingBox);
+  const wheelNodes = [[], [], [], []]; // FL FR RL RR
+  for (const node of [...copy.children]) {
+    const m = WHEEL_PART.exec(node.name);
+    if (!m) {
+      body.add(node);
+      continue;
     }
-    const c = box.getCenter(new THREE.Vector3());
+    wheelNodes[(m[1] === "rear" ? 2 : 0) + (m[2] === "-1" ? 0 : 1)].push(node);
+  }
+
+  wheelNodes.forEach((nodes, i) => {
+    if (!nodes.length) return;
+    const centre = new THREE.Box3();
+    for (const n of nodes) centre.union(new THREE.Box3().setFromObject(n));
+    const c = centre.getCenter(new THREE.Vector3());
+
+    const holder = new THREE.Group();
+    holder.matrixAutoUpdate = false;
+    holder.matrix.copy(rotScale).multiply(new THREE.Matrix4().makeTranslation(-c.x, -c.y, -c.z));
+    for (const n of nodes) holder.add(n);
+
     const w = rig.wheelMeshes[i];
-    for (const { geo, mat } of parts) {
-      geo.translate(-c.x, -c.y, -c.z);
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
-      w.mesh.add(mesh);
-    }
-    w.pivot.position.x = c.x;
-    w.pivot.position.z = c.z;
+    w.mesh.add(holder);
+    const placed = c.clone().applyMatrix4(place);
+    w.pivot.position.x = placed.x;
+    w.pivot.position.z = placed.z;
   });
   return true;
 }
