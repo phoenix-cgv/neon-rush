@@ -48,14 +48,16 @@ export class Race {
    * @param {THREE.Scene} scene
    * @param {object} track
    * @param {number} opponents  how many AI cars
+   * @param {object} [opts]  { driftBoost } — see Vehicle
    */
-  constructor(RAPIER, world, scene, track, opponents = 5, eventBus = null) {
+  constructor(RAPIER, world, scene, track, opponents = 5, eventBus = null, opts = {}) {
     this.RAPIER = RAPIER;
     this.world = world;
     this.scene = scene;
     this.track = track;
     this.eventBus = eventBus;
     this.cars = [];
+    const { driftBoost = false } = opts;
 
     const names = Object.keys(PERSONALITIES);
     // The player is white so damage reads on it; the opponents keep strong
@@ -70,7 +72,7 @@ export class Race {
       const lateral = (i % 2 === 0 ? -1 : 1) * GRID_STAGGER;
       const pose = track.spawnAt(s, lateral);
 
-      const vehicle = new Vehicle(RAPIER, world, pose.position);
+      const vehicle = new Vehicle(RAPIER, world, pose.position, { driftBoost });
       vehicle.body.setRotation(
         { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w },
         true

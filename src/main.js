@@ -522,7 +522,9 @@ async function loadLevel(name) {
   if (level.track) {
     // Level 3 is the race; the others are single-car. Opponent count
     // comes from the level so the testbed stays a testbed.
-    race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0, gameplayEvents);
+    race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0, gameplayEvents, {
+      driftBoost: level.driftBoost === true,
+    });
     vehicle = race.player.vehicle;
     carRig = race.player.rig;
     progress = race.player.progress;
@@ -872,8 +874,18 @@ function frame(now) {
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
   smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
-  driftFx.update(frameDt, vehicle.state, carRig);
-  wheelGlow.enabled = level?.name === "grandprix";
+  // Sparks off the rear wheels are a Grand Prix feature too — it's the
+  // combo's own visual feedback (coloured and densened by the tier, see
+  // drift-fx.js), so it has nothing to show elsewhere since driftTier
+  // never leaves -1 there, but the raw slide it also reacts to
+  // (driftFactor) is real everywhere. Gate on the same flag as the
+  // mechanic itself rather than on the level name, so the two can never
+  // drift apart.
+  if (level?.driftBoost) driftFx.update(frameDt, vehicle.state, carRig);
+  // The neon ground trail behind the rear wheels, previously Grand-Prix-
+  // only, is the game's actual "going fast" visual now that the screen-
+  // space speed lines are gone (see speed-fx.js) — on every level.
+  wheelGlow.enabled = true;
   wheelGlow.update(
     now / 1000,
     race

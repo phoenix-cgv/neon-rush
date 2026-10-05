@@ -55,6 +55,13 @@ export function buildCity(RAPIER, world, scene, gltf) {
   });
   const { track } = map;
 
+  // The map's lamp posts carry a baked "on" bulb (LampGlow), right for
+  // the dusk setting this track was modelled for. Morning light has no
+  // use for it — a streetlamp glowing in broad daylight reads as broken,
+  // not warm — so it's switched off here rather than in the glb itself.
+  const lampGlow = map.group.getObjectByName("CityTrack:LampGlow");
+  if (lampGlow) lampGlow.material.emissiveIntensity = 0;
+
   // Where the map's pedestrians stood: the feet of each "PedestrianLegs".
   // Their height comes from the legs (which are 38% of a figure).
   const spots = [];
@@ -105,17 +112,19 @@ export function buildCity(RAPIER, world, scene, gltf) {
     nature,
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Late-afternoon light to suit the refined map (its lit windows, coral
-    // accents and teal glass read best low and warm). The ground plane ends
+    // Early morning: a fresh, cool sun just up over the rooftops, a pale
+    // sky rather than the gold-and-shadow of dusk, and a light haze still
+    // sitting in the streets (thinner and cooler than the afternoon's
+    // amber one — morning mist, not sunset dust). The ground plane ends
     // about 300 m out, so the fog closes in before the edge can show.
     lit: {
-      sun: [-70, 38, 60],
-      sunColor: 0xffcf9e,
-      sunIntensity: 2.6,
-      hemi: [0x9db6d6, 0x4b4038, 1.6],
-      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
-      fog: [0xd9b496, 140, 520],
-      exposure: 1.0,
+      sun: [-70, 42, 60],
+      sunColor: 0xfff1d6,
+      sunIntensity: 3.0,
+      hemi: [0xaed4ec, 0x5c5850, 1.8],
+      sky: { top: 0x6fa3d6, horizon: 0xf3dcc4, bottom: 0x8a9088 },
+      fog: [0xcdd9dc, 150, 560],
+      exposure: 1.05,
     },
     dispose: () => {
       crowd.dispose();

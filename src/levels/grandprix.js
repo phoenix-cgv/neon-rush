@@ -126,6 +126,11 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     title: "Grand Prix",
     track,
     opponents: 5, // the full field: this is the race
+    // The drift-combo mechanic (title, boost-fill multiplier, tank
+    // extension — see Vehicle's #drift) is this track's own feature: a
+    // wide, grippy circuit built for sustained drifting, with its own
+    // title/burst UI. See Race and Vehicle for how this reaches the car.
+    driftBoost: true,
     // A proper race: start lights, two laps, a classification. timeLimit
     // scales with laps (was 8 min for three) rather than being a fixed
     // ceiling, so it stays exactly as generous relative to a real race

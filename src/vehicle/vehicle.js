@@ -84,6 +84,9 @@ export class Vehicle {
     this.RAPIER = RAPIER;
     this.world = world;
     this.isGhost = opts.ghost === true;
+    // The drift-combo mechanic (title, fill multiplier, tank extension —
+    // see #drift) is a Grand Prix feature; off by default.
+    this.driftBoost = opts.driftBoost === true;
 
     // --- the chassis rigid body -------------------------------------
     // Body origin IS the centre of mass, so wheel mounts are measured
@@ -1173,34 +1176,45 @@ export class Vehicle {
     const rearSlip = (Math.abs(rl.slipAngle) + Math.abs(rr.slipAngle)) / 2;
 
     const sliding = rearSlip > CAR.peakSlip && this.speed > CAR.driftMinSpeed && this.grounded;
+    // The slide itself (oversteer losing grip) is core handling and always
+    // real; driftFactor is read elsewhere (camera shake, the HUD's drift
+    // indicator) regardless of whether this car's level scores it.
     this.driftFactor = sliding
       ? clamp((rearSlip - CAR.peakSlip) / (CAR.limitSlip - CAR.peakSlip), 0, 1)
       : 0;
 
-    // The combo (see drift-combo.js): title, fill multiplier and tank extension.
-    const combo = this.#combo;
-    combo.chain = this.driftChain;
-    combo.gap = this.driftGap;
-    combo.tankExtra = this.tankExtra;
-    combo.extraHold = this.extraHold;
-    const { tier, mult } = stepDrift(
-      combo,
-      dt,
-      { sliding, factor: this.driftFactor, wall: this.againstWall || this.scrapingWall },
-      { tiers: CAR.driftTiers, gapReset: CAR.driftGapReset, hold: CAR.tankExtraHold, decay: CAR.tankExtraDecay }
-    );
-    this.driftChain = combo.chain;
-    this.driftGap = combo.gap;
-    this.tankExtra = combo.tankExtra;
-    this.extraHold = combo.extraHold;
-    this.driftTier = tier;
-    const cap = CAR.boostCapacity + this.tankExtra;
+    // The combo (see drift-combo.js): title, fill multiplier and tank
+    // extension. A Grand Prix feature only — its wide, grippy circuit was
+    // built for sustained drifting, and its own title/boost-trail UI is
+    // this mechanic's whole point. On City's tight hairpins and traffic,
+    // or the Mountain's real guardrails, a slide is a mistake to recover
+    // from, not a boost strategy, so it earns nothing there.
+    let cap = CAR.boostCapacity;
+    if (this.driftBoost) {
+      const combo = this.#combo;
+      combo.chain = this.driftChain;
+      combo.gap = this.driftGap;
+      combo.tankExtra = this.tankExtra;
+      combo.extraHold = this.extraHold;
+      const { tier, mult } = stepDrift(
+        combo,
+        dt,
+        { sliding, factor: this.driftFactor, wall: this.againstWall || this.scrapingWall },
+        { tiers: CAR.driftTiers, gapReset: CAR.driftGapReset, hold: CAR.tankExtraHold, decay: CAR.tankExtraDecay }
+      );
+      this.driftChain = combo.chain;
+      this.driftGap = combo.gap;
+      this.tankExtra = combo.tankExtra;
+      this.extraHold = combo.extraHold;
+      this.driftTier = tier;
+      cap = CAR.boostCapacity + this.tankExtra;
 
-    if (sliding) {
-      // Rate scales with both slip and speed, so a long deliberate slide
-      // pays far better than a twitch, and with the title earned.
-      const rate = CAR.boostFillRate * this.driftFactor * clamp(this.speed / 30, 0, 1) * mult;
-      this.boostCharge = Math.min(cap, this.boostCharge + rate * dt);
+      if (sliding) {
+        // Rate scales with both slip and speed, so a long deliberate slide
+        // pays far better than a twitch, and with the title earned.
+        const rate = CAR.boostFillRate * this.driftFactor * clamp(this.speed / 30, 0, 1) * mult;
+        this.boostCharge = Math.min(cap, this.boostCharge + rate * dt);
+      }
     }
 
     // Drifting is the fast way to earn boost, but a slow trickle means

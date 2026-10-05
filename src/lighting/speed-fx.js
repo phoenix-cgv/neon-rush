@@ -18,10 +18,14 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 //   fringing      While boosting, red and blue are sampled a little
 //                 further out from the centre than green, more so at the
 //                 edges: chromatic aberration, a lens under stress.
-//   speed lines   Above about 90 km/h, thin radial streaks flicker at the
-//                 edges of the screen, thicker with speed.
 //   vignette      The edges darken, more while boosting, narrowing the
 //                 eye onto the road ahead.
+//
+// Going fast used to also flicker thin white radial streaks over the
+// whole screen. That read as a generic "going fast" screen filter, not
+// this game's own look — replaced by WheelGlow (src/vehicle/wheel-glow.js),
+// an actual neon trail laid down on the road behind the rear wheels, which
+// reads as this car leaving this track rather than a shader over everything.
 //
 // tDiffuse is the image so far (ShaderPass supplies it); vUv is the
 // screen position, 0..1.
@@ -31,7 +35,6 @@ const SpeedShader = {
   uniforms: {
     tDiffuse: { value: null },
     uTime: { value: 0 },
-    uSpeed: { value: 0 }, // 0 .. 1
     uBoost: { value: 0 }, // 0 .. 1
     uCarScreen: { value: new THREE.Vector2(0.5, 0.3) },
     uAspect: { value: 1 },
@@ -44,11 +47,9 @@ const SpeedShader = {
     }`,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uTime, uSpeed, uBoost, uAspect;
+    uniform float uTime, uBoost, uAspect;
     uniform vec2 uCarScreen;
     varying vec2 vUv;
-
-    float hash(float n) { return fract(sin(n) * 43758.5453); }
 
     void main() {
       vec2 uv = vUv;
@@ -69,14 +70,6 @@ const SpeedShader = {
       col.r = texture2D(tDiffuse, uv + wobble + ca).r;
       col.g = texture2D(tDiffuse, uv + wobble).g;
       col.b = texture2D(tDiffuse, uv + wobble - ca).b;
-
-      // Speed lines: the screen is cut into 220 thin wedges around the
-      // centre; a few, re-picked 14 times a second, light up near the edge.
-      float ang = atan(fromC.y * uAspect, fromC.x);
-      float wedge = floor((ang + 3.14159) * 35.0);
-      float pick = hash(wedge * 1.37 + floor(uTime * 14.0) * 7.11);
-      float lines = step(1.0 - 0.07 * uSpeed, pick) * smoothstep(0.08, 0.3, r2) * uSpeed;
-      col += vec3(lines) * (0.35 + 0.5 * uBoost);
 
       // Vignette.
       col *= 1.0 - smoothstep(0.15, 0.6, r2) * (0.22 + 0.3 * uBoost);
@@ -105,8 +98,6 @@ export class SpeedFx {
     u.uTime.value += dt;
     // Eased: about a quarter of a second to come on or go off.
     const k = 1 - Math.exp(-dt * 8);
-    const speed = THREE.MathUtils.smoothstep(state.speed, 25, 50); // 90-180 km/h
-    u.uSpeed.value += (speed - u.uSpeed.value) * k;
     u.uBoost.value += ((state.boosting ? 1 : 0) - u.uBoost.value) * k;
     u.uAspect.value = camera.aspect;
     // Where the tail is on screen: car space -> world -> clip -> 0..1.
