@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import mapUrl from "../../assets/maps/MountainTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import { MountainScenery, loadMountainProps } from "./mountain-scenery.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 2 — Mountain Track
@@ -28,7 +29,10 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // Mesh names are as three.js sanitises them: spaces become underscores.
 // ---------------------------------------------------------------------
 
-buildMountain.preload = () => loadMap(mapUrl);
+buildMountain.preload = async () => {
+  const [map] = await Promise.all([loadMap(mapUrl), loadMountainProps()]);
+  return map;
+};
 
 // ---------------------------------------------------------------------
 // The refined look, applied to the map's own materials by name (the same
@@ -96,6 +100,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
   });
   const { track } = map;
   applyRefinedLook(map.group);
+  const scenery = new MountainScenery(scene, track, map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)));
 
   const gate = track.spawnAt(0);
   return {
@@ -169,6 +174,11 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       fog: [0xd2b79f, 200, 950],
       exposure: 1.0,
     },
-    dispose: map.dispose,
+    update: (t) => scenery.update(t),
+    scenery,
+    dispose: () => {
+      scenery.dispose();
+      map.dispose();
+    },
   };
 }
