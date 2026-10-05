@@ -75,8 +75,11 @@ const WHEEL_PART = /^(front|rear)_(?:tire|rim|wheel_inner|spoke|hub)_(-1|1)/;
 export function applyCarModel(rig) {
   if (!model) return false;
 
+  // Keep the steering group (front wheels) and the rear wheel pivots, which
+  // hang straight off the chassis; everything else is the built-in shell.
+  const keep = new Set([rig.steeringGroup, ...rig.wheelMeshes.map((w) => w.pivot)]);
   for (const c of [...rig.chassisPivot.children]) {
-    if (c !== rig.steeringGroup) rig.chassisPivot.remove(c);
+    if (!keep.has(c)) rig.chassisPivot.remove(c);
   }
   for (const w of rig.wheelMeshes) w.mesh.clear();
 
