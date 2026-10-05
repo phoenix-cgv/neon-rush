@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GROUP, ALL } from "../vehicle/vehicle.js";
+import { idmAccel, cornerLookahead, avoidanceTarget, slew } from "./traffic-logic.js";
 
 // ---------------------------------------------------------------------
 // Civilian traffic: cars driving the circuit at city speeds, both ways.
@@ -23,11 +24,10 @@ import { GROUP, ALL } from "../vehicle/vehicle.js";
 
 const HALF = { x: 0.9, y: 0.7, z: 2.2 }; // collider half extents, m
 const RIDE = 0.05; // gap under the collider
-const LANE_HALF = 2.6; // lateral band that counts as "in my lane"
-const LOOK = 45; // m ahead a driver watches for something to follow
-const STOP_GAP = 9; // m to leave behind whatever it is following
-const ACCEL = 2.5; // m/s^2
-const BRAKE = 7.0; // m/s^2
+const LOOK = 60; // m ahead a driver watches for something to follow
+const CLEAR_LAT = 2.0; // lateral separation at which something is no longer "in my way"
+const CAR_LEN = 4.4; // bumper-to-bumper = centre gap minus this
+const STEER_RATE = 1.8; // m/s of lateral movement when steering round something
 const LATERAL_G = 0.55; // civilians corner gently: ~0.55 g, not 1.4
 
 const COLOURS = [0xd8dde0, 0x1f2a36, 0x8a1c1c, 0x2e5c8a, 0xc9a227, 0x3b6b3b, 0x6d6f73, 0xe8e4d8, 0x4a2f5c, 0xb85c1e];
@@ -75,6 +75,7 @@ export class Traffic {
         this.cars.push({
           dir,
           laneT: -dir * lane, // keep left: left of the direction of travel
+          lat: -dir * lane, // where it actually is: laneT, unless steering round something
           s,
           speed: 0,
           cruise: vMin + (vMax - vMin) * hash(k),
@@ -119,7 +120,7 @@ export class Traffic {
     _right.copy(_fr.right).multiplyScalar(c.dir);
     out.p
       .copy(_fr.position)
-      .addScaledVector(_fr.right, c.laneT)
+      .addScaledVector(_fr.right, c.lat)
       .addScaledVector(_fr.up, HALF.y + RIDE);
     // -Z is forward, as for every car in the game.
     _basis.makeBasis(_right, _fr.up, _back.copy(_fwd).negate());
@@ -141,32 +142,57 @@ export class Traffic {
    */
   step(dt, field = []) {
     const L = this.track.length;
+    const roadHalf = this.track.width / 2;
     for (const c of this.cars) {
-      // Corner speed: the tightest point in the next 40 m, at a gentle g.
+      // Corner speed: read the road far enough ahead to brake for it
+      // gently at this speed, rather than a fixed 40 m that is too short
+      // at 15 m/s and wasteful at 5.
       let target = c.cruise;
-      for (let a = 0; a <= 40; a += 4) {
+      const look = cornerLookahead(c.speed);
+      for (let a = 0; a <= look; a += 4) {
         const k = this.track.curvatureAt(c.s + a * c.dir);
         if (k > 1e-4) target = Math.min(target, Math.sqrt((LATERAL_G * 9.81) / k));
       }
 
-      // Follow: anything in my lane ahead of me, traffic or player.
+      // What is in my way. Other traffic shares my lane, so it is always
+      // a leader. The player (and any racer) is one only if it is
+      // actually overlapping my line — and it is judged by where I will
+      // be after steering round it, not where I started.
       let gap = Infinity;
+      let vObs = 0;
       for (const o of this.cars) {
         if (o === c || o.dir !== c.dir) continue;
         const d = this.#ahead(c.s, o.s, c.dir);
-        if (d > 0 && d < gap) gap = d;
+        if (d > 0 && d < gap) {
+          gap = d;
+          vObs = o.speed;
+        }
       }
+      gap = Number.isFinite(gap) ? gap - CAR_LEN : gap;
+
+      let hazard = null;
       for (const f of field) {
         const v = f.vehicle;
-        if (Math.abs(v.lateralOffset - c.laneT) > LANE_HALF) continue;
         const d = this.#ahead(c.s, v.s, c.dir);
-        if (d > -2 && d < gap) gap = Math.max(d, 0);
+        if (d <= -2 || d > LOOK) continue;
+        if (Math.abs(v.lateralOffset - c.lat) > CLEAR_LAT + 0.7) continue;
+        if (!hazard || d < hazard.gap) hazard = { lat: v.lateralOffset, gap: Math.max(d, 0), speed: v.speed * c.dir };
       }
-      if (gap < LOOK) target = Math.min(target, Math.max(0, (gap - STOP_GAP) * 0.6));
 
-      const dv = target - c.speed;
-      c.speed += Math.max(-BRAKE * dt, Math.min(ACCEL * dt, dv));
-      c.speed = Math.max(0, c.speed);
+      // Steer round it toward my own kerb instead of stopping in its path.
+      const want = avoidanceTarget(c.laneT, c.lat, hazard, roadHalf);
+      c.lat = slew(c.lat, want, STEER_RATE, dt);
+
+      // ...and only treat it as a leader if it is still in my way.
+      if (hazard && Math.abs(hazard.lat - c.lat) < CLEAR_LAT) {
+        const g = hazard.gap - CAR_LEN;
+        if (g < gap) {
+          gap = g;
+          vObs = hazard.speed;
+        }
+      }
+
+      c.speed = Math.max(0, c.speed + idmAccel(c.speed, target, gap, vObs) * dt);
       c.s = (((c.s + c.dir * c.speed * dt) % L) + L) % L;
 
       c.prev.p.copy(c.cur.p);

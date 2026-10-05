@@ -1,4 +1,7 @@
 import { Save } from "../core/save.js";
+import { TEAM, CREDITS_INTRO, CREDITS_FOOTER } from "./credits.js";
+
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // The home screen. Plain DOM over the canvas; the live city track is the
 // backdrop (main.js orbits the camera round the start line while it is
@@ -89,7 +92,7 @@ export class Dashboard {
         background:none;border:0;padding:0 .35rem;cursor:${off ? "default" : "pointer"};
         color:${off ? "rgba(244,238,224,.28)" : CREAM}">${glyph}</button>`;
     const link = (act, text) =>
-      `<button data-act="${act}" style="${label};background:none;border:0;padding:0;cursor:pointer;
+      `<button data-act="${act}" style="${label};pointer-events:auto;background:none;border:0;padding:0;cursor:pointer;
         color:${CREAM};opacity:.9">${text}</button>`;
 
     this.root.innerHTML = `
@@ -139,11 +142,18 @@ export class Dashboard {
         )}
       </div>` : ""}
       ${this.panelOpen === "credits" ? `
-      <div style="${GLASS};position:absolute;left:44px;bottom:calc(6vh + 56px);width:min(20rem,calc(100vw - 88px));
-        padding:14px 16px;border-radius:2px;pointer-events:auto;font-size:12px;line-height:1.6;color:#c9c1b2">
-        <div style="${label};color:${AMBER};margin-bottom:8px">Credits</div>
-        Neon Rush &mdash; Street Division.<br>Low-poly city, mountain and circuit maps,
-        and the coupe, modelled for the game. Built with three.js and Rapier.</div>` : ""}
+      <div style="${GLASS};position:absolute;left:44px;bottom:calc(6vh + 56px);width:min(26rem,calc(100vw - 88px));
+        max-height:50vh;overflow:auto;padding:14px 16px;border-radius:2px;pointer-events:auto;
+        font-size:12px;line-height:1.55;color:#c9c1b2">
+        <div style="${label};color:${AMBER};margin-bottom:4px">Credits</div>
+        <div style="color:${CREAM};margin-bottom:10px">${esc(CREDITS_INTRO)}</div>
+        ${TEAM.map(
+          (m) => `<div style="padding:.45rem 0;border-top:1px solid rgba(255,255,255,.1)">
+            <div style="color:${CREAM};font-weight:600">${esc(m.name)}</div>
+            <div>${esc(m.role)}</div></div>`
+        ).join("")}
+        <div style="padding-top:.6rem;border-top:1px solid rgba(255,255,255,.1);opacity:.7">${esc(CREDITS_FOOTER)}</div>
+      </div>` : ""}
 
       <div style="position:absolute;right:44px;bottom:calc(6vh + 24px);text-align:right;pointer-events:auto">
         <div style="${label};font-size:8px;opacity:.7;color:${CREAM};text-align:left">Select track</div>
