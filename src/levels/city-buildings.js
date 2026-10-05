@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import blockUrl from "../../assets/buildings/apartment-block.glb?url";
 import polyUrl from "../../assets/buildings/apartment-poly.glb?url";
@@ -12,6 +13,8 @@ import wardUrl from "../../assets/buildings/ward-block.glb?url";
 import clinicUrl from "../../assets/buildings/clinic-annexe.glb?url";
 import emergencyUrl from "../../assets/buildings/emergency-block.glb?url";
 import coreUrl from "../../assets/buildings/stair-core.glb?url";
+import kayUrl from "../../assets/buildings/kay-building.glb?url";
+import hUrl from "../../assets/buildings/building-h.fbx?url";
 
 // ---------------------------------------------------------------------
 // The City Track's buildings: five modelled designs standing where the
@@ -34,9 +37,11 @@ const MODELS = {
   poly: { url: polyUrl },
   small: { url: smallUrl, tint: "_defaultMat" },
   large: { url: largeUrl, tint: "_defaultMat" },
-  tower: { url: towerUrl, trim: true, tall: true },
-  // a slim stepped skyscraper, placed separately on the few plots with room
-  landmark: { url: landmarkUrl, landmark: true },
+  kay: { url: kayUrl }, // a brick shopfront with an awning
+  hfbx: { url: hUrl, fbx: true }, // two stepped apartment blocks with a water tank (FBX)
+  // the skyscrapers stand only on the outskirts, as the skyline round the city
+  tower: { url: towerUrl, trim: true, outskirt: true },
+  landmark: { url: landmarkUrl, outskirt: true },
   // the hospital campus: placed together, never at random
   ward: { url: wardUrl, special: true },
   emergency: { url: emergencyUrl, special: true },
@@ -108,16 +113,45 @@ export function loadBuildingModels() {
     draco.setDecoderPath(`${import.meta.env.BASE_URL}draco/`);
     const loader = new GLTFLoader().setDRACOLoader(draco);
     const out = {};
+    let palette = null; // the shopfront's colour map, which the FBX building shares
     await Promise.all(
-      Object.entries(MODELS).map(async ([id, def]) => {
-        try {
-          out[id] = prepare((await loader.loadAsync(def.url)).scene, def);
-        } catch (err) {
-          console.error(`[city-buildings] could not load "${id}"`, err);
-        }
-      })
+      Object.entries(MODELS)
+        .filter(([, def]) => !def.fbx)
+        .map(async ([id, def]) => {
+          try {
+            const gltf = await loader.loadAsync(def.url);
+            if (id === "kay") gltf.scene.traverse((o) => o.isMesh && o.material.map && (palette = o.material.map));
+            out[id] = prepare(gltf.scene, def);
+          } catch (err) {
+            console.error(`[city-buildings] could not load "${id}"`, err);
+          }
+        })
     );
     draco.dispose();
+
+    // The FBX does not carry its texture, but its UVs address the same
+    // colour palette as the shopfront GLB (same artist, same pack). Borrow
+    // that map; glTF has its V axis the other way up, so flip the UVs. Its
+    // materials arrive flagged transparent, which hides them: clear that.
+    for (const [id, def] of Object.entries(MODELS)) {
+      if (!def.fbx) continue;
+      try {
+        const fbx = await new FBXLoader().loadAsync(def.url);
+        fbx.traverse((o) => {
+          if (!o.isMesh) return;
+          const uv = o.geometry.attributes.uv;
+          if (uv) for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i));
+          for (const m of [].concat(o.material)) {
+            m.transparent = false;
+            m.opacity = 1;
+            if (palette) m.map = palette;
+          }
+        });
+        out[id] = prepare(fbx, def);
+      } catch (err) {
+        console.error(`[city-buildings] could not load "${id}"`, err);
+      }
+    }
     return (models = out);
   })();
   return loading;
@@ -128,151 +162,134 @@ const hash = (i, k = 0) => {
   return x - Math.floor(x);
 };
 
+/** Scale at which a model, turned by `yaw`, just fits a w x d plot. */
+function fitScale(m, yaw, w, d) {
+  const c = Math.abs(Math.cos(yaw));
+  const s = Math.abs(Math.sin(yaw));
+  const bw = m.w * c + m.d * s;
+  const bd = m.w * s + m.d * c;
+  return Math.min((w * 0.96) / bw, (d * 0.96) / bd) * 1.05;
+}
+
 export class CityBuildings {
   /**
    * @param {THREE.Scene} scene
-   * @param {THREE.Box3[]} boxes  the map's plain boxes: where a building stands and how big it may be
+   * @param {THREE.Box3[]} plots  where a building stands and how big it may be. A plot
+   *   flagged `outskirt` holds a skyscraper; the rest hold ordinary buildings.
+   * @param {object} track
+   * @param {{x:number,z:number}} [centre]  the middle of the city, which the skyscrapers face
    */
-  constructor(scene, boxes, track = null) {
+  constructor(scene, plots, track, centre = { x: -90, z: 0 }) {
     this.scene = scene;
     this.meshes = [];
-    /** one per box that got a model: where its front door is */
+    /** one per building that got a model: where its door is and which way it faces */
     this.placed = [];
-    if (!models || !Object.keys(models).length) return;
+    if (!models || !Object.keys(models).length || !track) return;
 
     const ids = Object.keys(models);
-    const assign = []; // { id, s, sy, x, z, index }
-
-    // The landmark first: it needs far more room than a plot, so it goes
-    // only where the plot is well clear of the road and of its neighbours,
-    // scaled up until it nearly fills that room.
+    const fr = {};
+    const probe = new THREE.Vector3();
+    // Every building faces its nearest sidewalk: its front (+Z) is turned
+    // toward the closest point of the road.
+    const yawToRoad = (x, z) => {
+      const pr = track.project(probe.set(x, 0, z));
+      track.frameAt(pr.s, fr);
+      const k = -Math.sign(pr.t || 1);
+      return Math.atan2(fr.right.x * k, fr.right.z * k);
+    };
+    const info = plots.map((b, i) => ({
+      i, b, outskirt: !!b.outskirt,
+      cx: (b.min.x + b.max.x) / 2, cz: (b.min.z + b.max.z) / 2,
+      w: b.max.x - b.min.x, d: b.max.z - b.min.z, h: b.max.y,
+    }));
     const taken = new Set();
-    const lm = models.landmark;
-    if (lm && track) {
-      const half1 = 0.5 * Math.hypot(lm.w, lm.d);
-      const cands = [];
-      boxes.forEach((b, i) => {
-        if (b.max.y < 50) return;
-        const cx = (b.min.x + b.max.x) / 2;
-        const cz = (b.min.z + b.max.z) / 2;
-        const clear = track.project(new THREE.Vector3(cx, 0, cz)).distance;
-        let s = Math.min(3.0, (clear - 14.5) / half1);
-        boxes.forEach((o, j) => {
-          if (j === i) return;
-          const dd = Math.hypot((o.min.x + o.max.x) / 2 - cx, (o.min.z + o.max.z) / 2 - cz);
-          const oh = 0.5 * Math.hypot(o.max.x - o.min.x, o.max.z - o.min.z);
-          if (dd < half1 * s + oh + 1.5) s = Math.min(s, Math.max(0, (dd - oh - 1.5) / half1));
-        });
-        if (lm.h * s >= 38) cands.push({ i, s, height: lm.h * s, cx, cz });
-      });
-      cands.sort((a, b) => b.height - a.height);
-      const chosen = [];
-      for (const c of cands) {
-        // spread them out
-        if (chosen.some((o) => Math.hypot(o.cx - c.cx, o.cz - c.cz) < 90)) continue;
-        chosen.push(c);
-        if (chosen.length >= 5) break;
-      }
-      for (const c of chosen) {
-        taken.add(c.i);
-        assign.push({ id: "landmark", s: c.s, sy: c.s, x: c.cx, z: c.cz + (lm.d * c.s) / 2, index: c.i });
-      }
-    }
+    const assign = []; // { id, s, cx, cz, yaw, index, noDoor? }
 
-        // The hospital campus: the biggest free plots get a ward block, with an
-    // emergency entrance block and a clinic annexe on the nearest plots and
-    // a stair-and-lift tower against the ward's side. Two campuses, far apart.
-    if (models.ward && models.emergency && models.clinic && track) {
-      const info = (b, i) => ({ i, b, cx: (b.min.x + b.max.x) / 2, cz: (b.min.z + b.max.z) / 2, w: b.max.x - b.min.x, d: b.max.z - b.min.z });
-      const free = () => boxes.map(info).filter((q) => !taken.has(q.i) && q.b.max.y < 55);
-      const fit = (m, q, lo, hi) => Math.max(lo, Math.min(hi, Math.min((q.w * 0.96) / m.w, (q.d * 0.96) / m.d)));
+    // ---- the skyline: skyscrapers on the outskirts, facing in toward the city
+    const sky = ["landmark", "tower"].filter((id) => models[id]);
+    info.filter((q) => q.outskirt).forEach((q, n) => {
+      taken.add(q.i);
+      if (!sky.length) return;
+      const id = sky[n % sky.length];
+      const m = models[id];
+      const height = 62 + hash(q.i, 7) * 50;
+      assign.push({ id, s: height / m.h, cx: q.cx, cz: q.cz, yaw: Math.atan2(centre.x - q.cx, centre.z - q.cz), index: q.i });
+    });
+
+    // ---- two hospital campuses: the biggest free plots get a ward block, the
+    // nearest plots an emergency entrance and a clinic annexe, and a stair-and-
+    // lift tower stands against the ward's side.
+    if (models.ward && models.emergency && models.clinic) {
+      const free = () => info.filter((q) => !taken.has(q.i) && !q.outskirt && q.h < 55);
       const sites = [];
       for (const q of free().filter((q) => q.w >= 11 && q.d >= 9).sort((a, b) => b.w * b.d - a.w * a.d)) {
         if (sites.every((o) => Math.hypot(o.cx - q.cx, o.cz - q.cz) > 160)) sites.push(q);
         if (sites.length >= 2) break;
       }
-      for (const q of sites) {
+      const put = (id, q, lo, hi) => {
         taken.add(q.i);
-        const sw = fit(models.ward, q, 0.7, 1.35);
-        assign.push({ id: "ward", s: sw, sy: sw, x: q.cx, z: q.b.max.z, index: q.i });
-        // the stair tower against the ward's right-hand side, back to back
-        const sc = sw * 1.15;
-        assign.push({
-          id: "core", s: sc, sy: sc,
-          x: q.cx + (models.ward.w * sw) / 2 + (models.core.w * sc) / 2 - 0.3,
-          z: q.b.max.z - (models.ward.d * sw) / 2 + (models.core.d * sc) / 2,
-          index: -1, noDoor: true,
-        });
+        const yaw = yawToRoad(q.cx, q.cz);
+        const s = Math.max(lo, Math.min(hi, fitScale(models[id], yaw, q.w, q.d)));
+        assign.push({ id, s, cx: q.cx, cz: q.cz, yaw, index: q.i });
+        return assign[assign.length - 1];
+      };
+      for (const q of sites) {
+        const ward = put("ward", q, 0.7, 1.35);
+        if (models.core) {
+          const sc = ward.s * 1.15;
+          const sinY = Math.sin(ward.yaw), cosY = Math.cos(ward.yaw);
+          const along = (models.ward.w * ward.s) / 2 + (models.core.w * sc) / 2 - 0.3; // to the ward's right
+          const back = -((models.ward.d * ward.s) - (models.core.d * sc)) / 2; // backs level
+          assign.push({
+            id: "core", s: sc, yaw: ward.yaw, index: -1, noDoor: true,
+            cx: ward.cx + cosY * along + sinY * back,
+            cz: ward.cz - sinY * along + cosY * back,
+          });
+        }
         const near = free()
           .filter((o) => o.w >= 7 && o.d >= 5)
           .sort((a, b) => Math.hypot(a.cx - q.cx, a.cz - q.cz) - Math.hypot(b.cx - q.cx, b.cz - q.cz));
-        const [em, cl] = [near[0], near[1]];
-        if (em) {
-          taken.add(em.i);
-          const se = fit(models.emergency, em, 0.6, 1.4);
-          assign.push({ id: "emergency", s: se, sy: se, x: em.cx, z: em.b.max.z, index: em.i });
-        }
-        if (cl) {
-          taken.add(cl.i);
-          const sl = fit(models.clinic, cl, 0.6, 1.5);
-          assign.push({ id: "clinic", s: sl, sy: sl, x: cl.cx, z: cl.b.max.z, index: cl.i });
-        }
+        if (near[0]) put("emergency", near[0], 0.6, 1.4);
+        if (near[1]) put("clinic", near[1], 0.6, 1.5);
       }
     }
 
-    const ids2 = ids.filter((id) => !MODELS[id].landmark && !MODELS[id].special);
+    // ---- everything else
+    const pool = ids.filter((id) => !MODELS[id].special && !MODELS[id].outskirt);
     const used = Object.fromEntries(ids.map((id) => [id, 0]));
-    boxes.forEach((b, i) => {
-      if (taken.has(i)) return;
-      const w = b.max.x - b.min.x;
-      const d = b.max.z - b.min.z;
-      const origH = b.max.y;
-      const hWant = Math.min(44, Math.max(14, origH * 0.8));
+    for (const q of info) {
+      if (taken.has(q.i)) continue;
+      const yaw = yawToRoad(q.cx, q.cz);
+      const hWant = Math.min(44, Math.max(14, q.h * 0.8));
       const options = [];
-      for (const id of ids2) {
+      for (const id of pool) {
         const m = models[id];
         if (MODELS[id].max !== undefined && used[id] >= MODELS[id].max) continue;
-        const sFit = Math.min((w * 0.96) / m.w, (d * 0.96) / m.d) * 1.05;
-        let s = Math.min(sFit, hWant / m.h);
-        // Always scaled evenly: stretching a model only upward pulls its
-        // windows apart into slats. A tower may overrun its plot a little,
-        // since the plots it takes are well clear of the road.
-        if (MODELS[id].tall) {
-          if (origH < 55) continue; // towers go where towers were
-          s = Math.min(sFit * 1.5, hWant / m.h);
-        } else if (origH >= 55 && hash(i, 3) < 0.6) {
-          continue; // most tall plots take a tower
-        }
-        const sy = s;
-        const height = m.h * sy;
-        if (height < 10.5) continue;
-        options.push({ id, s, sy, height });
+        const s = Math.min(fitScale(m, yaw, q.w, q.d), hWant / m.h);
+        if (m.h * s < 10.5) continue;
+        options.push({ id, s });
       }
-      if (!options.length) return;
-      const pick = options[Math.floor(hash(i, 1) * options.length)];
+      if (!options.length) continue;
+      const pick = options[Math.floor(hash(q.i, 1) * options.length)];
       used[pick.id]++;
-      assign.push({ ...pick, x: (b.min.x + b.max.x) / 2, z: b.max.z, index: i });
-    });
+      assign.push({ ...pick, cx: q.cx, cz: q.cz, yaw, index: q.i });
+    }
 
-    // one InstancedMesh per model part
+    // ---- one InstancedMesh per model part
     const m4 = new THREE.Matrix4();
+    const quat = new THREE.Quaternion();
+    const up = new THREE.Vector3(0, 1, 0);
     const tint = new THREE.Color();
     for (const id of ids) {
       const list = assign.filter((a) => a.id === id);
       if (!list.length) continue;
-      const model = models[id];
-      for (const part of model.parts) {
+      for (const part of models[id].parts) {
         const inst = new THREE.InstancedMesh(part.geometry, part.material, list.length);
         inst.castShadow = true;
         inst.receiveShadow = true;
         inst.frustumCulled = false;
         list.forEach((a, i) => {
-          // front flush with the plot's front edge, centred across it
-          m4.compose(
-            new THREE.Vector3(a.x, 0, a.z - (model.d * a.s) / 2),
-            new THREE.Quaternion(),
-            new THREE.Vector3(a.s, a.sy, a.s)
-          );
+          m4.compose(new THREE.Vector3(a.cx, 0, a.cz), quat.setFromAxisAngle(up, a.yaw), new THREE.Vector3(a.s, a.s, a.s));
           inst.setMatrixAt(i, m4);
           if (MODELS[id].tint === part.name) inst.setColorAt(i, tint.setHex(TINTS[Math.floor(hash(a.index, 5) * TINTS.length)]));
         });
@@ -282,7 +299,18 @@ export class CityBuildings {
         this.meshes.push(inst);
       }
     }
-    this.placed = assign.map((a) => ({ index: a.index, x: a.x, z: a.z, halfW: (models[a.id].w * a.s) / 2, noDoor: !!a.noDoor, id: a.id }));
+    this.placed = assign.map((a) => {
+      const m = models[a.id];
+      return {
+        index: a.index, id: a.id, noDoor: !!a.noDoor || !!MODELS[a.id].outskirt,
+        x: a.cx, z: a.cz, yaw: a.yaw,
+        halfW: (m.w * a.s) / 2, halfD: (m.d * a.s) / 2,
+        // the door: the middle of the front face, and the unit vectors out of it and along it
+        fwd: { x: Math.sin(a.yaw), z: Math.cos(a.yaw) },
+        right: { x: Math.cos(a.yaw), z: -Math.sin(a.yaw) },
+      };
+    });
+    for (const pl of this.placed) pl.door = { x: pl.x + pl.fwd.x * pl.halfD, z: pl.z + pl.fwd.z * pl.halfD };
     this.counts = Object.fromEntries(ids.map((id) => [id, assign.filter((a) => a.id === id).length]));
   }
 

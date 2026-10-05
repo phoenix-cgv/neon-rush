@@ -1,6 +1,14 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { CityBuildings } from "./city-buildings.js";
+import { CityAmenities } from "./city-amenities.js";
+import gardenUrl from "../../assets/props/garden.glb?url";
+import benchUrl from "../../assets/props/bench.glb?url";
+import fountainUrl from "../../assets/props/fountain.glb?url";
+import ferrisUrl from "../../assets/props/ferris-wheel.glb?url";
+import craneUrl from "../../assets/props/crane.glb?url";
+import jetUrl from "../../assets/props/airplane.glb?url";
+import cessnaUrl from "../../assets/props/small-airplane.glb?url";
 import treeUrl from "../../assets/props/ornamental-tree.glb?url";
 import planterUrl from "../../assets/props/planter-box.glb?url";
 import wheatUrl from "../../assets/props/wheat-plant.glb?url";
@@ -194,7 +202,7 @@ function bake(gltf) {
     const material = o.material.clone();
     material.vertexColors = !!geometry.attributes.color;
     material.side = THREE.DoubleSide;
-    out.push({ geometry, material });
+    out.push({ geometry, material, name: `${o.name}|${o.parent?.name ?? ""}` });
   });
   return out;
 }
@@ -202,7 +210,7 @@ function bake(gltf) {
 /** Fetch the GL props once (tree, planter box, wheat, lamp post, fence, bins, shrub). */
 export function loadCityProps() {
   propsLoading ??= Promise.all(
-    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl], ["bin", binUrl], ["paper", paperUrl], ["shrub", shrubUrl], ["stall", stallUrl]].map(
+    [["tree", treeUrl], ["planter", planterUrl], ["wheat", wheatUrl], ["lamp", lampUrl], ["fence", fenceUrl], ["bin", binUrl], ["paper", paperUrl], ["shrub", shrubUrl], ["stall", stallUrl], ["garden", gardenUrl], ["bench", benchUrl], ["fountain", fountainUrl], ["ferris", ferrisUrl], ["crane", craneUrl], ["jet", jetUrl], ["cessna", cessnaUrl]].map(
       async ([name, url]) => [name, bake(await loader.loadAsync(url))]
     )
   )
@@ -320,23 +328,82 @@ export class CityNature {
 
     // ---- the buildings: modelled designs on the map's plots
     // denser: infill plots between the map's own
-    const infill = infillPlots(track, buildings, pits, 110);
+    // Set pieces first (they need open ground), then the infill works round them.
+    const centre = { x: -90, z: 0 };
+    const blockers = []; // square footprints of the set pieces
+    const sites = { centre, gardens: [], fountains: [] };
+    const facing = (x, z) => {
+      const pr = track.project(new THREE.Vector3(x, 0, z));
+      track.frameAt(pr.s, fr0);
+      return Math.atan2(-(fr0.position.z - z), fr0.position.x - x);
+    };
+    const fr0 = {};
+    const siteR = rng(515);
+    const findSite = (radius, near, far) => {
+      const probe = new THREE.Vector3();
+      for (let n = 0; n < 20000; n++) {
+        const x = -380 + siteR() * 560;
+        const z = -220 + siteR() * 440;
+        const dist = track.project(probe.set(x, 0, z)).distance;
+        if (dist < near || dist > far) continue;
+        const clearB = buildings.every((o) => {
+          const cx = Math.max(o.min.x, Math.min(x, o.max.x)), cz = Math.max(o.min.z, Math.min(z, o.max.z));
+          return Math.hypot(x - cx, z - cz) > radius + 1.5;
+        });
+        if (!clearB || blockers.some((o) => Math.hypot(x - (o.min.x + o.max.x) / 2, z - (o.min.z + o.max.z) / 2) < radius + (o.max.x - o.min.x) / 2 + 3)) continue;
+        if (pits.some((q) => Math.hypot(x - q.x, z - q.z) < radius * 0.7)) continue;
+        blockers.push(new THREE.Box3(new THREE.Vector3(x - radius, 0, z - radius), new THREE.Vector3(x + radius, 5, z + radius)));
+        return { x, z };
+      }
+      return null;
+    };
+    if (props?.ferris) {
+      const q = findSite(25, 36, 200);
+      if (q) sites.ferris = { ...q, yaw: facing(q.x, q.z) };
+      else console.warn("[city-nature] no open ground for the ferris wheel");
+    }
+    if (props?.crane) {
+      const q = findSite(15, 26, 110);
+      if (q) sites.crane = { ...q, yaw: facing(q.x, q.z) + Math.PI / 2 };
+    }
+    if (props?.garden) for (let i = 0; i < 2; i++) { const q = findSite(14, 24, 100); if (q) sites.gardens.push({ ...q, yaw: facing(q.x, q.z) }); }
+    if (props?.fountain) for (let i = 0; i < 2; i++) { const q = findSite(7.5, 15, 80); if (q) sites.fountains.push(q); }
+
+    const infill = infillPlots(track, [...buildings, ...blockers], pits, 110);
     buildings.push(...infill);
     this.infillCount = infill.length;
-    this.buildings = new CityBuildings(scene, buildings, track);
+
+    // The skyline: skyscraper plots in a ring round the outskirts of the city.
+    const ring = [];
+    {
+      const rr = rng(77);
+      const probe = new THREE.Vector3();
+      for (let n = 0; n < 400 && ring.length < 40; n++) {
+        const ang = (ring.length / 40) * Math.PI * 2 + (rr() - 0.5) * 0.12;
+        const rad = 300 + rr() * 50;
+        const x = centre.x + Math.cos(ang) * rad * 1.15;
+        const z = centre.z + Math.sin(ang) * rad;
+        if (track.project(probe.set(x, 0, z)).distance < 70) continue;
+        if (ring.some((o) => Math.hypot(x - (o.min.x + o.max.x) / 2, z - (o.min.z + o.max.z) / 2) < 22)) continue;
+        const b = new THREE.Box3(new THREE.Vector3(x - 7, 0, z - 7), new THREE.Vector3(x + 7, 60, z + 7));
+        b.outskirt = true;
+        ring.push(b);
+      }
+    }
+    this.buildings = new CityBuildings(scene, [...buildings, ...ring], track, centre);
     const doorOf = new Map(this.buildings.placed.map((p) => [p.index, p]));
 
     // ---- paths from the pavement to every building's door
-    // Doors face +Z (the map's -Y). A short forecourt straight out from the
-    // door, then a straight run to the pavement's outer edge. A building whose
-    // run would cut across another is left without a path.
+    // A short forecourt straight out from the door (the way the building
+    // faces), then a straight run to the pavement's outer edge. A building
+    // whose run would cut across another is left without a path.
     const paths = [];
     const fr = {};
     buildings.forEach((b, bi) => {
-      if (!doorOf.has(bi)) return; // no building stands here any more
       const door = doorOf.get(bi);
-      const e = { x: door.x, z: door.z };
-      const f = { x: door.x, z: door.z + 2.6 };
+      if (!door || door.noDoor) return; // no building stands here any more
+      const e = { x: door.door.x, z: door.door.z };
+      const f = { x: e.x + door.fwd.x * 2.6, z: e.z + door.fwd.z * 2.6 };
       const pr = track.project(new THREE.Vector3(f.x, 0, f.z));
       track.frameAt(pr.s, fr);
       const side = Math.sign(pr.t || 1);
@@ -347,16 +414,16 @@ export class CityNature {
         tz: fr.tangent.z,
       };
       if (Math.hypot(t.x - f.x, t.z - f.z) > 46) return;
+      if ((t.x - f.x) * door.fwd.x + (t.z - f.z) * door.fwd.z < 0) return; // would run back through its own building
       let clear = true;
-      for (const o of buildings) {
-        if (o === b) {
-          if (segmentHitsBox(f.x, f.z, t.x, t.z, o, 0.2)) clear = false;
-        } else if (segmentHitsBox(f.x, f.z, t.x, t.z, o, 1.0) || segmentHitsBox(e.x, e.z, f.x, f.z, o, 0.4)) {
+      for (const o of [...buildings, ...blockers]) {
+        if (o === b) continue;
+        if (segmentHitsBox(f.x, f.z, t.x, t.z, o, 1.0) || segmentHitsBox(e.x, e.z, f.x, f.z, o, 0.4)) {
           clear = false;
+          break;
         }
-        if (!clear) break;
       }
-      if (clear) paths.push({ e, f, t });
+      if (clear) paths.push({ e, f, t, door });
     });
     this.pathCount = paths.length;
 
@@ -401,7 +468,7 @@ export class CityNature {
 
     // ---- trees stand at the map's paving squares, but never inside a building or on a path
     const clearOfBuildings = (p, pad) =>
-      !buildings.some((b) => p.x > b.min.x - pad && p.x < b.max.x + pad && p.z > b.min.z - pad && p.z < b.max.z + pad);
+      ![...buildings, ...blockers].some((b) => p.x > b.min.x - pad && p.x < b.max.x + pad && p.z > b.min.z - pad && p.z < b.max.z + pad);
     const clearOfPaths = (p, pad) =>
       !paths.some((q) => distToSegment(p.x, p.z, q.e.x, q.e.z, q.f.x, q.f.z) < pad || distToSegment(p.x, p.z, q.f.x, q.f.z, q.t.x, q.t.z) < pad);
     const spots = pits.filter((p) => clearOfBuildings(p, 3.4) && clearOfPaths(p, 2.4));
@@ -474,10 +541,11 @@ export class CityNature {
       const wr = rng(4242);
       const GROUND = -0.05;
       paths.forEach((pth, i) => {
+        const d = pth.door;
         for (const side of [-1, 1]) {
-          const px = pth.e.x + side * 1.7;
-          const pz = pth.e.z + 0.8;
-          planters.push(place(px, GROUND, pz, 0));
+          const px = pth.e.x + d.right.x * side * 1.7 + d.fwd.x * 0.8;
+          const pz = pth.e.z + d.right.z * side * 1.7 + d.fwd.z * 0.8;
+          planters.push(place(px, GROUND, pz, d.yaw));
           for (let k = 0; k < 6; k++) {
             wheat.push(place(px + (wr() - 0.5) * 0.7, GROUND + 0.74, pz + (wr() - 0.5) * 0.7, wr() * 6.28, 0.85 + wr() * 0.5));
           }
@@ -504,17 +572,28 @@ export class CityNature {
           place(p.x, p.y, p.z, faceRoad(p.x, p.z) + (wr() - 0.5) * 0.5, i % 3 === 2 ? 2.4 : 1)
         );
       });
+      const benchSpots = [];
       for (const p of benches) {
         const pr = track.project(new THREE.Vector3(p.x, 0, p.z));
         track.frameAt(pr.s, fr);
+        const k = -Math.sign(pr.t || 1);
         papers.push(place(p.x + fr.tangent.x * 1.5, p.y, p.z + fr.tangent.z * 1.5, faceRoad(p.x, p.z), 2.4));
+        benchSpots.push({ x: p.x, y: p.y, z: p.z, fx: fr.right.x * k, fz: fr.right.z * k });
       }
+      // a ring of benches round each fountain, all facing it
+      for (const q of sites.fountains) {
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI * 2 + 0.3;
+          benchSpots.push({ x: q.x + Math.cos(a) * 5.2, y: 0.12, z: q.z + Math.sin(a) * 5.2, fx: -Math.cos(a), fz: -Math.sin(a) });
+        }
+      }
+      this.amenities = new CityAmenities(scene, props, sites, benchSpots);
       this.buildings.placed.forEach((pl, i) => {
         if (pl.noDoor || i % 3 !== 0) return;
-        const bx = pl.x + pl.halfW + 0.8;
-        const bz = pl.z + 0.7;
+        const bx = pl.door.x + pl.right.x * (pl.halfW + 0.8) + pl.fwd.x * 0.7;
+        const bz = pl.door.z + pl.right.z * (pl.halfW + 0.8) + pl.fwd.z * 0.7;
         if (!clearOfPaths({ x: bx, z: bz }, 1.2)) return;
-        bins.push(place(bx, GROUND, bz, wr() * 0.6 - 0.3));
+        bins.push(place(bx, GROUND, bz, pl.yaw + wr() * 0.6 - 0.3));
       });
       addInstances(props.bin, bins);
       addInstances(props.paper, papers);
@@ -525,7 +604,7 @@ export class CityNature {
       this.buildings.placed.forEach((pl) => {
         if (pl.noDoor) return;
         const off = Math.max(2.8, Math.min(pl.halfW - 0.9, 3.8));
-        for (const side of [-1, 1]) shrubs.push(place(pl.x + side * off, GROUND, pl.z + 0.9, wr() * 6.28, 0.95 + wr() * 0.4));
+        for (const side of [-1, 1]) shrubs.push(place(pl.door.x + pl.right.x * side * off + pl.fwd.x * 0.9, GROUND, pl.door.z + pl.right.z * side * off + pl.fwd.z * 0.9, wr() * 6.28, 0.95 + wr() * 0.4));
       });
       for (let sPos = 6; sPos < track.length - 6; sPos += 13 + wr() * 5) {
         const side = wr() < 0.5 ? -1 : 1;
@@ -604,10 +683,12 @@ export class CityNature {
   /** Advance the wind. t in seconds. */
   update(t) {
     uniforms.uTime.value = t;
+    this.amenities?.update(t);
   }
 
   dispose() {
     this.buildings?.dispose();
+    this.amenities?.dispose();
     for (const o of this.objects) {
       this.scene.remove(o);
       o.dispose?.();

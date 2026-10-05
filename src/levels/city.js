@@ -48,7 +48,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // Likewise the cone trees and cone grass tufts (the unnamed trunks are
     // the map's "Cylinder"s): CityNature plants textured, wind-blown ones at
     // the same TreePit and GreenIsland spots.
-    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder|Cube|TrashBin|FacadeWindows|Facade_window_panes|RoofCap|Cornice|Balcony|Door|Canopy|WaterTank|TankRoof|RoofGarden)/,
+    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder|Cube|TrashBin|BenchSeat|BenchBack|Bench|FacadeWindows|Facade_window_panes|RoofCap|Cornice|Balcony|Door|Canopy|WaterTank|TankRoof|RoofGarden)/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
