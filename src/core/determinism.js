@@ -45,8 +45,19 @@ function unpack(a, out) {
   return out;
 }
 
+// A full state snapshot every KEY_EVERY steps (1 s). Controls alone cannot
+// keep a replay on the recorded line: anything the lap met that the
+// replay does not (a traffic car that slowed you, a rock) leaves the two
+// drifting apart until the replay hits something. The snapshots let the
+// ghost snap back onto the line it actually drove.
+export const KEY_EVERY = 60;
+
+const round4 = (v) =>
+  Array.isArray(v) ? v.map(round4) : typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v;
+
 export class Recorder {
   constructor() {
+    this.keys = {};
     this.frames = [];
     this.start = null;
     this.recording = false;
@@ -54,6 +65,7 @@ export class Recorder {
 
   begin(vehicle) {
     this.start = vehicle.captureState();
+    this.keys = {};
     this.frames = [];
     this.recording = true;
   }
@@ -62,9 +74,31 @@ export class Recorder {
     if (this.recording) this.frames.push(pack(controls));
   }
 
-  end() {
+  /**
+   * Call before the step that will consume frame `frames.length`, so the
+   * snapshot lines up with the replay's own frame counter.
+   */
+  snapshot(vehicle) {
+    const n = this.frames.length;
+    if (this.recording && n > 0 && n % KEY_EVERY === 0) {
+      const k = vehicle.captureState();
+      for (const f of Object.keys(k)) k[f] = round4(k[f]);
+      this.keys[n] = k;
+    }
+  }
+
+  /**
+   * @param {object} [vehicle]  if given, its state is stored as the final
+   *   snapshot, so a replay can be put exactly on the finish line.
+   */
+  end(vehicle = null) {
+    if (vehicle && this.recording) {
+      const k = vehicle.captureState();
+      for (const f of Object.keys(k)) k[f] = round4(k[f]);
+      this.keys[this.frames.length] = k;
+    }
     this.recording = false;
-    return { start: this.start, frames: this.frames };
+    return { start: this.start, frames: this.frames, keys: this.keys };
   }
 
   get seconds() {

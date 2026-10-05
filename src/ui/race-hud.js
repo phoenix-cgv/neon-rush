@@ -23,11 +23,12 @@ export class RaceHud {
     this.root.style.cssText = `position:fixed;inset:0;pointer-events:none;z-index:25;
       font:600 13px/1.3 ${FONT};color:#e6eff1;text-shadow:0 1px 2px rgba(0,0,0,.85);display:none`;
 
-    // lap / position / time, under the condition bar
+    // position / laps / times, top-left
     this.bar = document.createElement("div");
-    this.bar.style.cssText = `position:absolute;top:44px;left:50%;transform:translateX(-50%);
-      display:flex;gap:18px;letter-spacing:.08em;background:rgba(8,14,16,.55);
-      padding:5px 12px;border:1px solid rgba(190,210,215,.3);border-radius:3px;white-space:nowrap`;
+    this.bar.style.cssText = `position:absolute;top:22px;left:26px;white-space:nowrap;
+      font:600 13px/1.35 system-ui,sans-serif;letter-spacing:0;color:#fff`;
+    this.lapTimes = [];
+    this.lastLap = 1;
 
     // five start lamps
     this.lights = document.createElement("div");
@@ -63,6 +64,8 @@ export class RaceHud {
     this.root.style.display = on ? "block" : "none";
     this.results.style.display = "none";
     this.lastResults = "";
+    this.lapTimes = [];
+    this.lastLap = 1;
   }
 
   /**
@@ -88,10 +91,27 @@ export class RaceHud {
     const lap = Math.max(1, Math.min(director.laps, p.lap));
     const field = race.cars.length;
     const pos = director.playerPosition;
+    // Completed laps are logged as the lap counter ticks over.
+    if (p.lap > this.lastLap && p.lastLapTime !== null) this.lapTimes.push(p.lastLapTime);
+    this.lastLap = p.lap;
+    const total = t ?? 0;
+    const done = this.lapTimes.reduce((a, b) => a + b, 0);
+    const stamp = (x) => {
+      if (x === null) return "-:--.---";
+      const m = Math.floor(x / 60);
+      return `${m}:${(x - m * 60).toFixed(3).padStart(6, "0")}`;
+    };
+    const ord = (n) => n + (["th", "st", "nd", "rd"][(n % 100 >> 3) ^ 1 && n % 10 < 4 ? n % 10 : 0]);
+    const small = `font:400 11px/1.5 system-ui,sans-serif;opacity:.9`;
+    const rows = Array.from({ length: director.laps }, (_, i) =>
+      `<div>(${i + 1}) ${stamp(i < this.lapTimes.length ? this.lapTimes[i] : i === lap - 1 ? Math.max(0, total - done) : null)}</div>`
+    ).join("");
     this.bar.innerHTML =
-      `<span>LAP ${lap}/${director.laps}</span>` +
-      (field > 1 ? `<span>P${pos}/${field}</span>` : "") +
-      `<span>${fmt(t ?? 0)}${director.timeLimit ? ` / ${fmt(director.timeLimit)}` : ""}</span>`;
+      (field > 1
+        ? `<div style="font:italic 800 22px/1.1 system-ui,sans-serif">Position <span style="font-size:30px;margin-left:8px">${ord(pos)}</span></div>`
+        : "") +
+      `<div style="font:italic 600 17px/1.5 system-ui,sans-serif;opacity:.95">Laps ${lap} / ${director.laps}</div>` +
+      `<div style="${small};margin-top:6px"><div>Total Time &nbsp;&nbsp; ${stamp(total)}${director.timeLimit ? ` / ${stamp(director.timeLimit)}` : ""}</div>${rows}</div>`;
 
     // results
     if (director.state === "finished") {
@@ -135,7 +155,11 @@ export class RaceHud {
           .join("") +
         `</table>` +
         `<div style="margin-top:14px;color:#8fa5ac;letter-spacing:.06em">` +
-        `R&nbsp; race again &nbsp;·&nbsp; L&nbsp; next level</div>`;
+        `R&nbsp; race again &nbsp;·&nbsp; L&nbsp; next level` +
+        (this.returnIn !== null && this.returnIn !== undefined
+          ? ` &nbsp;·&nbsp; title page in ${Math.ceil(this.returnIn)} s`
+          : "") +
+        `</div>`;
       // Rebuilt only when something changed: rewriting innerHTML every
       // frame is wasted layout work.
       if (html !== this.lastResults) {

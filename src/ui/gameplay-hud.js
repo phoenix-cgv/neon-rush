@@ -1,5 +1,6 @@
 import { CAR } from "../vehicle/config.js";
 
+const TIER_COLOURS = ["#7fe3ff", "#ffd24a", "#ff9a2a", "#ff3b30"];
 const FONT = `"Cascadia Mono",Consolas,monospace`;
 const CRITICAL_DAMAGE = 0.85; // warn before RaceDirector's default maxDamage (1) ends the race
 const GHOST_COLOR = "#7fe3ff"; // matches the ghost car's paint (src/core/ghost.js)
@@ -17,14 +18,42 @@ export class GameplayHud {
     this.root.style.cssText = `position:fixed;inset:0;z-index:24;pointer-events:none;
       font:700 11px/1 ${FONT};letter-spacing:.1em;color:#dbe8eb;display:none`;
 
+    // The boost tank: the ordinary bar (cyan), and to its right the red
+    // extension a drift combo adds. The bar is anchored at its left so the
+    // extension grows outward.
     this.boost = document.createElement("div");
-    this.boost.style.cssText = `position:absolute;left:50%;bottom:22px;transform:translateX(-50%);
-      width:min(280px,58vw);text-align:center;text-shadow:0 1px 2px #000`;
-    this.boost.innerHTML = `<div style="margin-bottom:5px">BOOST</div><div data-track style="height:9px;
-      border:1px solid rgba(190,220,225,.55);background:rgba(5,13,16,.72);overflow:hidden">
-      <div data-fill style="height:100%;width:0;background:#32c9df;transition:width .1s linear"></div></div>`;
+    this.boost.style.cssText = `position:absolute;left:calc(50% - min(140px,29vw));bottom:22px;
+      text-align:left;text-shadow:0 1px 2px #000`;
+    this.boost.innerHTML = `<div style="margin-bottom:5px;display:flex;gap:10px">BOOST
+      <span data-ext style="color:#ff5a4a;display:none">+<span data-extn>0</span> RED TANK</span></div>
+      <div style="display:flex;align-items:stretch">
+        <div data-track style="width:min(280px,58vw);height:9px;box-sizing:border-box;
+          border:1px solid rgba(190,220,225,.55);background:rgba(5,13,16,.72);overflow:hidden">
+          <div data-fill style="height:100%;width:0;background:#32c9df;transition:width .1s linear"></div></div>
+        <div data-xtrack style="width:0;height:9px;box-sizing:border-box;border:1px solid #ff4b3a;
+          border-left:0;background:rgba(40,6,4,.75);overflow:hidden;
+          box-shadow:0 0 10px rgba(255,59,48,.55);transition:width .25s ease;display:none">
+          <div data-xfill style="height:100%;width:0;background:linear-gradient(90deg,#ff3b30,#ff8a5a);
+            transition:width .1s linear"></div></div>
+      </div>`;
     this.fill = this.boost.querySelector("[data-fill]");
     this.boostTrack = this.boost.querySelector("[data-track]");
+    this.xtrack = this.boost.querySelector("[data-xtrack]");
+    this.xfill = this.boost.querySelector("[data-xfill]");
+    this.extLabel = this.boost.querySelector("[data-ext]");
+    this.extN = this.boost.querySelector("[data-extn]");
+
+    // Drift title: DRIFTER -> DRIFT MASTER x2 -> DRIFT KING x3 -> DRIFT GOD x5.
+    this.drift = document.createElement("div");
+    this.drift.style.cssText = `position:absolute;left:50%;bottom:70px;transform:translateX(-50%);
+      text-align:center;white-space:nowrap;opacity:0;transition:opacity .25s;
+      font:400 clamp(1.4rem,4vw,2.4rem)/1 Anton,Impact,'Arial Narrow Bold',sans-serif;
+      letter-spacing:.06em;text-shadow:0 0 14px currentColor,0 2px 4px #000`;
+    this.driftName = document.createElement("div");
+    this.driftSub = document.createElement("div");
+    this.driftSub.style.cssText = `font:700 11px/1.4 ${FONT};letter-spacing:.2em;margin-top:4px;color:#fff`;
+    this.drift.append(this.driftName, this.driftSub);
+    this.lastTier = -1;
 
     this.checkpoint = document.createElement("div");
     this.checkpoint.dataset.gameplayCheckpoint = "";
@@ -44,7 +73,7 @@ export class GameplayHud {
       font:800 18px/1 ${FONT};letter-spacing:.1em;color:#58e08f;text-shadow:0 2px 4px #000;
       display:none;white-space:nowrap`;
 
-    this.root.append(this.boost, this.checkpoint, this.warning, this.toast);
+    this.root.append(this.boost, this.drift, this.checkpoint, this.warning, this.toast);
     document.body.appendChild(this.root);
     this.responsiveStyle = document.createElement("style");
     this.responsiveStyle.textContent = `@media (max-width:600px) {
@@ -52,7 +81,7 @@ export class GameplayHud {
       [data-gameplay-warning] { top:215px !important; font-size:16px !important; }
     }`;
     document.head.appendChild(this.responsiveStyle);
-    this.lastCharge = -1;
+    this.lastKey = "";
   }
 
   setActive(active) {
@@ -73,13 +102,43 @@ export class GameplayHud {
 
   update(progress, track, state, ghostBestLap = null, hazard = null, finished = false) {
     if (!progress || !track || !state) return;
-    const charge = Math.max(0, Math.min(1, state.boostCharge / CAR.boostCapacity));
-    if (Math.abs(charge - this.lastCharge) >= 0.002) {
+    // Ordinary tank, then the red extension beyond it.
+    const base = CAR.boostCapacity;
+    const extra = state.tankExtra ?? 0;
+    const charge = Math.max(0, Math.min(1, state.boostCharge / base));
+    const red = extra > 0 ? Math.max(0, Math.min(1, (state.boostCharge - base) / extra)) : 0;
+    const key = `${charge.toFixed(3)}|${red.toFixed(3)}|${extra.toFixed(1)}`;
+    if (key !== this.lastKey) {
+      this.lastKey = key;
       this.fill.style.width = `${(charge * 100).toFixed(1)}%`;
-      this.lastCharge = charge;
+      const showExt = extra > 0.5;
+      this.xtrack.style.display = showExt ? "block" : "none";
+      this.xtrack.style.width = showExt ? `calc(min(280px,58vw) * ${(extra / base).toFixed(3)})` : "0";
+      this.xfill.style.width = `${(red * 100).toFixed(1)}%`;
+      this.extLabel.style.display = showExt ? "inline" : "none";
+      this.extN.textContent = Math.round(extra);
     }
     this.fill.style.background = state.boosting ? "#f5fbff" : "#32c9df";
     this.boostTrack.style.boxShadow = state.boosting ? "0 0 16px rgba(50,201,223,.9)" : "none";
+
+    // The drift title, popping each time a new one is earned.
+    const tier = state.driftTier ?? -1;
+    const live = tier >= 0 && (state.driftGap ?? 0) < 0.9;
+    this.drift.style.opacity = live ? "1" : "0";
+    if (tier >= 0) {
+      const t = CAR.driftTiers[tier];
+      this.driftName.textContent = `${t.name} x${t.mult}`;
+      this.driftSub.textContent = `${state.driftChain.toFixed(1)} s  ·  FILLS ${t.mult}x FASTER  ·  TANK +${t.ext}`;
+      this.drift.style.color = TIER_COLOURS[tier];
+      if (tier !== this.lastTier && live) {
+        this.drift.animate(
+          [{ transform: "translateX(-50%) scale(1.7)" }, { transform: "translateX(-50%) scale(1)" }],
+          { duration: 320, easing: "cubic-bezier(.2,1.4,.4,1)" }
+        );
+        this.onTierUp?.(tier);
+      }
+    }
+    this.lastTier = live ? tier : -1;
 
     this.checkpoint.innerHTML =
       `NEXT CP ${progress.nextCheckpoint + 1}/${track.checkpoints.length}` +

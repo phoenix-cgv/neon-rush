@@ -177,43 +177,49 @@ def mat_emit(name,color,strength=4.0,rough=.3):
     b.inputs["Emission Strength"].default_value=strength
     return m
 
-MAT_ASPHALT=mat_bump("Asphalt",(0.045,0.045,0.048,1),.92,0,.08,30)
+# Restrained urban palette: blue-charcoal paving, pale concrete, brick, teal and coral accents.
+MAT_ASPHALT=mat_bump("Asphalt | blue charcoal",(0.085,0.105,0.118,1),.9,0,.055,32)
+MAT_CITY_BASE=mat_bump("City blocks | graphite",(0.20,0.23,0.23,1),.94,0,.12,18)
+MAT_PLAZA=mat_bump("Public square | pale stone",(0.50,0.53,0.49,1),.88,0,.08,12)
+MAT_ROOF=mat("Roof | zinc",(0.16,0.22,0.24,1),.7,.24)
+MAT_TRIM=mat("Facade trim | limestone",(0.68,0.70,0.64,1),.78)
+MAT_COURT=mat("Courtyard | terracotta",(0.50,0.23,0.17,1),.86)
 MAT_LINE=mat("Line",(0.92,0.92,0.9,1),.2)   # not pure white: reads as "no colour" in the export
 MAT_CONC=mat_bump("Concrete",(0.55,0.55,0.55,1),.8,0,.12,6)
 MAT_GLASS=mat("Glass",(0.1,0.15,0.25,1),.05)
 MAT_BUILD=mat("Building",(0.45,0.48,0.52,1),.7)
 MAT_GREEN=mat("Green",(0.1,0.4,0.1,1),.9)
-MAT_GRASS=mat_bump("Grass",(0.08,0.28,0.06,1),.95,0,.25,50)
-MAT_GRASS_LIGHT=mat_bump("Grass Light",(0.18,0.42,0.08,1),.92,0,.2,45)
-MAT_PAVEMENT=mat_bump("Pavement",(0.32,0.34,0.35,1),.88,0,.1,15)
+MAT_GRASS=mat_bump("Grass",(0.13,0.27,0.18,1),.95,0,.18,50)
+MAT_GRASS_LIGHT=mat_bump("Grass Light",(0.23,0.39,0.25,1),.92,0,.18,45)
+MAT_PAVEMENT=mat_bump("Pavement",(0.46,0.49,0.48,1),.86,0,.07,15)
 MAT_PAVEMENT_LIGHT=mat("Pavement Light",(0.52,0.52,0.48,1),.9)
 MAT_KERB=mat("Kerb",(0.82,0.84,0.82,1),.72)
-MAT_KERB_RED=mat("Kerb Red",(0.65,0.03,0.025,1),.65)
+MAT_KERB_RED=mat("Kerb Coral",(0.78,0.19,0.14,1),.65)
 MAT_TREE_TRUNK=mat_bump("Tree Trunk",(0.18,0.07,0.025,1),.95,0,.2,20)
 MAT_TREE_DARK=mat("Tree Leaves Dark",(0.025,0.16,0.035,1),.92)
 MAT_TREE_LIGHT=mat("Tree Leaves Light",(0.12,0.38,0.06,1),.9)
 MAT_TREE_PINE=mat("Tree Leaves Pine",(0.04,0.12,0.05,1),.9)
 MAT_GRASS_BLADE=mat("GrassBlade",(0.15,0.4,0.08,1),.85)
 MAT_BUILDINGS=[
-    mat("Facade Sandstone",(0.55,0.38,0.24,1),.78),
-    mat("Facade Brick",(0.38,0.12,0.08,1),.82),
-    mat("Facade Blue",(0.12,0.24,0.38,1),.62),
-    mat("Facade Slate",(0.20,0.23,0.27,1),.72),
-    mat("Facade White",(0.72,0.72,0.67,1),.8),
+    mat("Facade limestone",(0.63,0.64,0.58,1),.78),
+    mat("Facade fired brick",(0.43,0.21,0.18,1),.82),
+    mat("Facade mineral teal",(0.16,0.36,0.36,1),.73),
+    mat("Facade graphite",(0.24,0.30,0.31,1),.72),
+    mat("Facade chalk",(0.76,0.76,0.69,1),.82),
 ]
-MAT_WINDOW_LIT=mat_emit("Warm Window Light",(1.0,0.55,0.15,1),1.8,.28)
-MAT_WINDOW_COOL=mat("Cool Window Glass",(0.04,0.22,0.38,1),.18, .15)
+MAT_WINDOW_LIT=mat_emit("Warm Window Light",(0.95,0.69,0.39,1),0.8,.3)
+MAT_WINDOW_COOL=mat("Cool Window Glass",(0.08,0.23,0.27,1),.22, .15)
 MAT_AWNINGS=[
-    mat("Awning Red",(0.65,0.035,0.025,1),.55),
+    mat("Awning Coral",(0.74,0.23,0.18,1),.55),
     mat("Awning Teal",(0.02,0.38,0.34,1),.55),
-    mat("Awning Yellow",(0.9,0.56,0.03,1),.55),
+    mat("Awning Mustard",(0.78,0.60,0.23,1),.55),
 ]
 MAT_METAL_DARK=mat("MetalDark",(0.1,0.1,0.11,1),.35,.75)
 MAT_PATCH=mat("RoadPatch",(0.03,0.03,0.03,1),.95)
 MAT_PUDDLE=mat("Puddle",(0.03,0.05,0.07,1),.05)
 MAT_SIGN_POLE=mat("SignPole",(0.6,0.6,0.62,1),.3,.8)
 MAT_SIGN_FACE=mat("SignFace",(0.9,0.85,0.1,1),.3)
-MAT_BILLBOARD=mat_emit("Billboard",(0.1,0.6,0.9,1),2.0)
+MAT_BILLBOARD=mat_emit("Circuit sign | coral",(0.75,0.20,0.16,1),0.7)
 MAT_LAMP_POLE=mat("LampPole",(0.08,0.08,0.09,1),.4,.6)
 MAT_LAMP_GLOW=mat_emit("LampGlow",(1,0.9,0.65,1),5.0)
 MAT_SIGNAL_RED=mat_emit("SignalRed",(1,0.05,0.05,1),5.0)
@@ -274,10 +280,10 @@ cols["CITY_ROAD"].objects.link(road)
 
 # ---------- ground and continuous pavement ----------
 GROUND_Z=-.12   # with +-5 cm relief: 7-17 cm under the road; things built from z=0 sit slightly sunk
-bpy.ops.mesh.primitive_plane_add(size=1000, location=(-90,0,GROUND_Z))
+bpy.ops.mesh.primitive_plane_add(size=750, location=(-90,0,GROUND_Z))
 ground=bpy.context.object
 ground.name="CityGround"
-ground.data.materials.append(MAT_GRASS)
+ground.data.materials.append(MAT_CITY_BASE)
 link(ground,"GROUND")
 
 # Gentle terrain relief so the ground isn't perfectly flat.
@@ -324,9 +330,10 @@ ribbon("KerbRight",[(-hw-.35,KERB_H),(-hw-.08,KERB_H),(-hw,0)],MAT_KERB,"SIDEWAL
 ribbon("PavementLeft",[(hw+.35,KERB_H),(hw+5.0,KERB_H),(hw+5.0,GROUND_Z-.15)],MAT_PAVEMENT,"SIDEWALKS")
 ribbon("PavementRight",[(-hw-5.0,GROUND_Z-.15),(-hw-5.0,KERB_H),(-hw-.35,KERB_H)],MAT_PAVEMENT,"SIDEWALKS")
 
-# Small planted islands break up the otherwise continuous pavement.
+# Green pockets and paved squares break up the city blocks; no grass under the road.
 for x,y,w,h in [(-320,-150,70,35),(-40,175,55,28),(125,-115,45,24),(85,125,38,22)]:
-    box("GreenIsland",(x,y,.02),(w,h,.12),MAT_GRASS_LIGHT,"GROUND")
+    box("GreenIsland",(x,y,-.025),(w,h,.12),MAT_GRASS_LIGHT,"GROUND")
+
 
 # ---------- markings ----------
 for side in (-1,1):
@@ -469,19 +476,18 @@ for k,t in enumerate(track_pts):
 track_kd.balance()
 
 def far_from_track(x,y,d=20):
-    # Same test as before (nearest ring point), via a KD-tree: the loop over
-    # all 1120 points made a build take over ten minutes.
     return track_kd.find((x,y,0))[2]>d
 
+# Composition is zoned: tall blocks near the central district, low neighborhoods
+# toward the edges. Keep entire building footprints beyond the racing clearance.
+occupied=[]
 for i in range(BUILDING_COUNT):
-    for _ in range(20):
-        x=random.uniform(-380,180)
-        y=random.uniform(-220,220)
-        if far_from_track(x,y): break
-    else:
-        continue   # all 20 tries were too close to the track: skip this one
-
-    style=random.randint(0,4)
+    style=random.choices(range(5),weights=(3,3,3,3,2))[0]
+    x=random.uniform(-380,180)
+    y=random.uniform(-220,220)
+    downtown=math.hypot((x+65)*.85,y-25)<135
+    if not downtown and style==0:
+        style=random.choice((1,2,3,4))
     if style==0:
         sx,sy,sz=8,8,random.uniform(50,120)
     elif style==1:
@@ -493,26 +499,65 @@ for i in range(BUILDING_COUNT):
     else:
         sx,sy,sz=20,20,random.uniform(8,15)
 
+    # A building is only placed if its nearest corner, not merely its center,
+    # clears the racing corridor and neighboring building footprints.
+    footprint=math.hypot(sx,sy)/2
+    for _ in range(70):
+        if (far_from_track(x,y,footprint+11.0) and
+            all(math.hypot(x-ox,y-oy)>footprint+radius+2 for ox,oy,radius in occupied)):
+            break
+        x=random.uniform(-380,180)
+        y=random.uniform(-220,220)
+    else:
+        continue
+    occupied.append((x,y,footprint))
+
     b=add_prim('cube',(x,y,sz/2))
     b.scale=(sx/2,sy/2,sz/2)
-    b.rotation_euler[2]=random.uniform(-0.12,0.12)
-    b.data.materials.append(random.choice(MAT_BUILDINGS))
+    b.data.materials.append(MAT_BUILDINGS[style])
     link(b,"BUILDINGS")
 
-    # Repeated window bands give towers a readable facade without creating a
-    # separate object for every individual window.
-    floors=max(2,min(12,int(sz/5)))
+    # One mesh per facade carries individual window panes: legible architecture
+    # without adding thousands of separate Blender objects to the scene.
+    floors=max(2,min(16,int(sz/4.2)))
+    panes=[]; window_faces=[]; window_materials=[]
     for floor in range(floors):
-        z=3.0+floor*max(3.0,sz/(floors+1))
-        if z>sz-1.5:
+        z=2.8+floor*max(3.0,(sz-3)/(floors+0.25))
+        if z+0.8>sz-0.6:
             continue
-        window_mat=MAT_WINDOW_LIT if random.random()<0.58 else MAT_WINDOW_COOL
-        for side in (-1,1):
-            window=add_prim('cube',(x+side*(sx/2+.035),y,z))
-            window.scale=(.035,max(.22,sy*.28),.55)
-            window.rotation_euler[2]=b.rotation_euler[2]
-            window.data.materials.append(window_mat)
-            link(window,"BUILDINGS")
+        for axis,extent,other in ((0,sx,sy),(1,sy,sx)):
+            columns=max(2,min(5,int(extent/3)))
+            for side in (-1,1):
+                for col in range(columns):
+                    along=-extent/2+(col+1)*extent/(columns+1)
+                    half_w=min(.68,extent/(columns+1)*.28)
+                    edge=other/2+.012
+                    if axis==0:  # front/back: horizontal X and vertical Z
+                        xx=x+along; yy=y+side*edge
+                        quad=[(xx-half_w,yy,z-.68),(xx+half_w,yy,z-.68),
+                              (xx+half_w,yy,z+.68),(xx-half_w,yy,z+.68)]
+                    else:        # left/right: horizontal Y and vertical Z
+                        xx=x+side*edge; yy=y+along
+                        quad=[(xx,yy-half_w,z-.68),(xx,yy+half_w,z-.68),
+                              (xx,yy+half_w,z+.68),(xx,yy-half_w,z+.68)]
+                    start=len(panes)
+                    panes.extend(quad)
+                    window_faces.append(tuple(range(start,start+4)))
+                    window_materials.append(1 if random.random()<.18 else 0)
+    if panes:
+        wm=bpy.data.meshes.new("Facade window panes")
+        wm.from_pydata(panes,[],window_faces)
+        wm.materials.append(MAT_WINDOW_COOL)
+        wm.materials.append(MAT_WINDOW_LIT)
+        for poly,material_id in zip(wm.polygons,window_materials):
+            poly.material_index=material_id
+        wo=bpy.data.objects.new("FacadeWindows",wm)
+        cols["BUILDINGS"].objects.link(wo)
+
+    # Flat parapets and roof caps give every silhouette a finished edge.
+    box("RoofCap",(x,y,sz+.12),(sx+.32,sy+.32,.24),MAT_ROOF,"BUILDINGS")
+    if sz>18:
+        box("Cornice",(x,y,sz-.45),(sx+.20,sy+.20,.18),MAT_TRIM,"BUILDINGS")
 
     # Rooftop mechanical equipment and a short antenna make the skyline less
     # uniform, especially on the taller buildings.
@@ -733,11 +778,14 @@ for name,pos in cams:
     bpy.ops.object.camera_add(location=pos)
     c=bpy.context.object
     c.name=name
-    c.rotation_euler=(1.1,0,0)
+    # Point every preset at the circuit instead of relying on a fixed Euler angle.
+    target=Vector((-100,0,0)) if name=="Overview" else center[0 if name=="StartFinish" else int(len(center)*.35)]
+    c.rotation_euler=(target-c.location).to_track_quat('-Z','Y').to_euler()
     if name=="Overview":
-        c.data.dof.use_dof=True
-        c.data.dof.focus_distance=280
-        c.data.dof.aperture_fstop=4.0
+        c.data.type='ORTHO'
+        c.data.ortho_scale=720
+        c.data.lens=50
+        c.data.dof.use_dof=False
     link(c,"CAMERAS")
 
 bpy.context.scene.camera=bpy.data.objects["Overview"]
@@ -753,6 +801,9 @@ else:
     scene.render.engine = next(iter(engine_ids))
 scene.render.resolution_x=1920
 scene.render.resolution_y=1080
+scene.render.resolution_percentage=100
+scene.view_settings.view_transform='AgX'
+scene.view_settings.look='AgX - Medium High Contrast'
 
 def setup_sky():
     world=bpy.data.worlds["World"]
@@ -769,9 +820,9 @@ def setup_sky():
         sky.sun_intensity=1.0; bg.inputs["Strength"].default_value=1.0
         sun_energy=4.0; sun_color=(1,1,0.97)
     elif LIGHTING_MODE=="SUNSET":
-        elevation=math.radians(6); rotation=math.radians(250)
-        sky.sun_intensity=1.2; bg.inputs["Strength"].default_value=1.0
-        sun_energy=2.0; sun_color=(1.0,0.55,0.25)
+        elevation=math.radians(17); rotation=math.radians(250)
+        sky.sun_intensity=0.35; bg.inputs["Strength"].default_value=0.22
+        sun_energy=2.0; sun_color=(1.0,0.81,0.65)
     else:
         elevation=math.radians(-5); rotation=math.radians(120)
         sky.sun_intensity=0.15; bg.inputs["Strength"].default_value=0.15

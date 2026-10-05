@@ -1,6 +1,9 @@
 import * as THREE from "three";
 import mapUrl from "../../assets/maps/CityTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import { BlockyCrowd } from "./blocky-people.js";
+import { CityNature, loadCityProps } from "./city-nature.js";
+import { loadBuildingModels } from "./city-buildings.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
@@ -23,7 +26,10 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // None of the scenery needs a collider.
 // ---------------------------------------------------------------------
 
-buildCity.preload = () => loadMap(mapUrl);
+buildCity.preload = async () => {
+  await Promise.all([loadCityProps(), loadBuildingModels()]); // the street's props and the building models
+  return loadMap(mapUrl);
+};
 
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildCity(RAPIER, world, scene, gltf) {
@@ -37,11 +43,36 @@ export function buildCity(RAPIER, world, scene, gltf) {
     decals: /^(Line|CentreDash|CrosswalkBar|Manhole|Puddle|RoadPatch)/,
     overlays: /^(Road|KerbLeft|KerbRight|Pavement|GreenIsland|TreePit)/,
     minimap: /^(Road|KerbLeft|KerbRight|Pavement)/,
+    // The map's own round-headed pedestrians are left out; the crowd is
+    // rebuilt below from the same spots as blocky, voxel-style people.
+    // Likewise the cone trees and cone grass tufts (the unnamed trunks are
+    // the map's "Cylinder"s): CityNature plants textured, wind-blown ones at
+    // the same TreePit and GreenIsland spots.
+    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder|Cube|TrashBin|BenchSeat|BenchBack|Bench|FacadeWindows|Facade_window_panes|RoofCap|Cornice|Balcony|Door|Canopy|WaterTank|TankRoof|RoofGarden)/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
   });
   const { track } = map;
+
+  // Where the map's pedestrians stood: the feet of each "PedestrianLegs".
+  // Their height comes from the legs (which are 38% of a figure).
+  const spots = [];
+  const box = new THREE.Box3();
+  gltf.scene.updateMatrixWorld(true);
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh || !/^PedestrianLegs/.test(o.name)) return;
+    box.setFromObject(o);
+    const height = (box.max.y - box.min.y) / 0.38;
+    spots.push({
+      x: (box.min.x + box.max.x) / 2,
+      y: box.min.y,
+      z: (box.min.z + box.max.z) / 2,
+      scale: Math.min(1.15, Math.max(0.85, height / 1.8)),
+    });
+  });
+  const crowd = new BlockyCrowd(scene, track, spots);
+  const nature = new CityNature(scene, track, gltf, map.group);
 
   // The model has a gantry but no line on the road, and a lap that ends at nothing reads as
   // a timing bug. A chequered strip across the road at s = 0.
@@ -69,45 +100,26 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // line, not just "don't crash." 85 s still left room to fumble a
     // hairpin or wait out a gap in traffic and finish anyway.
     race: { laps: 1, timeLimit: 68 },
+    // Called every frame by main.js: the wind.
+    update: (t) => nature.update(t),
+    nature,
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Midday by the sea. The sun is nearly overhead (about 72 degrees),
-    // so shadows are short and sharp; the fill light is low and grey, so
-    // the shaded side of every building is genuinely darker than the lit
-    // side, and the saturated billboards and boost orbs are the only
-    // strong colour in the street. A pale haze bleaches the far end of
-    // every road the way sea air does. Lamps are off (it is noon); the
-    // windows keep a faint glow.
+    // Late-afternoon light to suit the refined map (its lit windows, coral
+    // accents and teal glass read best low and warm). The ground plane ends
+    // about 300 m out, so the fog closes in before the edge can show.
     lit: {
-      sun: [20, 115, 30],
-      sunColor: 0xfff4e2,
-      sunIntensity: 4.2,
-      hemi: [0x9ea7ab, 0x3b3833, 0.4],
-      // Fair-weather cumulus drifting over, and a small, fierce sun.
-      sky: { top: 0x2c66a3, horizon: 0xcfd9dc, bottom: 0x8d918a, clouds: 0.35, cloudColor: 0xf2f5f7, sunDisc: 14, sunSize: 0.028 },
-      fog: [0xc4cfd3, 140, 760],
+      sun: [-70, 38, 60],
+      sunColor: 0xffcf9e,
+      sunIntensity: 2.6,
+      hemi: [0x9db6d6, 0x4b4038, 1.6],
+      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
+      fog: [0xd9b496, 140, 520],
       exposure: 1.0,
-      envIntensity: 0.18,
-      bloom: { threshold: 2.2, strength: 0.35, radius: 0.3 },
-      emissive: { LampGlow: 0, "Warm Window Light": 0.25 },
-      glow: 0x35d0ff, // the billboards' cyan
-      // Generated normal maps (src/lighting/surface-detail.js): grit in the
-      // road, joints in the paving, courses in the brick, cast panels in
-      // the render and concrete. Size is metres per texture tile.
-      detail: {
-        Asphalt: { map: "grain", size: 1.5, strength: 0.6 },
-        RoadPatch: { map: "grain", size: 1.2, strength: 0.8 },
-        Pavement: { map: "tiles", size: 2, strength: 0.8 },
-        "Pavement Light": { map: "tiles", size: 2, strength: 0.8 },
-        "Facade Brick": { map: "brick", size: 1.2, strength: 1 },
-        "Facade Sandstone": { map: "panels", size: 3, strength: 0.7 },
-        "Facade White": { map: "panels", size: 4, strength: 0.6 },
-        "Facade Slate": { map: "panels", size: 4, strength: 0.6 },
-        "Facade Blue": { map: "panels", size: 4, strength: 0.6 },
-        Concrete: { map: "panels", size: 3, strength: 0.7 },
-      },
     },
     dispose: () => {
+      crowd.dispose();
+      nature.dispose();
       map.dispose();
       line.material.map.dispose(); // ...but not the texture on it
     },

@@ -29,10 +29,11 @@ const LABELS = {
 };
 
 export class Menu {
-  constructor({ onQuality, onAssist, onRestart, levelName } = {}) {
+  constructor({ onHome, onQuality, onAssist, onRestart, levelName } = {}) {
     this.open = false;
     this.page = "pause";
     this.awaitingBind = null;
+    this.onHome = onHome;
     this.onQuality = onQuality;
     this.onAssist = onAssist;
     this.onRestart = onRestart;
@@ -123,6 +124,7 @@ export class Menu {
           ${this.#button("resume", "Resume", true)}
           ${this.#button("options", "Options")}
           ${this.#button("restart", "Restart race")}
+          ${this.#button("home", "Main menu")}
         </div>`;
     } else if (this.page === "options") {
       const q = (v) =>
@@ -197,6 +199,7 @@ export class Menu {
     if (act === "resume") return this.close();
     if (act === "options") { this.page = "options"; return this.render(); }
     if (act === "back") { this.page = "pause"; return this.render(); }
+    if (act === "home") return this.onHome?.();
     if (act === "restart") { this.close(); return this.onRestart?.(); }
     if (act === "defaults") { Save.reset(); this.onQuality?.(); this.onAssist?.(); return this.render(); }
     if (act.startsWith("quality:")) {
