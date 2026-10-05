@@ -1,15 +1,22 @@
+import { loadingScreen } from "./ui/loading-screen.js";
 import * as THREE from "three";
 import RAPIER from "@dimforge/rapier3d-compat";
 
 import { WORLD, CAR } from "./vehicle/config.js";
 import { Vehicle } from "./vehicle/vehicle.js";
 import { CarRig } from "./vehicle/car-rig.js";
+import { loadCarModel } from "./vehicle/car-model.js";
+import { loadTrafficModels } from "./core/traffic-models.js";
 import { CameraRig } from "./vehicle/camera-rig.js";
 import { Input } from "./core/input.js";
 import { Progress } from "./core/progress.js";
 import { Race } from "./core/race.js";
 import { Minimap, MINIMAP_LAYER, MAP_WORLD_LAYER } from "./ui/minimap.js";
 import { Menu } from "./ui/menu.js";
+import { Speedo } from "./ui/speedo.js";
+import { TrackOutline } from "./ui/track-outline.js";
+import { Dashboard } from "./ui/dashboard.js";
+import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
 import { Pickups } from "./core/pickups.js";
@@ -25,6 +32,8 @@ import { RaceHud } from "./ui/race-hud.js";
 import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
+import { WheelGlow } from "./vehicle/wheel-glow.js";
+import { DriftFx } from "./vehicle/drift-fx.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { SkyEnvironment } from "./lighting/sky-environment.js";
 import { Sky } from "./lighting/sky.js";
@@ -55,6 +64,7 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
+await Promise.all([loadCarModel(), loadTrafficModels()]); // before any car or traffic is built; each falls back if it fails
 
 const params = new URLSearchParams(location.search);
 
@@ -281,10 +291,20 @@ const minimap = new Minimap(scene);
 const health = new HealthBar();
 const raceHud = new RaceHud();
 const gameplayHud = new GameplayHud();
+const speedo = new Speedo();
+const outline = new TrackOutline();
+// Race HUD is hidden behind the home screen.
+const hudStyle = document.createElement("style");
+hudStyle.textContent = "body.dash-open .hud{visibility:hidden !important}";
+document.head.appendChild(hudStyle);
+for (const r of [raceHud.root, gameplayHud.root, speedo.root, outline.root, health.root]) r.classList.add("hud");
 const gameplayEvents = new GameplayEvents();
 // One shared pool for the whole field — smoke is one draw call however
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
+const driftFx = new DriftFx(scene);
+const wheelGlow = new WheelGlow(scene); // neon on the ground behind the rear wheels (Grand Prix)
+gameplayHud.onTierUp = (tier) => driftFx.burst(carRig, tier);
 
 // A time-trial level's boost orbs (see Pickups' boostSeconds) push the
 // race clock back instead of filling the boost meter. One listener for
@@ -322,6 +342,7 @@ function applyPresentation() {
   // These two were in DEFAULTS but never read back, so the toggles
   // persisted a preference the game then ignored on the next load.
   minimap.enabled = Save.get("minimap") !== false;
+  outline.setVisible(minimap.enabled);
   health.setVisible(Save.get("healthBar") !== false);
   debug.setVisible(Save.get("telemetry") !== false);
 }
@@ -331,9 +352,13 @@ function applyAssists() {
   CAR.wallAlignTorque = 14000 * Save.get("wallAssist");
   input.sensitivity = Save.get("mouseSensitivity");
   input.setBindings(Save.get("bindings"));
+  input.setScheme(Save.get("controlScheme"));
+  audio.configure({ music: Save.get("music") !== false, sound: Save.get("sound") !== false });
 }
 
+const audio = new GameAudio();
 const menu = new Menu({
+  onHome: () => showDashboard(),
   onQuality: applyQuality,
   onAssist: applyAssists,
   onRestart: () => loadLevel(levelName),
@@ -363,6 +388,9 @@ const LEVELS = {
 };
 const ORDER = ["city", "mountain", "grandprix"];
 let level = null;
+let finishedFor = 0; // s the results screen has been up
+let leaving = false; // a return to the title page is under way
+let levelFresh = false; // true from a level loading until its lights go out
 // The car a track-less level owns, so the next loadLevel can take it back.
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
@@ -379,42 +407,18 @@ let recorder = null; // recording the lap in progress, so a new best gets a ghos
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
-const requested = params.get("level");
-
-// --- photo mode (development) ------------------------------------------
-// ?level=grandprix&shot=1049 parks the player's car at s = 1049 m, lets
-// the suspension settle, then stops the simulation while rendering
-// carries on. Every lighting and shader change can then be judged on the
-// SAME frame before and after, which a moving car never gives you.
-//   shot   s along the centreline, m
-//   lat    lateral offset from the centreline, m (default 0)
-//   cam    0 chase, 1 hood, 2 wide chase (default 0)
-//   hud=0  hide every HUD element, for clean devlog shots
-// __dbg.shot(s, lat) re-poses live without a reload. The start lights
-// never go out in photo mode, so the field stays held where it is.
-const SETTLE_STEPS = 90; // 1.5 s for the springs to come to rest
-let photo = params.has("shot")
-  ? { s: Number(params.get("shot")) || 0, lateral: Number(params.get("lat")) || 0, settle: 0 }
-  : null;
-const HOLD_STILL = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
-let levelName = requested && Object.hasOwn(LEVELS, requested) ? requested : ORDER[0];
-
-/** Park the player at photo.s and let the car settle before freezing. */
-function poseForPhoto() {
-  if (!photo || !level?.track) return;
-  photo.s = level.track.spline.wrapS(photo.s);
-  respawn(level.track.spawnAt(photo.s, photo.lateral));
-  photo.settle = SETTLE_STEPS;
-}
+const requested = new URLSearchParams(location.search).get("level");
+// ?level= can't skip ahead of what has been unlocked (the testbed is exempt).
+const requestedOk =
+  requested &&
+  Object.hasOwn(LEVELS, requested) &&
+  (!ORDER.includes(requested) || ORDER.indexOf(requested) < (Save.get("maxLevel") | 0));
+let levelName = requestedOk ? requested : ORDER[0];
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
-const loadingNote = document.createElement("div");
-loadingNote.style.cssText =
-  "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);" +
-  "font:600 18px system-ui,sans-serif;color:#fff;background:rgba(10,16,22,.72);" +
-  "padding:12px 20px;border-radius:8px;pointer-events:none;display:none;z-index:10";
-document.body.appendChild(loadingNote);
+const LEVEL_TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Grand Prix" };
+let bootDone = false; // the loading screen stays up until the title page is ready
 
 async function loadLevel(name) {
   if (loading) return;
@@ -422,19 +426,17 @@ async function loadLevel(name) {
   let asset;
   if (LEVELS[name].preload) {
     loading = name;
-    loadingNote.textContent = `Loading ${name}…`;
-    loadingNote.style.display = "block";
+    loadingScreen.show(LEVEL_TITLES[name] ?? name);
     try {
       asset = await LEVELS[name].preload();
     } catch (err) {
       console.error(`[loadLevel] could not load map "${name}"`, err);
-      loadingNote.textContent = `Could not load ${name} — see console`;
-      setTimeout(() => (loadingNote.style.display = "none"), 4000);
+      loadingScreen.fail(`Could not load ${name} — see console`);
       loading = null;
       return;
     }
     loading = null;
-    loadingNote.style.display = "none";
+    if (bootDone) loadingScreen.hide();
   }
   if (level) {
     // Before applyLighting below replaces scene.fog for the new level:
@@ -459,6 +461,7 @@ async function loadLevel(name) {
   director = null;
   raceHud.setActive(false);
   gameplayHud.setActive(false);
+  speedo.setActive(false);
   race?.dispose();
   race = null;
   traffic?.dispose();
@@ -499,6 +502,7 @@ async function loadLevel(name) {
     carRig = race.player.rig;
     progress = race.player.progress;
     minimap.build(race.cars);
+    outline.build(level.track);
     pickups = new Pickups(level.track, scene, level.pickups ?? {}, gameplayEvents);
     if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
     if (level.rockfall) {
@@ -536,13 +540,8 @@ async function loadLevel(name) {
       recorder = new Recorder();
     }
     gameplayHud.setActive(true);
-    // The player's car only. Opponents' headlights are faked (glow and
-    // light on the road, not lights): two real spots per car across a
-    // six-car field is the 2.95 ms README §8 measured.
-    if (level.lit?.headlights) {
-      carRig.setHeadlights(true);
-      for (const c of race.cars) if (!c.isPlayer) addFakeHeadlights(c.rig);
-    }
+    speedo.setActive(true);
+    levelFresh = true;
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -554,6 +553,7 @@ async function loadLevel(name) {
     vehicle.setTrack(null, 0);
     progress = null;
     minimap.build([{ isPlayer: true, vehicle, rig: carRig }]);
+    outline.build(null);
     respawn();
   }
   poseForPhoto();
@@ -600,19 +600,55 @@ renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
 });
 
+// --- dashboard: the home screen, with the live city as its backdrop -----
+const TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Grand Prix" };
+const dashboard = new Dashboard({
+  gameName: "Neon Rush",
+  levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
+  onClick: () => audio.click(),
+  onChange: () => applyAssists(),
+  onPlay: (i) => {
+    document.body.classList.remove("dash-open");
+    audio.unlock();
+    // The level behind the title page is already loaded and untouched
+    // (after a win it is the next level): just start it.
+    if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]);
+  },
+});
+function showDashboard() {
+  menu.close();
+  const i = Math.max(0, ORDER.indexOf(levelName));
+  document.body.classList.add("dash-open");
+  dashboard.show(i);
+}
+// Browsers only allow audio after a gesture: the first click anywhere on
+// the dashboard starts it.
+window.addEventListener("pointerdown", () => { audio.unlock(); applyAssists(); }, { once: true });
+let orbit = 0;
+showDashboard();
+bootDone = true;
+loadingScreen.hide();
+
 let last = performance.now();
 let accumulator = 0;
 let fps = 60;
 const _fieldForce = new THREE.Vector3();
+const _mapOthers = [];
+const _dashPos = new THREE.Vector3();
+const _dashLook = new THREE.Vector3();
 
-// Auto-advance: left alone at the results screen, the game moves itself
-// on to the next level rather than stalling until someone presses a key —
-// the whole three-level game plays through on its own. R (race again) or
-// L (switch level) during this window calls loadLevel itself, which sets
-// director back to a fresh "lights" state next frame and so resets this
-// right along with it; no special-casing needed to cancel the timer.
-const AUTO_ADVANCE_DELAY = 6; // s the results screen stays up before advancing
-let finishedFor = 0;
+// Win or lose, the results screen gives way to the title page after a few
+// seconds. After a win the level loaded behind it is the NEXT one (and the
+// title page's level picker is already on it); after a loss it is the same
+// level again, fresh. R (race again) or L (switch level) in the meantime
+// start a fresh race themselves, which ends this countdown.
+const RESULTS_DELAY = 5; // s the results screen stays up
+async function returnToTitle(next) {
+  await loadLevel(next);
+  showDashboard();
+  finishedFor = 0;
+  leaving = false;
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -621,22 +657,50 @@ function frame(now) {
   last = now;
   fps += (1 / Math.max(frameDt, 1e-4) - fps) * 0.08;
 
+  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open);
+
+  // Home screen: the world sits still and the camera frames the car from
+  // behind and to the left, so it sits low and to the right of the title.
+  if (dashboard.open) {
+    accumulator = 0;
+    orbit += frameDt;
+    // Pose the cars (nothing steps while the dashboard is up) and read the
+    // player's rig, which carries the true heading.
+    if (race) race.render(1);
+    else {
+      vehicle.writeTransform(1);
+      carRig.sync(vehicle.state);
+    }
+    const st = { quaternion: carRig.root.quaternion, position: carRig.root.position };
+    _dashPos.set(-3.3 + Math.sin(orbit * 0.25) * 0.7, 1.15 + Math.sin(orbit * 0.17) * 0.12, 7.6)
+      .applyQuaternion(st.quaternion).add(st.position);
+    _dashLook.set(0.2, 1.1, -12).applyQuaternion(st.quaternion).add(st.position);
+    camera.position.copy(_dashPos);
+    camera.lookAt(_dashLook);
+    sky.position.copy(camera.position);
+    level.update?.(now / 1000);
+    renderer.render(scene, camera);
+    input.endFrame();
+    return;
+  }
+
   if (input.pressed("pause")) menu.toggle();
 
   // Paused: drop the accumulator rather than banking wall-clock time and
   // discharging it as a burst of catch-up steps on resume.
   if (menu.open) {
     accumulator = 0;
-    adaptive.pause(0.5);
-    post.render();
-    minimap.render(renderer, scene);
+    renderer.render(scene, camera);
     input.endFrame();
     return;
   }
 
   if (input.pressed("camera")) cameraRig.cycle();
   if (input.pressed("debug")) Save.set("telemetry", debug.toggle());
-  if (input.pressed("map")) Save.set("minimap", minimap.toggle());
+  if (input.pressed("map")) {
+    Save.set("minimap", minimap.toggle());
+    outline.setVisible(minimap.enabled);
+  }
   if (input.pressed("restart")) {
     if (!director) {
       progress?.reset();
@@ -650,22 +714,28 @@ function frame(now) {
     } // during the start lights R does nothing
   }
   if (input.pressed("level")) {
-    loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+    // Levels unlock in order: L may only move within what has been earned.
+    const next = (ORDER.indexOf(levelName) + 1) % ORDER.length;
+    if (next < (Save.get("maxLevel") | 0)) loadLevel(ORDER[next]);
   }
 
-  // Only a WIN auto-advances. A loss (wrecked, timed out, beaten) sits on
-  // the results screen until the player chooses — R to try this level
-  // again, L to skip ahead anyway — rather than sweeping them on to the
-  // next level before they get a chance to retry the one they just lost.
-  if (director?.state === "finished" && director.outcome === "won") {
-    finishedFor += frameDt;
-    if (finishedFor >= AUTO_ADVANCE_DELAY) {
-      finishedFor = 0;
-      loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+  if (director && director.state !== "lights") levelFresh = false;
+  if (director?.state === "finished") {
+    const won = director.outcome === "won";
+    if (won) {
+      // Winning unlocks the next level.
+      const unlocked = Math.min(ORDER.indexOf(levelName) + 2, ORDER.length);
+      if (unlocked > (Save.get("maxLevel") | 0)) Save.set("maxLevel", unlocked);
     }
-  } else {
+    finishedFor += frameDt;
+    if (finishedFor >= RESULTS_DELAY && !leaving) {
+      leaving = true;
+      returnToTitle(won ? ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length] : levelName);
+    }
+  } else if (!leaving) {
     finishedFor = 0;
   }
+  raceHud.returnIn = director?.state === "finished" ? Math.max(0, RESULTS_DELAY - finishedFor) : null;
 
   accumulator += frameDt;
   // Photo mode: once settled, nothing steps — the frame is held still.
@@ -699,6 +769,7 @@ function frame(now) {
       if (racing && recorder && !recorder.recording) recorder.begin(vehicle);
       // Every car is stepped BEFORE the single solve, so no car sees a
       // world the others have not moved in yet.
+      recorder?.snapshot(vehicle);
       race.step(WORLD.fixedDt, controls);
       recorder?.capture(controls);
       ghost?.step(WORLD.fixedDt, racing);
@@ -746,7 +817,7 @@ function frame(now) {
       // Best lap per level, shown in the pause menu — and, if it's a new
       // best, the recording just finished becomes next visit's ghost.
       if (progress?.justCompletedLap) {
-        const rec = recorder?.recording ? recorder.end() : null;
+        const rec = recorder?.recording ? recorder.end(vehicle) : null;
         Save.submitLap(levelName, progress.lastLapTime, rec);
       }
     } else {
@@ -767,6 +838,7 @@ function frame(now) {
   // Flutter only, driven by the render frame like smoke — the gust
   // itself is a force field, already applied in the fixed step above.
   crosswind?.render(frameDt);
+  level.update?.(now / 1000); // per-level animation (the City's wind)
   pickups?.render();
   gates?.update(frameDt, vehicle.s, progress);
   trails?.update(frameDt);
@@ -775,12 +847,30 @@ function frame(now) {
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
   smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
+  driftFx.update(frameDt, vehicle.state, carRig);
+  wheelGlow.enabled = level?.name === "grandprix";
+  wheelGlow.update(
+    now / 1000,
+    race
+      ? race.cars.map((c) => ({ rig: c.rig, state: c.vehicle.state, colour: c.isPlayer ? 0xff6a0a : c.colour, boostOnly: c.isPlayer }))
+      : [{ rig: carRig, state: vehicle.state, colour: 0xff6a0a, boostOnly: true }],
+    !dashboard.open
+  );
 
   const state = vehicle.state;
   health.update(state.damage);
   fogPatch?.update(vehicle.s);
   pits?.updateHud(vehicle);
   raceHud.update(director, race);
+  speedo.update(state, frameDt);
+  _mapOthers.length = 0;
+  if (race) {
+    for (const c of race.cars) {
+      if (!c.isPlayer) _mapOthers.push({ position: c.vehicle.state.position, colour: c.colour });
+    }
+  }
+  if (ghost) _mapOthers.push({ position: ghost.vehicle.state.position, ghost: true });
+  outline.update(state.position, _mapOthers);
   // One shared slot, one hazard at a time — rockfall first (an incoming
   // boulder is the most acutely urgent), so a falling-rocks trigger can
   // never land on top of "CROSSWIND"/"FOG" and bury it, the way its own
@@ -821,9 +911,6 @@ function frame(now) {
   // No hide-list needed: the map camera only sees the track layer and the
   // blips, so the sky dome and debug vectors are never in its pass.
   minimap.update(state);
-  minimap.render(renderer, scene);
-  adaptive.end();
-  adaptive.update(frameDt);
 
   input.endFrame();
 }
@@ -835,8 +922,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
-  post, skyEnv, levelLights, applyLighting, adaptive,
+  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },

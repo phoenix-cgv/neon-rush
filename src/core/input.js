@@ -31,10 +31,17 @@ export const DEFAULT_BINDINGS = {
   pause: ["Escape"],
 };
 
+// Which physical key family each scheme leaves live for the four driving
+// actions. Rebinding to anything else is always honoured.
+const KEY_FAMILY = /^Key[WASD]$/;
+const ARROW_FAMILY = /^Arrow/;
+const DRIVING = new Set(["throttle", "brake", "left", "right"]);
+
 export class Input {
   constructor(bindings = DEFAULT_BINDINGS) {
     this.bindings = bindings;
     this.sensitivity = 1;
+    this.scheme = "both"; // "keys" | "arrows" | "both"
     this.keys = new Set();
     this.pressedThisFrame = new Set();
 
@@ -84,9 +91,18 @@ export class Input {
     this.bindings = b || DEFAULT_BINDINGS;
   }
 
+  setScheme(scheme) {
+    this.scheme = scheme === "keys" || scheme === "arrows" ? scheme : "both";
+  }
+
+  #allowed(action, code) {
+    if (this.scheme === "both" || !DRIVING.has(action)) return true;
+    return this.scheme === "keys" ? !ARROW_FAMILY.test(code) : !KEY_FAMILY.test(code);
+  }
+
   #held(action) {
-    return (this.bindings[action] ?? DEFAULT_BINDINGS[action] ?? []).some((c) =>
-      this.keys.has(c)
+    return (this.bindings[action] ?? DEFAULT_BINDINGS[action] ?? []).some(
+      (c) => this.keys.has(c) && this.#allowed(action, c)
     );
   }
 

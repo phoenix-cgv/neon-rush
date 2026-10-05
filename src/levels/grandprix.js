@@ -2,6 +2,7 @@ import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import * as THREE from "three";
 import { buildArmco } from "./armco.js";
+import { GrandPrixScenery, loadGrandPrixProps } from "./grandprix-scenery.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 3 — Grand Prix
@@ -41,7 +42,10 @@ import { buildArmco } from "./armco.js";
 // invisible wall.
 // ---------------------------------------------------------------------
 
-buildGrandPrix.preload = () => loadMap(mapUrl);
+buildGrandPrix.preload = async () => {
+  const [map] = await Promise.all([loadMap(mapUrl), loadGrandPrixProps()]);
+  return map;
+};
 
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildGrandPrix(RAPIER, world, scene, gltf) {
@@ -60,9 +64,10 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       { match: /^GroundGrass$/, friction: 0.7, grip: 0.65, rolling: 0.1 },
     ],
     solid: /^(PitWall|TyreWall|GantryPillar)/,
-    // The five lamps on the start gantry, lit one by one by the race director,
-    // and the gantry's front lettering, which fitGantryText() straightens.
-    keep: /^(StartLamp\d*|GantryText)$/,
+    // The five lamps on the start gantry, lit one by one by the race director.
+    keep: /^StartLamp\d*$/,
+    // The plain garages (and their doors, windows and roof trim) give way to the pit-building model.
+    exclude: /^(Garage|GarageDoor|Garage_Window|Garage_RoofTrim)\d*$/,
     // The pit road overlaps the track where it peels off and rejoins, so it
     // is drawn over the road like the paint is.
     decals: /^(RacingLine|EdgeLine|StartFinishLine|ApexKerbs|PitLane|PitLine|PitLimit|PitBox)/,
@@ -93,11 +98,30 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     track.objects.push(o); // disposed with the track
   }
 
-  fitGantryText(map.kept.find((m) => m.name === "GantryText"), gltf.scene);
+  // Cacti, tents and apple trees on the open grass, and neon rails through
+  // the tunnel (road distance 2,338-2,552 m).
+  // Where the map's plain garages stood (read from the file: the nodes are excluded from drawing).
+  const garages = [];
+  {
+    const box = new THREE.Box3();
+    const q = new THREE.Quaternion();
+    gltf.scene.updateMatrixWorld(true);
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh || !/^Garage\d*$/.test(o.name)) return;
+      box.setFromObject(o);
+      o.getWorldQuaternion(q);
+      const s = o.getWorldScale(new THREE.Vector3());
+      const pos = o.getWorldPosition(new THREE.Vector3());
+      // the unit cube spans -1..1, so the footprint is twice the scale; the bottom of the ground is the pit box height
+      garages.push({ x: pos.x, z: pos.z, y: 0, quaternion: q.clone(), w: Math.abs(s.x) * 2, d: Math.abs(s.z) * 2 });
+    });
+  }
+  const scenery = new GrandPrixScenery(scene, track, map.group.children, { tunnel: [2338, 2552], garages });
 
   const gate = track.spawnAt(0);
   return {
     name: "grandprix",
+    scenery,
     index: 3,
     title: "Grand Prix",
     track,
@@ -157,7 +181,10 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
         { material: "TunnelLights", count: 2, type: "point", color: 0xffc68a, intensity: 150, distance: 30, fade: 20 },
       ],
     },
-    dispose: map.dispose,
+    dispose: () => {
+      scenery.dispose();
+      map.dispose();
+    },
   };
 }
 

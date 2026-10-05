@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CAR } from "./config.js";
+import { stepDrift } from "./drift-combo.js";
 
 // ---------------------------------------------------------------------
 // Scratch objects.
@@ -68,6 +69,8 @@ function tyreCurve(slip) {
 const CHASSIS = new Set();
 
 export class Vehicle {
+  #combo = { chain: 0, gap: 0, tankExtra: 0, extraHold: 0 }; // scratch for stepDrift
+
   static registerChassis(handle) { CHASSIS.add(handle); }
   static unregisterChassis(handle) { CHASSIS.delete(handle); }
   static isChassis(handle) { return CHASSIS.has(handle); }
@@ -118,9 +121,15 @@ export class Vehicle {
     //
     // Rapier needs BOTH directions to agree, so clearing the car bit in
     // the ghost's filter is enough to sever car-to-ghost on its own.
+    //
+    // Traffic and falling rocks are cleared too (GROUP.traffic). They move
+    // in response to the PLAYER, so on the replay they are never where
+    // they were on the recorded lap: a ghost that can hit them crashes
+    // into a car that was not there and, being a replay, never recovers.
+    // It still meets the road, kerbs, rails and walls the lap met.
     colDesc.setCollisionGroups(
       this.isGhost
-        ? (GROUP.ghost << 16) | (ALL & ~GROUP.car)
+        ? (GROUP.ghost << 16) | (ALL & ~GROUP.car & ~GROUP.traffic)
         : (GROUP.car << 16) | ALL
     );
     this.collider = world.createCollider(colDesc, this.body);
@@ -129,7 +138,7 @@ export class Vehicle {
     // real car's wheel rays land on the ghost's chassis and it drives
     // over a rival it cannot collide with.
     this.queryGroups = this.isGhost
-      ? (GROUP.ghost << 16) | (ALL & ~GROUP.car)
+      ? (GROUP.ghost << 16) | (ALL & ~GROUP.car & ~GROUP.traffic)
       : (GROUP.car << 16) | (ALL & ~GROUP.ghost);
 
     // --- per-wheel state --------------------------------------------
@@ -206,6 +215,12 @@ export class Vehicle {
     this.boostCharge = 0;
     this.boosting = false;
     this.driftFactor = 0;
+    // drift combo (see CAR.driftTiers)
+    this.driftChain = 0; // s of drifting in the current combo
+    this.driftGap = 0; // s since the last slide
+    this.driftTier = -1; // index into CAR.driftTiers, or -1
+    this.tankExtra = 0; // red extension of the boost tank
+    this.extraHold = 0;
     this.grounded = false;
     this.speed = 0;
 
@@ -1162,20 +1177,40 @@ export class Vehicle {
       ? clamp((rearSlip - CAR.peakSlip) / (CAR.limitSlip - CAR.peakSlip), 0, 1)
       : 0;
 
+    // The combo (see drift-combo.js): title, fill multiplier and tank extension.
+    const combo = this.#combo;
+    combo.chain = this.driftChain;
+    combo.gap = this.driftGap;
+    combo.tankExtra = this.tankExtra;
+    combo.extraHold = this.extraHold;
+    const { tier, mult } = stepDrift(
+      combo,
+      dt,
+      { sliding, factor: this.driftFactor, wall: this.againstWall || this.scrapingWall },
+      { tiers: CAR.driftTiers, gapReset: CAR.driftGapReset, hold: CAR.tankExtraHold, decay: CAR.tankExtraDecay }
+    );
+    this.driftChain = combo.chain;
+    this.driftGap = combo.gap;
+    this.tankExtra = combo.tankExtra;
+    this.extraHold = combo.extraHold;
+    this.driftTier = tier;
+    const cap = CAR.boostCapacity + this.tankExtra;
+
     if (sliding) {
       // Rate scales with both slip and speed, so a long deliberate slide
-      // pays far better than a twitch.
-      const rate = CAR.boostFillRate * this.driftFactor * clamp(this.speed / 30, 0, 1);
-      this.boostCharge = Math.min(CAR.boostCapacity, this.boostCharge + rate * dt);
+      // pays far better than a twitch, and with the title earned.
+      const rate = CAR.boostFillRate * this.driftFactor * clamp(this.speed / 30, 0, 1) * mult;
+      this.boostCharge = Math.min(cap, this.boostCharge + rate * dt);
     }
 
     // Drifting is the fast way to earn boost, but a slow trickle means
     // Shift is never simply dead — which matters while tuning, and stops
-    // new players concluding the button does nothing.
-    this.boostCharge = Math.min(
-      CAR.boostCapacity,
-      this.boostCharge + CAR.boostPassiveRegen * dt
-    );
+    // new players concluding the button does nothing. (Only the ordinary
+    // tank refills this way; the red extension has to be drifted for.)
+    if (this.boostCharge < CAR.boostCapacity) {
+      this.boostCharge = Math.min(CAR.boostCapacity, this.boostCharge + CAR.boostPassiveRegen * dt);
+    }
+    if (this.boostCharge > cap) this.boostCharge = cap; // the extension has shrunk away
 
     this.boosting = controls.boost && this.boostCharge > 0 && this.gear === 1;
     if (this.boosting) {
@@ -1234,6 +1269,11 @@ export class Vehicle {
       dragScale: this.dragScale,
       lastWallImpact: this.lastWallImpact,
       driftFactor: this.driftFactor,
+      driftTier: this.driftTier,
+      driftMult: this.driftTier >= 0 ? CAR.driftTiers[this.driftTier].mult : 1,
+      driftChain: this.driftChain,
+      driftGap: this.driftGap,
+      tankExtra: this.tankExtra,
       boostCharge: this.boostCharge,
       boosting: this.boosting,
       impactSeq: this.impactSeq,
@@ -1262,7 +1302,7 @@ export class Vehicle {
   /** Top up boost charge, from a pickup. */
   refillBoost(amount) {
     const before = this.boostCharge;
-    this.boostCharge = Math.min(CAR.boostCapacity, this.boostCharge + amount);
+    this.boostCharge = Math.min(CAR.boostCapacity + this.tankExtra, this.boostCharge + amount);
     return this.boostCharge - before;
   }
 
@@ -1280,6 +1320,10 @@ export class Vehicle {
       steerAngle: this.steerAngle,
       boostCharge: this.boostCharge,
       boosting: this.boosting,
+      driftChain: this.driftChain,
+      driftGap: this.driftGap,
+      tankExtra: this.tankExtra,
+      extraHold: this.extraHold,
       s: this.s,
       lateralOffset: this.lateralOffset,
       wasGrounded: this.wasGrounded,
@@ -1306,6 +1350,10 @@ export class Vehicle {
     this.steerAngle = k.steerAngle;
     this.boostCharge = k.boostCharge;
     this.boosting = k.boosting;
+    this.driftChain = k.driftChain ?? 0;
+    this.driftGap = k.driftGap ?? 0;
+    this.tankExtra = k.tankExtra ?? 0;
+    this.extraHold = k.extraHold ?? 0;
     this.s = k.s;
     this.lateralOffset = k.lateralOffset;
     this.wasGrounded = k.wasGrounded;
@@ -1347,6 +1395,11 @@ export class Vehicle {
     this.steerAngle = 0;
     this.boostCharge = CAR.boostCapacity;
     this.boosting = false;
+    this.driftChain = 0;
+    this.driftGap = 0;
+    this.driftTier = -1;
+    this.tankExtra = 0;
+    this.extraHold = 0;
     this.prevPos.copy(spawn);
     this.prevQuat.copy(q);
     this.renderPos.copy(spawn);

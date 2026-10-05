@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR } from "./config.js";
+import { applyCarModel } from "./car-model.js";
 
 // The scene graph for the car — section 4 of the design document.
 //
@@ -27,7 +28,7 @@ import { CAR } from "./config.js";
 // White, so damage shows. Scratches are drawn as dark gouges and dents
 // read by their shading — both are far more legible on a pale panel than
 // on the original teal, where a crease just looked like another shadow.
-const PAINT = 0xeef1f2;
+const PAINT = 0xf2561d;
 const PAINT_DARK = 0x9aa4a8;
 const TRIM = 0x0e1417;
 
@@ -169,10 +170,28 @@ function mergeByMaterial(node) {
 
 // Where damaged paint ends up: a dull, sooted grey-brown. Not black —
 // see #applyDamage.
+const TAIL_IDLE = 1.3;
 const SCORCH = new THREE.Color(0x3a3330);
 // Headlight glass, lit and smashed.
 const CLEAN_LAMP = new THREE.Color(0xfff4d6);
 const DEAD_LAMP = new THREE.Color(0x2b2a27);
+
+let _glowTex = null;
+/** Radial falloff, shared by every car. */
+function glowTexture() {
+  if (_glowTex) return _glowTex;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(32, 32, 2, 32, 32, 32);
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.5, "rgba(255,255,255,.35)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  _glowTex = new THREE.CanvasTexture(c);
+  return _glowTex;
+}
 
 export class CarRig {
   /** @param {number} paint  body colour, so a field of cars is legible */
@@ -188,8 +207,10 @@ export class CarRig {
 
     const bodyMat = new THREE.MeshStandardMaterial({
       color: paint,
-      metalness: 0.6,
-      roughness: 0.32,
+      // Solid colour, not chrome: low metalness keeps the paint reading as
+      // the colour it is under any light, instead of mirroring the sky.
+      metalness: 0.12,
+      roughness: 0.42,
     });
     const darkMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(paint).multiplyScalar(0.55),
@@ -282,11 +303,12 @@ export class CarRig {
       emissiveIntensity: 1.4,
       roughness: 0.3,
     });
+    // Neon red: a saturated red that stays lit, not a dim lens.
     this.tailMat = new THREE.MeshStandardMaterial({
-      color: 0x6b1414,
-      emissive: 0xff2a1a,
-      emissiveIntensity: 0.35,
-      roughness: 0.4,
+      color: 0xff1030,
+      emissive: 0xff0a28,
+      emissiveIntensity: TAIL_IDLE,
+      roughness: 0.3,
     });
     for (const sx of [-1, 1]) {
       const lamp = box(0.3, 0.12, 0.08, this.headMat);
@@ -370,9 +392,30 @@ export class CarRig {
       return { mesh: wheel, pivot, front: wcfg.front };
     });
 
+    // Neon red underglow: a soft additive pool of light on the road under
+    // the car. A texture, not a light — a real PointLight per car would be
+    // paid for by every lit material in the scene.
+    this.glowMat = new THREE.MeshBasicMaterial({
+      map: glowTexture(),
+      color: 0xff1030,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 5.6).rotateX(-Math.PI / 2), this.glowMat);
+    glow.position.y = -CAR.comHeight + 0.04;
+    glow.renderOrder = 2;
+    glow.name = "Underglow";
+    this.glow = glow;
+
     this.cameraBoom = new THREE.Group();
     this.cameraBoom.name = "CameraBoom";
     this.root.add(this.cameraBoom);
+
+    // If the car model has been loaded, it replaces the box-built shell and
+    // wheel parts above (the rig, materials and damage all stay as they are).
+    this.usesModel = applyCarModel(this);
 
     // Draw-call pass. Everything above stays readable; this makes it cheap.
     // The body is rigid to the chassis pivot, and each wheel's parts are
@@ -403,6 +446,8 @@ export class CarRig {
       this.dentField = new Float32Array(pos.array.length);
       this.bodyMesh.geometry.computeBoundingSphere();
     }
+    // The model is used as authored, so it gets no underglow.
+    if (!this.usesModel) this.chassisPivot.add(this.glow);
     this.#initScratches(paint);
   }
 
@@ -429,7 +474,8 @@ export class CarRig {
     // Brake lights brighten under braking, and the paint picks up a glow
     // while boosting. Both read from state the physics already publishes.
     const braking = state.gear === 1 && state.speed > 1 && state.wheels[0].load > 0;
-    this.tailMat.emissiveIntensity = state.boosting ? 1.6 : braking ? 0.9 : 0.35;
+    this.tailMat.emissiveIntensity = state.boosting ? 3.0 : braking ? 2.2 : TAIL_IDLE;
+    this.glowMat.opacity = state.boosting ? 0.85 : braking ? 0.65 : 0.45;
     this.bodyMat.emissive.setHex(state.boosting ? 0x1a5f6b : 0x000000);
     this.bodyMat.emissiveIntensity = state.boosting ? 0.8 : 0;
 
@@ -519,7 +565,8 @@ export class CarRig {
     this.scratchCtx = ctx;
     this.scratchTex = new THREE.CanvasTexture(c);
     this.scratchTex.anisotropy = 4;
-    this.bodyMat.map = this.scratchTex;
+    // The model has no texture coordinates to hang a scratch map on.
+    if (!this.usesModel) this.bodyMat.map = this.scratchTex;
     this.bodyMat.needsUpdate = true;
   }
 
@@ -595,6 +642,7 @@ export class CarRig {
 
   /** Redraw the shell as pristine + accumulated dents, scaled by `shown`. */
   #reshape(shown) {
+    if (!this.bodyMesh) return; // the car model has no single shell to dent
     const pos = this.bodyMesh.geometry.attributes.position;
     const a = pos.array;
     const p = this.pristine;

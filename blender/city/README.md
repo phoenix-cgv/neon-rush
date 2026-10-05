@@ -49,3 +49,14 @@ a **random** point on the lap instead of across the road.
 **No parked cars.** The generator used to add 40 (half of them standing in the lanes), which the
 game had to filter out. It adds none now; the city's cars are the live traffic in
 `src/core/traffic.js`.
+
+
+## Refined v2
+
+`citytrack.py` is now the refined v2 script and `assets/maps/CityTrack.glb` was exported from it.
+Same lap (the 14 control points, so the road, kerbs and pavement are unchanged and the game's track
+data still lines up). What changed is the dressing: a blue-charcoal / limestone / brick / teal palette
+with coral accents, buildings zoned by district and kept clear of each other and of the racing
+corridor, individually windowed facades with roof caps and cornices, and a smaller (750 m) ground
+plane. `src/levels/city.js` sets late-afternoon lighting and a fog that ends before the ground does.
+`CityTrack.blend` has not been regenerated from the new script.

@@ -1,5 +1,7 @@
+import * as THREE from "three";
 import mapUrl from "../../assets/maps/MountainTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import { MountainScenery, loadMountainProps } from "./mountain-scenery.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 2 — Mountain Track
@@ -27,7 +29,126 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 // Mesh names are as three.js sanitises them: spaces become underscores.
 // ---------------------------------------------------------------------
 
-buildMountain.preload = () => loadMap(mapUrl);
+buildMountain.preload = async () => {
+  const [map] = await Promise.all([loadMap(mapUrl), loadMountainProps()]);
+  return map;
+};
+
+// ---------------------------------------------------------------------
+// The refined look, applied to the map's own materials by name (the same
+// palette as the refined City Track: blue-charcoal asphalt, limestone
+// concrete, coral accents, softer greens and warm-grey rock). The values
+// are Blender's linear RGB, so they are set as linear. Geometry is
+// untouched, so the road, rails and colliders are exactly as before.
+// ---------------------------------------------------------------------
+const REFINED = {
+  "Fresh Dark Asphalt": [0.085, 0.105, 0.118],
+  "Asphalt Shoulder": [0.15, 0.17, 0.18],
+  "White Road Marking": [0.92, 0.92, 0.9],
+  "Racing Red": [0.78, 0.19, 0.14], // kerb and gantry: coral
+  "Curb White": [0.76, 0.76, 0.69],
+  "Grass Dark": [0.1, 0.22, 0.15],
+  "Grass Mid": [0.13, 0.27, 0.18],
+  "Grass Light": [0.23, 0.39, 0.25],
+  "Mountain Rock": [0.3, 0.29, 0.28],
+  "Rock Highlight": [0.5, 0.46, 0.4],
+  "Tunnel Concrete": [0.63, 0.64, 0.58],
+  "Tunnel Interior": [0.2, 0.22, 0.23],
+  "Bridge Concrete": [0.68, 0.7, 0.64],
+  "Pine Green": [0.05, 0.2, 0.09],
+  "Pine Dark": [0.03, 0.12, 0.05],
+  "Tree Bark": [0.18, 0.07, 0.025],
+};
+
+// ---------------------------------------------------------------------
+// Rock walls: the map's flat-coloured rock faces get a world-space
+// triplanar rock texture, horizontal strata that follow height, darker
+// cracks, and snow lying on the upward-facing faces near the summit. The
+// facets stay flat-shaded (the face normal comes from screen derivatives).
+// Geometry is untouched.
+// ---------------------------------------------------------------------
+function rockTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  let a = 4242;
+  const r = () => ((a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296);
+  g.fillStyle = "#8a8782";
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 700; i++) {
+    const x = r() * 256, y = r() * 256, w = 6 + r() * 34, h = 3 + r() * 14;
+    const v = 90 + Math.floor(r() * 110);
+    g.fillStyle = `rgba(${v},${v - 3},${v - 8},.35)`;
+    for (const [dx, dy] of [[0, 0], [256, 0], [-256, 0], [0, 256], [0, -256]]) g.fillRect(x + dx, y + dy, w, h);
+  }
+  g.strokeStyle = "rgba(25,22,20,.55)";
+  for (let i = 0; i < 70; i++) {
+    let x = r() * 256, y = r() * 256;
+    g.lineWidth = 0.6 + r() * 1.2;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (r() - 0.5) * 26; y += (r() - 0.35) * 22; g.lineTo(x, y); }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+function rockify(group, tex) {
+  const done = new Set();
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (!m || done.has(m) || !/^(Mountain Rock|Rock Highlight)$/.test(m.name) || m.userData.rockified) continue;
+      done.add(m);
+      m.userData.rockified = true;
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uRock = { value: tex };
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWP;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWP;\nuniform sampler2D uRock;")
+          .replace(
+            "#include <map_fragment>",
+            `#include <map_fragment>
+            vec3 fn = normalize(cross(dFdx(vWP), dFdy(vWP)));
+            vec3 w = pow(abs(fn), vec3(4.0)); w /= (w.x + w.y + w.z);
+            vec3 tx = texture2D(uRock, vWP.yz * 0.11).rgb * w.x
+                    + texture2D(uRock, vWP.xz * 0.11).rgb * w.y
+                    + texture2D(uRock, vWP.xy * 0.11).rgb * w.z;
+            vec3 big = texture2D(uRock, vWP.xz * 0.013 + vWP.y * 0.004).rgb;
+            // strata: bands that follow height, warped by the big noise
+            float band = sin(vWP.y * 0.85 + big.r * 5.0) * 0.5 + 0.5;
+            vec3 rock = diffuseColor.rgb * (0.55 + 0.9 * tx) * mix(0.78, 1.18, band);
+            rock = mix(rock, rock * vec3(1.12, 0.98, 0.84), smoothstep(0.55, 1.0, band) * 0.5);
+            // snow settles on upward faces near the top
+            float snowLine = 56.0 + big.g * 14.0;
+            float snow = smoothstep(0.45, 0.8, fn.y) * smoothstep(snowLine, snowLine + 8.0, vWP.y);
+            diffuseColor.rgb = mix(rock, vec3(0.93, 0.95, 0.98), snow);`
+          );
+      };
+      m.customProgramCacheKey = () => "rockify";
+      m.needsUpdate = true;
+    }
+  });
+}
+
+function applyRefinedLook(group) {
+  const seen = new Set(); // materials are shared between meshes
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      const c = m && REFINED[m.name];
+      if (!c || seen.has(m)) continue;
+      seen.add(m);
+      m.color.setRGB(c[0], c[1], c[2], THREE.LinearSRGBColorSpace);
+    }
+  });
+}
 
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildMountain(RAPIER, world, scene, gltf) {
@@ -55,6 +176,9 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     track: { checkpointSpacing: 120 },
   });
   const { track } = map;
+  applyRefinedLook(map.group);
+  rockify(map.group, rockTexture());
+  const scenery = new MountainScenery(scene, track, map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)), { tunnel: [683, 821] });
 
   const gate = track.spawnAt(0);
   return {
@@ -117,47 +241,22 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Dusk on the pass. The sun is about 10 degrees above the horizon,
-    // so it rakes across the slopes from the side: lit rock faces glow
-    // orange, everything turned away from it falls into a cool blue fill,
-    // and every tree and ridge throws a long shadow across the road. The
-    // headlights come on from this level onward.
-    //
-    // Bloom's threshold is higher than the default here: a low sun lights
-    // the side of the white car almost head-on, and at 1.6 the paint
-    // itself bloomed.
+    // Late-afternoon light, as on the refined City Track: low warm sun, a
+    // dusk sky, and a haze that suits the climb.
     lit: {
-      sun: [-120, 24, 45],
-      sunColor: 0xff9a55,
-      sunIntensity: 3.0,
-      hemi: [0x5a78b8, 0x2b2a35, 1.0],
-      // A big low sun, and dusky clouds lit orange on the side facing it.
-      sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640, clouds: 0.4, cloudColor: 0x7a5d6c, sunDisc: 10, sunSize: 0.045 },
-      fog: [0x9a8590, 200, 900],
-      exposure: 1.05,
-      envIntensity: 0.35,
-      bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
-      headlights: true,
-      glow: 0xff9a3c, // the setting sun
-      // Generated normal maps (src/lighting/surface-detail.js). The low
-      // sun rakes across the rock, which is exactly when bumps show most.
-      detail: {
-        "Fresh Dark Asphalt": { map: "grain", size: 1.5, strength: 0.6 },
-        "Asphalt Shoulder": { map: "grain", size: 1.5, strength: 0.7 },
-        "Mountain Rock": { map: "rock", size: 10, strength: 1.7 },
-        "Rock Highlight": { map: "rock", size: 8, strength: 1.7 },
-        "Tunnel Concrete": { map: "panels", size: 4, strength: 0.7 },
-        "Tunnel Interior": { map: "panels", size: 3, strength: 0.7 },
-        "Bridge Concrete": { map: "panels", size: 4, strength: 0.7 },
-      },
-      // The summit tunnel (walls 7.5 m out, roof 6.7 m up) was modelled
-      // with no lights. Sodium strips down the roof every 9 m, two real
-      // lights following the player between them, and the sky fill
-      // dimmed under the roof, which otherwise tinted the walls purple.
-      strips: [{ name: "MountainTunnelStrip", s0: 690, s1: 820, every: 9, height: 6.5, length: 3, color: 0xffa858, intensity: 3 }],
-      pools: [{ material: "MountainTunnelStrip", count: 2, type: "point", color: 0xffb070, intensity: 80, distance: 22, fade: 15, cluster: 4 }],
-      shelter: [{ s0: 690, s1: 822, ramp: 15, ambient: 0.2 }],
+      sun: [-80, 46, 55],
+      sunColor: 0xffcf9e,
+      sunIntensity: 2.6,
+      hemi: [0x9db6d6, 0x4b4038, 1.6],
+      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
+      fog: [0xd2b79f, 200, 950],
+      exposure: 1.0,
     },
-    dispose: map.dispose,
+    update: (t) => scenery.update(t),
+    scenery,
+    dispose: () => {
+      scenery.dispose();
+      map.dispose();
+    },
   };
 }

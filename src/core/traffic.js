@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { GROUP, ALL } from "../vehicle/vehicle.js";
+import { trafficParts, trafficWheels, TRAFFIC_MODELS } from "./traffic-models.js";
+import { idmAccel, cornerLookahead, avoidanceTarget, slew } from "./traffic-logic.js";
 
 // ---------------------------------------------------------------------
 // Civilian traffic: cars driving the circuit at city speeds, both ways.
@@ -23,19 +25,24 @@ import { GROUP, ALL } from "../vehicle/vehicle.js";
 
 const HALF = { x: 0.9, y: 0.7, z: 2.2 }; // collider half extents, m
 const RIDE = 0.05; // gap under the collider
-const LANE_HALF = 2.6; // lateral band that counts as "in my lane"
-const LOOK = 45; // m ahead a driver watches for something to follow
-const STOP_GAP = 9; // m to leave behind whatever it is following
-const ACCEL = 2.5; // m/s^2
-const BRAKE = 7.0; // m/s^2
+const LOOK = 60; // m ahead a driver watches for something to follow
+const CLEAR_LAT = 2.0; // lateral separation at which something is no longer "in my way"
+const CAR_LEN = 4.4; // bumper-to-bumper = centre gap minus this
+const STEER_RATE = 1.8; // m/s of lateral movement when steering round something
 const LATERAL_G = 0.55; // civilians corner gently: ~0.55 g, not 1.4
 
 const COLOURS = [0xd8dde0, 0x1f2a36, 0x8a1c1c, 0x2e5c8a, 0xc9a227, 0x3b6b3b, 0x6d6f73, 0xe8e4d8, 0x4a2f5c, 0xb85c1e];
+
+const MIX = ["car", "coupe", "truck", "car", "coupe", "car", "truck"];
 
 const _fr = {};
 const _m = new THREE.Matrix4();
 const _basis = new THREE.Matrix4();
 const _part = new THREE.Matrix4();
+const _wm = new THREE.Matrix4();
+const _t = new THREE.Matrix4();
+const _spin = new THREE.Matrix4();
+const _flip = new THREE.Matrix4().makeRotationY(Math.PI);
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _one = new THREE.Vector3(1, 1, 1);
@@ -72,13 +79,26 @@ export class Traffic {
       for (let i = 0; i < count; i++) {
         const k = this.cars.length;
         const s = clearStart + ((i + phase) / count) * usable;
+        // A fixed rotation, so the mix is even however few cars there are:
+        // three regular cars, two coupes, two trucks in every seven. A model
+        // that failed to load falls back (-> car -> coupe -> the old box).
+        const want = MIX[k % MIX.length];
+        const kind = [want, "car", "coupe"].find((x) => trafficParts(x)) ?? "box";
+        const truck = kind === "truck";
+        const palette = TRAFFIC_MODELS[kind]?.colours ?? COLOURS;
         this.cars.push({
+          kind,
+          truck,
+          spin: 0, // wheel angle, radians
+          half: TRAFFIC_MODELS[kind]?.half ?? HALF,
           dir,
           laneT: -dir * lane, // keep left: left of the direction of travel
+          lat: -dir * lane, // where it actually is: laneT, unless steering round something
           s,
           speed: 0,
-          cruise: vMin + (vMax - vMin) * hash(k),
-          colour: COLOURS[Math.floor(hash(k + 50) * COLOURS.length)],
+          // trucks are a little slower and heavier on the brakes' patience
+          cruise: (vMin + (vMax - vMin) * hash(k)) * (truck ? 0.85 : 1),
+          colour: palette[Math.floor(hash(k + 50) * palette.length)],
           body: null,
           prev: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
           cur: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
@@ -99,7 +119,7 @@ export class Traffic {
           .setRotation({ x: c.cur.q.x, y: c.cur.q.y, z: c.cur.q.z, w: c.cur.q.w })
       );
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(HALF.x, HALF.y, HALF.z)
+        RAPIER.ColliderDesc.cuboid(c.half.x, c.half.y, c.half.z)
           .setFriction(0.3)
           .setRestitution(0.1)
           // Its own collision layer, solid to every car and wheel ray.
@@ -119,8 +139,8 @@ export class Traffic {
     _right.copy(_fr.right).multiplyScalar(c.dir);
     out.p
       .copy(_fr.position)
-      .addScaledVector(_fr.right, c.laneT)
-      .addScaledVector(_fr.up, HALF.y + RIDE);
+      .addScaledVector(_fr.right, c.lat)
+      .addScaledVector(_fr.up, c.half.y + RIDE);
     // -Z is forward, as for every car in the game.
     _basis.makeBasis(_right, _fr.up, _back.copy(_fwd).negate());
     out.q.setFromRotationMatrix(_basis);
@@ -141,32 +161,58 @@ export class Traffic {
    */
   step(dt, field = []) {
     const L = this.track.length;
+    const roadHalf = this.track.width / 2;
     for (const c of this.cars) {
-      // Corner speed: the tightest point in the next 40 m, at a gentle g.
+      // Corner speed: read the road far enough ahead to brake for it
+      // gently at this speed, rather than a fixed 40 m that is too short
+      // at 15 m/s and wasteful at 5.
       let target = c.cruise;
-      for (let a = 0; a <= 40; a += 4) {
+      const look = cornerLookahead(c.speed);
+      for (let a = 0; a <= look; a += 4) {
         const k = this.track.curvatureAt(c.s + a * c.dir);
         if (k > 1e-4) target = Math.min(target, Math.sqrt((LATERAL_G * 9.81) / k));
       }
 
-      // Follow: anything in my lane ahead of me, traffic or player.
+      // What is in my way. Other traffic shares my lane, so it is always
+      // a leader. The player (and any racer) is one only if it is
+      // actually overlapping my line — and it is judged by where I will
+      // be after steering round it, not where I started.
       let gap = Infinity;
+      let vObs = 0;
       for (const o of this.cars) {
         if (o === c || o.dir !== c.dir) continue;
         const d = this.#ahead(c.s, o.s, c.dir);
-        if (d > 0 && d < gap) gap = d;
+        if (d > 0 && d < gap) {
+          gap = d;
+          vObs = o.speed;
+        }
       }
+      gap = Number.isFinite(gap) ? gap - CAR_LEN : gap;
+
+      let hazard = null;
       for (const f of field) {
         const v = f.vehicle;
-        if (Math.abs(v.lateralOffset - c.laneT) > LANE_HALF) continue;
         const d = this.#ahead(c.s, v.s, c.dir);
-        if (d > -2 && d < gap) gap = Math.max(d, 0);
+        if (d <= -2 || d > LOOK) continue;
+        if (Math.abs(v.lateralOffset - c.lat) > CLEAR_LAT + 0.7) continue;
+        if (!hazard || d < hazard.gap) hazard = { lat: v.lateralOffset, gap: Math.max(d, 0), speed: v.speed * c.dir };
       }
-      if (gap < LOOK) target = Math.min(target, Math.max(0, (gap - STOP_GAP) * 0.6));
 
-      const dv = target - c.speed;
-      c.speed += Math.max(-BRAKE * dt, Math.min(ACCEL * dt, dv));
-      c.speed = Math.max(0, c.speed);
+      // Steer round it toward my own kerb instead of stopping in its path.
+      const want = avoidanceTarget(c.laneT, c.lat, hazard, roadHalf);
+      c.lat = slew(c.lat, want, STEER_RATE, dt);
+
+      // ...and only treat it as a leader if it is still in my way.
+      if (hazard && Math.abs(hazard.lat - c.lat) < CLEAR_LAT) {
+        const g = hazard.gap - CAR_LEN;
+        if (g < gap) {
+          gap = g;
+          vObs = hazard.speed;
+        }
+      }
+
+      c.speed = Math.max(0, c.speed + idmAccel(c.speed, target, gap, vObs) * dt);
+      c.spin += (c.speed * dt) / (trafficWheels(c.kind)?.radius || 0.35);
       c.s = (((c.s + c.dir * c.speed * dt) % L) + L) % L;
 
       c.prev.p.copy(c.cur.p);
@@ -206,9 +252,12 @@ export class Traffic {
   // five draw calls however many cars there are.
   // -------------------------------------------------------------------
   #buildMeshes() {
-    const n = this.cars.length;
-    const part = (geo, mat, perCar, local) => {
-      const inst = new THREE.InstancedMesh(geo, mat, n * perCar.length);
+    const sedans = this.cars.filter((c) => c.kind === "box"); // fallback boxes
+    sedans.forEach((c, i) => (c.slot = i));
+    for (const c of sedans) c.insts = null; // filled below
+    const n = sedans.length;
+    const part = (geo, mat, perCar, local, count = n) => {
+      const inst = new THREE.InstancedMesh(geo, mat, count * perCar.length);
       inst.castShadow = true;
       inst.frustumCulled = false; // spread round the whole lap
       inst.userData.local = perCar.map((o) => new THREE.Matrix4().compose(o.p, o.q ?? new THREE.Quaternion(), _one));
@@ -245,30 +294,89 @@ export class Traffic {
       [{ p: V(-0.6, y0 + 0.72, 2.16) }, { p: V(0.6, y0 + 0.72, 2.16) }]
     );
     const col = new THREE.Color();
-    this.cars.forEach((c, i) => this.body.setColorAt(i, col.setHex(c.colour)));
-    this.body.instanceColor.needsUpdate = true;
+    sedans.forEach((c, i) => this.body.setColorAt(i, col.setHex(c.colour)));
+    if (n) this.body.instanceColor.needsUpdate = true;
     this.parts = [this.body, this.cabin, this.wheels, this.heads, this.tails];
+
+    // Model vehicles: one instanced mesh per material, per kind. The
+    // "paint" material takes each vehicle's own colour. The models stand on
+    // y = 0, so they are dropped to the road under the collider's centre.
+    this.modelParts = [];
+    for (const kind of Object.keys(TRAFFIC_MODELS)) {
+      const group = this.cars.filter((c) => c.kind === kind);
+      const tp = trafficParts(kind);
+      if (!group.length || !tp) continue;
+      group.forEach((c, i) => (c.slot = i));
+      const drop = new THREE.Matrix4().makeTranslation(0, -(TRAFFIC_MODELS[kind].half.y + RIDE), 0);
+      const insts = [];
+      for (const { name, geometry, material } of tp) {
+        const inst = new THREE.InstancedMesh(geometry, material, group.length);
+        inst.castShadow = true;
+        inst.frustumCulled = false;
+        inst.userData.local = [drop];
+        if (name === "paint") {
+          group.forEach((c, i) => inst.setColorAt(i, col.setHex(c.colour)));
+          inst.instanceColor.needsUpdate = true;
+        }
+        this.scene.add(inst);
+        insts.push(inst);
+        this.modelParts.push(inst);
+      }
+      for (const c of group) c.insts = insts;
+
+      // Wheels: their own instanced meshes (four per vehicle), so they can
+      // turn. Every wheel is drawn from the model's front-left one, the far
+      // side turned round to face outward.
+      const ws = trafficWheels(kind);
+      if (ws) {
+        const winsts = [];
+        for (const { geometry, material } of ws.parts) {
+          const inst = new THREE.InstancedMesh(geometry, material, group.length * 4);
+          inst.castShadow = true;
+          inst.frustumCulled = false;
+          this.scene.add(inst);
+          winsts.push(inst);
+          this.modelParts.push(inst);
+        }
+        for (const c of group) c.wheelInsts = winsts;
+        this.wheelDrop ??= {};
+        this.wheelDrop[kind] = drop;
+      }
+    }
+    for (const c of sedans) c.insts = this.parts;
   }
 
   /** Pose every mesh, blending the last two steps like the racing cars. */
   render(alpha) {
-    this.cars.forEach((c, i) => {
+    this.cars.forEach((c) => {
       _p.lerpVectors(c.prev.p, c.cur.p, alpha);
       _q.slerpQuaternions(c.prev.q, c.cur.q, alpha);
       _m.compose(_p, _q, _one);
-      for (const inst of this.parts) {
+      for (const inst of c.insts) {
         const locals = inst.userData.local;
         for (let j = 0; j < locals.length; j++) {
-          inst.setMatrixAt(i * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
+          inst.setMatrixAt(c.slot * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
+        }
+      }
+      if (c.wheelInsts) {
+        const ws = trafficWheels(c.kind);
+        _spin.makeRotationX(-c.spin); // forward is -Z: the tops roll toward it
+        for (let k = 0; k < 4; k++) {
+          const cn = ws.corners[k];
+          _wm.copy(_m).multiply(this.wheelDrop[c.kind]).multiply(_t.makeTranslation(cn.x, cn.y, cn.z));
+          if (cn.x > 0) _wm.multiply(_flip); // far side: face the outside outward
+          _wm.multiply(_spin);
+          for (const inst of c.wheelInsts) inst.setMatrixAt(c.slot * 4 + k, _wm);
         }
       }
     });
     for (const inst of this.parts) inst.instanceMatrix.needsUpdate = true;
+    for (const inst of this.modelParts) inst.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
     for (const c of this.cars) this.world.removeRigidBody(c.body); // removes its collider too
-    for (const inst of this.parts ?? []) {
+    for (const inst of [...(this.parts ?? []), ...(this.modelParts ?? [])]) {
       this.scene.remove(inst);
       inst.geometry.dispose();
       inst.material.dispose();

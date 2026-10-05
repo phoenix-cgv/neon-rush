@@ -60,7 +60,9 @@ export class Race {
     const names = Object.keys(PERSONALITIES);
     // The player is white so damage reads on it; the opponents keep strong
     // hues so the field is still separable at a glance on the minimap.
-    const colours = [0xeef1f2, 0xc0463a, 0xd9a13c, 0x6f4a9c, 0x3f8f4e, 0x1d7f8c];
+    // Solid, saturated paint: you in orange, rivals in colours that stay
+    // distinct from each other and from the road at racing speed.
+    const colours = [0xf2561d, 0x1e6bff, 0xf2c200, 0x8f2bff, 0x12c26a, 0x00c8d6];
 
     for (let i = 0; i <= opponents; i++) {
       // Grid: rows back from the line, staggered left and right.
