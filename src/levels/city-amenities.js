@@ -148,17 +148,18 @@ export class CityAmenities {
     const double = (e) => {
       const m = e.material.clone();
       m.side = THREE.DoubleSide;
+      m.fog = false; // stays visible against the haze
       return m;
     };
     if (props.jet) {
       const body = new THREE.Group();
       props.jet.forEach((e) => body.add(mesh(e, double(e))));
-      body.scale.setScalar(0.0115);
+      body.scale.setScalar(0.022);
       body.rotation.y = Math.PI; // the model's nose is +z; flying forward is -z
       const root = new THREE.Group();
       root.add(body);
       this.group.add(root);
-      this.flyers.push({ root, cx: sites.centre.x, cz: sites.centre.z, rx: 250, rz: 200, alt: 150, period: 70, phase: 0.3, dir: 1, bank: 0.22 });
+      this.flyers.push({ root, cx: sites.fly.x, cz: sites.fly.z, rx: 170, rz: 130, alt: 70, period: 60, phase: 0.3, dir: 1, bank: 0.22 });
     }
     if (props.cessna) {
       const body = new THREE.Group();
@@ -181,11 +182,11 @@ export class CityAmenities {
         body.add(prop);
         this.spinners.push({ obj: prop, axis: "z", rate: 38 });
       }
-      body.scale.setScalar(1.35);
+      body.scale.setScalar(2.2);
       const root = new THREE.Group();
       root.add(body);
       this.group.add(root);
-      this.flyers.push({ root, cx: sites.centre.x + 20, cz: sites.centre.z - 10, rx: 160, rz: 130, alt: 95, period: 38, phase: 2.4, dir: -1, bank: 0.3 });
+      this.flyers.push({ root, cx: sites.fly.x + 20, cz: sites.fly.z - 10, rx: 110, rz: 90, alt: 48, period: 32, phase: 2.4, dir: -1, bank: 0.3 });
     }
   }
 

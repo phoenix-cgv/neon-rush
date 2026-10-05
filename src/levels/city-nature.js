@@ -331,7 +331,7 @@ export class CityNature {
     // Set pieces first (they need open ground), then the infill works round them.
     const centre = { x: -90, z: 0 };
     const blockers = []; // square footprints of the set pieces
-    const sites = { centre, gardens: [], fountains: [] };
+    const sites = { centre, fly: { x: 0, z: 0 }, gardens: [], fountains: [] };
     const facing = (x, z) => {
       const pr = track.project(new THREE.Vector3(x, 0, z));
       track.frameAt(pr.s, fr0);
@@ -339,9 +339,15 @@ export class CityNature {
     };
     const fr0 = {};
     const siteR = rng(515);
+    // The set pieces cluster around the starting line, where the player sees
+    // them: of the open spots found, the one nearest the start is taken.
+    const startFr = {};
+    track.frameAt(0, startFr);
+    const startAt = startFr.position;
     const findSite = (radius, near, far) => {
       const probe = new THREE.Vector3();
-      for (let n = 0; n < 20000; n++) {
+      let best = null, bestD = Infinity, found = 0;
+      for (let n = 0; n < 20000 && found < 40; n++) {
         const x = -380 + siteR() * 560;
         const z = -220 + siteR() * 440;
         const dist = track.project(probe.set(x, 0, z)).distance;
@@ -352,10 +358,13 @@ export class CityNature {
         });
         if (!clearB || blockers.some((o) => Math.hypot(x - (o.min.x + o.max.x) / 2, z - (o.min.z + o.max.z) / 2) < radius + (o.max.x - o.min.x) / 2 + 3)) continue;
         if (pits.some((q) => Math.hypot(x - q.x, z - q.z) < radius * 0.7)) continue;
-        blockers.push(new THREE.Box3(new THREE.Vector3(x - radius, 0, z - radius), new THREE.Vector3(x + radius, 5, z + radius)));
-        return { x, z };
+        found++;
+        const d = Math.hypot(x - startAt.x, z - startAt.z);
+        if (d < bestD) { bestD = d; best = { x, z }; }
       }
-      return null;
+      if (!best) return null;
+      blockers.push(new THREE.Box3(new THREE.Vector3(best.x - radius, 0, best.z - radius), new THREE.Vector3(best.x + radius, 5, best.z + radius)));
+      return best;
     };
     if (props?.ferris) {
       const q = findSite(25, 36, 200);
@@ -369,6 +378,7 @@ export class CityNature {
     if (props?.garden) for (let i = 0; i < 2; i++) { const q = findSite(14, 24, 100); if (q) sites.gardens.push({ ...q, yaw: facing(q.x, q.z) }); }
     if (props?.fountain) for (let i = 0; i < 2; i++) { const q = findSite(7.5, 15, 80); if (q) sites.fountains.push(q); }
 
+    sites.fly = { x: startAt.x, z: startAt.z };
     const infill = infillPlots(track, [...buildings, ...blockers], pits, 110);
     buildings.push(...infill);
     this.infillCount = infill.length;
