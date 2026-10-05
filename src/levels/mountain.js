@@ -60,6 +60,83 @@ const REFINED = {
   "Tree Bark": [0.18, 0.07, 0.025],
 };
 
+// ---------------------------------------------------------------------
+// Rock walls: the map's flat-coloured rock faces get a world-space
+// triplanar rock texture, horizontal strata that follow height, darker
+// cracks, and snow lying on the upward-facing faces near the summit. The
+// facets stay flat-shaded (the face normal comes from screen derivatives).
+// Geometry is untouched.
+// ---------------------------------------------------------------------
+function rockTexture() {
+  const c = document.createElement("canvas");
+  c.width = c.height = 256;
+  const g = c.getContext("2d");
+  let a = 4242;
+  const r = () => ((a = (Math.imul(a, 1664525) + 1013904223) >>> 0) / 4294967296);
+  g.fillStyle = "#8a8782";
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 700; i++) {
+    const x = r() * 256, y = r() * 256, w = 6 + r() * 34, h = 3 + r() * 14;
+    const v = 90 + Math.floor(r() * 110);
+    g.fillStyle = `rgba(${v},${v - 3},${v - 8},.35)`;
+    for (const [dx, dy] of [[0, 0], [256, 0], [-256, 0], [0, 256], [0, -256]]) g.fillRect(x + dx, y + dy, w, h);
+  }
+  g.strokeStyle = "rgba(25,22,20,.55)";
+  for (let i = 0; i < 70; i++) {
+    let x = r() * 256, y = r() * 256;
+    g.lineWidth = 0.6 + r() * 1.2;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (r() - 0.5) * 26; y += (r() - 0.35) * 22; g.lineTo(x, y); }
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+function rockify(group, tex) {
+  const done = new Set();
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      if (!m || done.has(m) || !/^(Mountain Rock|Rock Highlight)$/.test(m.name) || m.userData.rockified) continue;
+      done.add(m);
+      m.userData.rockified = true;
+      m.onBeforeCompile = (shader) => {
+        shader.uniforms.uRock = { value: tex };
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWP;")
+          .replace("#include <begin_vertex>", "#include <begin_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWP;\nuniform sampler2D uRock;")
+          .replace(
+            "#include <map_fragment>",
+            `#include <map_fragment>
+            vec3 fn = normalize(cross(dFdx(vWP), dFdy(vWP)));
+            vec3 w = pow(abs(fn), vec3(4.0)); w /= (w.x + w.y + w.z);
+            vec3 tx = texture2D(uRock, vWP.yz * 0.11).rgb * w.x
+                    + texture2D(uRock, vWP.xz * 0.11).rgb * w.y
+                    + texture2D(uRock, vWP.xy * 0.11).rgb * w.z;
+            vec3 big = texture2D(uRock, vWP.xz * 0.013 + vWP.y * 0.004).rgb;
+            // strata: bands that follow height, warped by the big noise
+            float band = sin(vWP.y * 0.85 + big.r * 5.0) * 0.5 + 0.5;
+            vec3 rock = diffuseColor.rgb * (0.55 + 0.9 * tx) * mix(0.78, 1.18, band);
+            rock = mix(rock, rock * vec3(1.12, 0.98, 0.84), smoothstep(0.55, 1.0, band) * 0.5);
+            // snow settles on upward faces near the top
+            float snowLine = 56.0 + big.g * 14.0;
+            float snow = smoothstep(0.45, 0.8, fn.y) * smoothstep(snowLine, snowLine + 8.0, vWP.y);
+            diffuseColor.rgb = mix(rock, vec3(0.93, 0.95, 0.98), snow);`
+          );
+      };
+      m.customProgramCacheKey = () => "rockify";
+      m.needsUpdate = true;
+    }
+  });
+}
+
 function applyRefinedLook(group) {
   const seen = new Set(); // materials are shared between meshes
   group.traverse((o) => {
@@ -100,6 +177,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
   });
   const { track } = map;
   applyRefinedLook(map.group);
+  rockify(map.group, rockTexture());
   const scenery = new MountainScenery(scene, track, map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)), { tunnel: [683, 821] });
 
   const gate = track.spawnAt(0);

@@ -14,8 +14,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 //                  alternating, each with a red beacon that pulses
 //   aeroplane      one biplane wandering a looping route across the mountain
 //   goats          small herds grazing on the slopes beside the road
-//   islands        two floating islands, one with a fox, drifting over the peak
-//   neon streaks   light running along the road through the tunnel
+//   islands        floating islands (one with a fox) far above the mountain
+//   neon streaks   an orange line along each guardrail through the tunnel
 //
 // Towers stand where a downward ray finds the terrain, so they sit on the
 // slope rather than float. Nothing here is physical.
@@ -212,10 +212,15 @@ export class MountainScenery {
       });
     }
 
-    // ---- two floating islands, the larger with the fox
+    // ---- floating islands, all high above the mountain
     [
-      { x: cx - 70, z: cz + 40, alt: top + 45, scale: 15, spin: 0.05 },
-      { x: cx + 130, z: cz - 110, alt: top + 95, scale: 11, spin: -0.07 },
+      { x: cx - 70, z: cz + 40, alt: top + 210, scale: 26, spin: 0.03 },
+      { x: cx + 190, z: cz - 130, alt: top + 290, scale: 20, spin: -0.04 },
+      { x: cx - 260, z: cz - 150, alt: top + 250, scale: 30, spin: 0.025 },
+      { x: cx + 60, z: cz + 260, alt: top + 330, scale: 24, spin: -0.03 },
+      { x: cx - 120, z: cz - 330, alt: top + 380, scale: 34, spin: 0.02 },
+      { x: cx + 330, z: cz + 120, alt: top + 270, scale: 22, spin: 0.04 },
+      { x: cx - 330, z: cz + 190, alt: top + 340, scale: 28, spin: -0.025 },
     ].forEach((d, i) => {
       const g = new THREE.Group();
       for (const { geometry, material } of models.island.parts) {
@@ -236,19 +241,19 @@ export class MountainScenery {
   #neonTunnel(track, s0, s1) {
     const fr = {};
     const step = 2;
+    // one orange line along each guardrail, standing on the inside face of the rail
     const lines = [
-      { off: 0, w: 0.55, color: [0.1, 0.95, 1.0], speed: 1.0 },
-      { off: -4.2, w: 0.35, color: [1.0, 0.1, 0.75], speed: 0.8 },
-      { off: 4.2, w: 0.35, color: [1.0, 0.1, 0.75], speed: 0.8 },
+      { off: -6.0, color: [1.0, 0.42, 0.04], speed: 1.0 },
+      { off: 6.0, color: [1.0, 0.42, 0.04], speed: 1.0 },
     ];
     for (const L of lines) {
       const pos = [], uv = [], idx = [];
       let n = 0;
       for (let sPos = s0 - 6; sPos <= s1 + 6; sPos += step, n++) {
         track.frameAt(sPos, fr);
-        const c = fr.position.clone().addScaledVector(fr.right, L.off).addScaledVector(fr.up, 0.1);
-        const a = c.clone().addScaledVector(fr.right, -L.w);
-        const b = c.clone().addScaledVector(fr.right, L.w);
+        const c = fr.position.clone().addScaledVector(fr.right, L.off);
+        const a = c.clone().addScaledVector(fr.up, 0.42);
+        const b = c.clone().addScaledVector(fr.up, 0.78);
         pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
         uv.push(0, sPos, 1, sPos);
         if (n) { const k = (n - 1) * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
@@ -315,7 +320,7 @@ export class MountainScenery {
       g.obj.rotation.y = g.yaw + (Math.cos(t * 0.18 + g.phase) > 0 ? 0 : Math.PI);
     }
     for (const i of this.islands) {
-      i.obj.position.y = i.alt + Math.sin(t * 0.4 + i.phase) * 2.2;
+      i.obj.position.y = i.alt + Math.sin(t * 0.3 + i.phase) * 4;
       i.obj.rotation.y = t * i.spin;
     }
   }
