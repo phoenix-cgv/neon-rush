@@ -31,6 +31,7 @@ import { RaceHud } from "./ui/race-hud.js";
 import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
+import { DriftFx } from "./vehicle/drift-fx.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
@@ -191,6 +192,8 @@ const gameplayEvents = new GameplayEvents();
 // One shared pool for the whole field — smoke is one draw call however
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
+const driftFx = new DriftFx(scene);
+gameplayHud.onTierUp = (tier) => driftFx.burst(carRig, tier);
 
 // A time-trial level's boost orbs (see Pickups' boostSeconds) push the
 // race clock back instead of filling the boost meter. One listener for
@@ -263,6 +266,9 @@ const LEVELS = {
 };
 const ORDER = ["city", "mountain", "grandprix"];
 let level = null;
+let finishedFor = 0; // s the results screen has been up
+let leaving = false; // a return to the title page is under way
+let levelFresh = false; // true from a level loading until its lights go out
 // The car a track-less level owns, so the next loadLevel can take it back.
 let pickups = null;
 let traffic = null; // civilian traffic, on levels that ask for it
@@ -405,6 +411,7 @@ async function loadLevel(name) {
     }
     gameplayHud.setActive(true);
     speedo.setActive(true);
+    levelFresh = true;
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -458,7 +465,9 @@ const dashboard = new Dashboard({
   onPlay: (i) => {
     document.body.classList.remove("dash-open");
     audio.unlock();
-    loadLevel(ORDER[i]);
+    // The level behind the title page is already loaded and untouched
+    // (after a win it is the next level): just start it.
+    if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]);
   },
 });
 function showDashboard() {
@@ -481,14 +490,18 @@ const _mapOthers = [];
 const _dashPos = new THREE.Vector3();
 const _dashLook = new THREE.Vector3();
 
-// Auto-advance: left alone at the results screen, the game moves itself
-// on to the next level rather than stalling until someone presses a key —
-// the whole three-level game plays through on its own. R (race again) or
-// L (switch level) during this window calls loadLevel itself, which sets
-// director back to a fresh "lights" state next frame and so resets this
-// right along with it; no special-casing needed to cancel the timer.
-const AUTO_ADVANCE_DELAY = 6; // s the results screen stays up before advancing
-let finishedFor = 0;
+// Win or lose, the results screen gives way to the title page after a few
+// seconds. After a win the level loaded behind it is the NEXT one (and the
+// title page's level picker is already on it); after a loss it is the same
+// level again, fresh. R (race again) or L (switch level) in the meantime
+// start a fresh race themselves, which ends this countdown.
+const RESULTS_DELAY = 5; // s the results screen stays up
+async function returnToTitle(next) {
+  await loadLevel(next);
+  showDashboard();
+  finishedFor = 0;
+  leaving = false;
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -559,22 +572,23 @@ function frame(now) {
     if (next < (Save.get("maxLevel") | 0)) loadLevel(ORDER[next]);
   }
 
-  // Only a WIN auto-advances. A loss (wrecked, timed out, beaten) sits on
-  // the results screen until the player chooses — R to try this level
-  // again, L to skip ahead anyway — rather than sweeping them on to the
-  // next level before they get a chance to retry the one they just lost.
-  if (director?.state === "finished" && director.outcome === "won") {
-    // Winning unlocks the next level.
-    const unlocked = Math.min(ORDER.indexOf(levelName) + 2, ORDER.length);
-    if (unlocked > (Save.get("maxLevel") | 0)) Save.set("maxLevel", unlocked);
-    finishedFor += frameDt;
-    if (finishedFor >= AUTO_ADVANCE_DELAY) {
-      finishedFor = 0;
-      loadLevel(ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length]);
+  if (director && director.state !== "lights") levelFresh = false;
+  if (director?.state === "finished") {
+    const won = director.outcome === "won";
+    if (won) {
+      // Winning unlocks the next level.
+      const unlocked = Math.min(ORDER.indexOf(levelName) + 2, ORDER.length);
+      if (unlocked > (Save.get("maxLevel") | 0)) Save.set("maxLevel", unlocked);
     }
-  } else {
+    finishedFor += frameDt;
+    if (finishedFor >= RESULTS_DELAY && !leaving) {
+      leaving = true;
+      returnToTitle(won ? ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length] : levelName);
+    }
+  } else if (!leaving) {
     finishedFor = 0;
   }
+  raceHud.returnIn = director?.state === "finished" ? Math.max(0, RESULTS_DELAY - finishedFor) : null;
 
   accumulator += frameDt;
   let controls = input.controls;
@@ -680,6 +694,7 @@ function frame(now) {
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
   smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
+  driftFx.update(frameDt, vehicle.state, carRig);
 
   const state = vehicle.state;
   health.update(state.damage);
@@ -738,7 +753,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
+  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },

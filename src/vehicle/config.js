@@ -308,6 +308,20 @@ export const CAR = {
   boostCapacity: 100,
   boostFillRate: 40, // per second at full drift
   boostDrainRate: 34, // per second while held (~3 s from full)
+  // --- drift combo ----------------------------------------------------
+  // Keep a slide going and the combo climbs through four titles. Each title
+  // multiplies how fast the slide fills the boost tank and stretches the tank
+  // itself (the extension is drawn red, past the normal end of the bar).
+  // `at` is seconds of drifting in the current combo; `ext` is extra tank.
+  driftTiers: [
+    { name: "DRIFTER", at: 0.6, mult: 1, ext: 15 },
+    { name: "DRIFT MASTER", at: 2.5, mult: 2, ext: 35 },
+    { name: "DRIFT KING", at: 5.0, mult: 3, ext: 60 },
+    { name: "DRIFT GOD", at: 8.5, mult: 5, ext: 100 },
+  ],
+  driftGapReset: 1.0, // s out of a slide before the combo is lost
+  tankExtraHold: 6, // s the stretched tank stays after the combo ends
+  tankExtraDecay: 20, // then it shrinks (and spills) at this much per second
   boostPassiveRegen: 7, // per second always — so Shift always does something
   driftMinSpeed: 15, // m/s below which drifting earns nothing
   boostDownforceBonus: 2.2, // multiplier on downforce while boosting

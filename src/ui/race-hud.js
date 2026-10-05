@@ -155,7 +155,11 @@ export class RaceHud {
           .join("") +
         `</table>` +
         `<div style="margin-top:14px;color:#8fa5ac;letter-spacing:.06em">` +
-        `R&nbsp; race again &nbsp;·&nbsp; L&nbsp; next level</div>`;
+        `R&nbsp; race again &nbsp;·&nbsp; L&nbsp; next level` +
+        (this.returnIn !== null && this.returnIn !== undefined
+          ? ` &nbsp;·&nbsp; title page in ${Math.ceil(this.returnIn)} s`
+          : "") +
+        `</div>`;
       // Rebuilt only when something changed: rewriting innerHTML every
       // frame is wasted layout work.
       if (html !== this.lastResults) {
