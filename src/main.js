@@ -32,6 +32,7 @@ import { RaceHud } from "./ui/race-hud.js";
 import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
+import { WheelGlow } from "./vehicle/wheel-glow.js";
 import { DriftFx } from "./vehicle/drift-fx.js";
 import { DebugOverlay } from "./debug/overlay.js";
 import { buildTestbed } from "./levels/testbed.js";
@@ -194,6 +195,7 @@ const gameplayEvents = new GameplayEvents();
 // many cars are smoking, and it is kept off the minimap layer.
 const smoke = new Smoke(scene, MINIMAP_LAYER);
 const driftFx = new DriftFx(scene);
+const wheelGlow = new WheelGlow(scene); // neon on the ground behind the rear wheels (Grand Prix)
 gameplayHud.onTierUp = (tier) => driftFx.burst(carRig, tier);
 
 // A time-trial level's boost orbs (see Pickups' boostSeconds) push the
@@ -692,6 +694,8 @@ function frame(now) {
   // frame rates.
   smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
   driftFx.update(frameDt, vehicle.state, carRig);
+  wheelGlow.enabled = level?.name === "grandprix";
+  wheelGlow.update(now / 1000, carRig, vehicle.state, !dashboard.open);
 
   const state = vehicle.state;
   health.update(state.damage);
@@ -750,7 +754,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx,
+  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },

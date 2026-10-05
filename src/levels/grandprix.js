@@ -2,6 +2,7 @@ import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import * as THREE from "three";
 import { buildArmco } from "./armco.js";
+import { GrandPrixScenery, loadGrandPrixProps } from "./grandprix-scenery.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 3 — Grand Prix
@@ -41,7 +42,10 @@ import { buildArmco } from "./armco.js";
 // invisible wall.
 // ---------------------------------------------------------------------
 
-buildGrandPrix.preload = () => loadMap(mapUrl);
+buildGrandPrix.preload = async () => {
+  const [map] = await Promise.all([loadMap(mapUrl), loadGrandPrixProps()]);
+  return map;
+};
 
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildGrandPrix(RAPIER, world, scene, gltf) {
@@ -92,9 +96,14 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     track.objects.push(o); // disposed with the track
   }
 
+  // Cacti, tents and apple trees on the open grass, and neon rails through
+  // the tunnel (road distance 2,338-2,552 m).
+  const scenery = new GrandPrixScenery(scene, track, map.group.children, { tunnel: [2338, 2552] });
+
   const gate = track.spawnAt(0);
   return {
     name: "grandprix",
+    scenery,
     index: 3,
     title: "Grand Prix",
     track,
@@ -126,7 +135,10 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       fog: [0xb88a80, 260, 1300],
       exposure: 1.0,
     },
-    dispose: map.dispose,
+    dispose: () => {
+      scenery.dispose();
+      map.dispose();
+    },
   };
 }
 

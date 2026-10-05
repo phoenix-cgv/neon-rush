@@ -32,7 +32,7 @@ let loading = null;
 let models = null;
 
 /** Merge a glTF's meshes into world-space geometry, re-based so (0,0,0) is the middle of the foot. */
-function bake(gltf, { footY = null, merge = false, height: targetH = null } = {}) {
+export function bake(gltf, { footY = null, merge = false, height: targetH = null } = {}) {
   gltf.scene.updateMatrixWorld(true);
   let parts = [];
   const byMaterial = new Map();
