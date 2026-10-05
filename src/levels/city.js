@@ -71,7 +71,18 @@ export function buildCity(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 68 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [60, 90, 40], fog: [0xb4c6d0, 220, 950], sky: 0xb4c6d0 },
+    // Late-afternoon light to suit the refined map (its lit windows, coral
+    // accents and teal glass read best low and warm). The ground plane ends
+    // about 300 m out, so the fog closes in before the edge can show.
+    lit: {
+      sun: [-70, 38, 60],
+      sunColor: 0xffcf9e,
+      sunIntensity: 2.6,
+      hemi: [0x9db6d6, 0x4b4038, 1.6],
+      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
+      fog: [0xd9b496, 140, 520],
+      exposure: 1.0,
+    },
     dispose: () => {
       map.dispose();
       line.material.map.dispose(); // ...but not the texture on it
