@@ -113,18 +113,32 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     pickups: { repair: 6, boost: 8 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Dusk: a low, warm sun raking across the track, a violet-blue sky
-    // fading to orange at the horizon, and less fill light, so the
-    // floodlights, sponsor boards, bridge banner and big screen (emissive
-    // in the map) carry the scene.
+    // Night, after rain. The only daylight is a dim blue moon; the scene
+    // is lit by what glows in the map (floodlights, tunnel strips, the big
+    // screen, banners) through bloom, plus a handful of REAL lights that
+    // follow the player between those fixtures (src/lighting/light-pool.js):
+    // four floodlight spots out of eleven towers, two tunnel lights out of
+    // fifteen strips. Far fixtures only glow; near ones light the road.
+    //
+    // The asphalt is glossy because it is wet, so it picks up the
+    // floodlights, the tunnel strips and the headlights as streaks.
     lit: {
-      sun: [-90, 28, 60],
-      sunColor: 0xffa15a,
-      sunIntensity: 2.2,
-      hemi: [0x7a7fb0, 0x3a2c30, 1.1],
-      sky: { top: 0x1f2d63, horizon: 0xf2a066, bottom: 0x2e2a33 },
-      fog: [0xb88a80, 260, 1300],
-      exposure: 1.0,
+      sun: [-60, 95, 40], // the moon
+      sunColor: 0x9fb4ff,
+      sunIntensity: 0.45,
+      hemi: [0x2a3550, 0x0a0a10, 0.3],
+      sky: { top: 0x03050c, horizon: 0x1b2140, bottom: 0x050508 },
+      fog: [0x0d1222, 140, 700],
+      exposure: 1.1,
+      envIntensity: 0.6,
+      bloom: { threshold: 1.5, strength: 0.45, radius: 0.25 },
+      headlights: true,
+      emissive: { TunnelLights: 0.45 },
+      materials: { Asphalt: { roughness: 0.32 }, AsphaltWorn: { roughness: 0.4 } },
+      pools: [
+        { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 15000, distance: 160, angle: 0.75, penumbra: 0.7, fade: 40 },
+        { material: "TunnelLights", count: 2, type: "point", color: 0xffc68a, intensity: 150, distance: 30, fade: 20 },
+      ],
     },
     dispose: map.dispose,
   };

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { MAP_WORLD_LAYER } from "../ui/minimap.js";
+import { LightPool } from "./light-pool.js";
 
 // ---------------------------------------------------------------------
 // Extra lights a level asks for, beyond the sun and the sky fill that
@@ -24,6 +25,9 @@ import { MAP_WORLD_LAYER } from "../ui/minimap.js";
 //   { type: "point" | "spot", color, intensity, distance, decay,
 //     position: [x, y, z]  or  at: { s, lateral = 0, height = 6 },
 //     angle, penumbra  (spot: aims straight down at the road) }
+//
+// `lit.pools` are light pools (src/lighting/light-pool.js): a few real
+// lights that follow the player between many glowing fixtures.
 // ---------------------------------------------------------------------
 
 const _fr = {};
@@ -32,11 +36,13 @@ export class LevelLights {
   constructor(scene) {
     this.scene = scene;
     this.lights = [];
+    this.pools = [];
   }
 
-  /** Replace whatever the last level built with `defs`. */
-  build(defs = [], track = null) {
+  /** Replace whatever the last level built with `defs` and `pools`. */
+  build(defs = [], track = null, pools = []) {
     this.clear();
+    for (const p of pools) this.pools.push(new LightPool(this.scene, p, track));
     for (const d of defs) {
       const light =
         d.type === "spot"
@@ -62,7 +68,14 @@ export class LevelLights {
     }
   }
 
+  /** Once per rendered frame, with the player's position. */
+  update(pos) {
+    for (const p of this.pools) p.update(pos);
+  }
+
   clear() {
+    for (const p of this.pools) p.dispose();
+    this.pools.length = 0;
     for (const l of this.lights) {
       this.scene.remove(l);
       if (l.isSpotLight) this.scene.remove(l.target);

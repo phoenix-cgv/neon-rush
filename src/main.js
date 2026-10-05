@@ -29,6 +29,7 @@ import { DebugOverlay } from "./debug/overlay.js";
 import { SkyEnvironment } from "./lighting/sky-environment.js";
 import { PostFX } from "./lighting/post.js";
 import { LevelLights } from "./lighting/level-lights.js";
+import { addFakeHeadlights } from "./lighting/fake-headlights.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -152,6 +153,13 @@ const levelLights = new LevelLights(scene);
 //                reflects in every standard material (0 = off)
 //   bloom        { threshold, strength, radius } — see src/lighting/post.js
 //   lights       extra point/spot lights — see src/lighting/level-lights.js
+//   headlights   true to switch on the player's headlight spots (dusk, night)
+//   pools        light pools — see src/lighting/light-pool.js
+//   emissive     { materialName: scale } on the map's glowing materials, so
+//                a level can switch street lamps off at noon or turn
+//                floodlights up at night without touching the .glb
+//   materials    { materialName: { roughness, metalness, ... } } overrides,
+//                e.g. wet asphalt at night
 const LIGHT_DEFAULTS = {
   sun: [60, 80, 30],
   sunColor: 0xfff3dc,
@@ -163,6 +171,9 @@ const LIGHT_DEFAULTS = {
   envIntensity: 0.4,
   bloom: {},
   lights: [],
+  pools: [],
+  emissive: {},
+  materials: {},
 };
 function applyLighting(lit, track = null) {
   const L = { ...LIGHT_DEFAULTS, ...lit };
@@ -186,7 +197,35 @@ function applyLighting(lit, track = null) {
     scene.environmentIntensity = L.envIntensity;
   }
   post.setBloom(L.bloom);
-  levelLights.build(L.lights, track);
+  levelLights.build(L.lights, track, L.pools);
+  restyleMaterials(L.emissive, L.materials);
+}
+
+/**
+ * Per-level material looks, by material name: `emissive` scales a glow,
+ * `materials` overrides properties (wet asphalt is roughness down).
+ *
+ * The exported value of anything touched is kept on the material the
+ * first time it is seen, and every level starts from THAT, never from the
+ * current value: the map's materials are cached and shared between
+ * visits, so working from the live value would compound on every reload,
+ * and a property one level overrode would leak into the next.
+ */
+function restyleMaterials(emissive, overrides) {
+  scene.traverse((o) => {
+    const m = o.isMesh ? o.material : null;
+    if (!m || Array.isArray(m) || !m.isMeshStandardMaterial) return;
+    const base = (m.userData.base ??= {});
+    if (m.emissive) {
+      base.emissiveIntensity ??= m.emissiveIntensity;
+      m.emissiveIntensity = base.emissiveIntensity * (emissive[m.name] ?? 1);
+    }
+    for (const k of Object.keys(base)) if (k !== "emissiveIntensity") m[k] = base[k];
+    for (const [k, v] of Object.entries(overrides[m.name] ?? {})) {
+      base[k] ??= m[k];
+      m[k] = v;
+    }
+  });
 }
 
 const world = new RAPIER.World(WORLD.gravity);
@@ -440,6 +479,13 @@ async function loadLevel(name) {
       recorder = new Recorder();
     }
     gameplayHud.setActive(true);
+    // The player's car only. Opponents' headlights are faked (glow and
+    // light on the road, not lights): two real spots per car across a
+    // six-car field is the 2.95 ms README §8 measured.
+    if (level.lit?.headlights) {
+      carRig.setHeadlights(true);
+      for (const c of race.cars) if (!c.isPlayer) addFakeHeadlights(c.rig);
+    }
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -685,6 +731,7 @@ function frame(now) {
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
   cameraRig.update(frameDt, state, input.look);
 
+  levelLights.update(state.position);
   sky.position.copy(camera.position);
   sun.target.position.copy(state.position);
   sun.position.copy(state.position).add(SUN_OFFSET);

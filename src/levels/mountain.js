@@ -117,7 +117,27 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },
+    // Dusk on the pass. The sun is about 10 degrees above the horizon,
+    // so it rakes across the slopes from the side: lit rock faces glow
+    // orange, everything turned away from it falls into a cool blue fill,
+    // and every tree and ridge throws a long shadow across the road. The
+    // headlights come on from this level onward.
+    //
+    // Bloom's threshold is higher than the default here: a low sun lights
+    // the side of the white car almost head-on, and at 1.6 the paint
+    // itself bloomed.
+    lit: {
+      sun: [-120, 24, 45],
+      sunColor: 0xff9a55,
+      sunIntensity: 3.0,
+      hemi: [0x5a78b8, 0x2b2a35, 1.0],
+      sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640 },
+      fog: [0x9a8590, 200, 900],
+      exposure: 1.05,
+      envIntensity: 0.35,
+      bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
+      headlights: true,
+    },
     dispose: map.dispose,
   };
 }
