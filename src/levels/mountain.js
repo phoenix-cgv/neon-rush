@@ -163,11 +163,15 @@ export function buildMountain(RAPIER, world, scene, gltf) {
         "Bridge Concrete": { map: "panels", size: 4, strength: 0.7 },
       },
       // The summit tunnel (walls 7.5 m out, roof 6.7 m up) was modelled
-      // with no lights. Sodium strips down the roof every 9 m, two real
-      // lights following the player between them, and the sky fill
-      // dimmed under the roof, which otherwise tinted the walls purple.
-      strips: [{ name: "MountainTunnelStrip", s0: 690, s1: 820, every: 9, height: 6.5, length: 3, color: 0xffa858, intensity: 3 }],
-      pools: [{ material: "MountainTunnelStrip", count: 2, type: "point", color: 0xffb070, intensity: 80, distance: 22, fade: 15, cluster: 4 }],
+      // with no lights. Strips down the roof every 9 m, two real lights
+      // following the player between them, and the sky fill dimmed
+      // under the roof, which otherwise tinted the walls purple. Neon
+      // amber (lit.glow, the same colour the checkpoint gates already
+      // use here) rather than a sodium-vapour orange — this game's
+      // tunnels are meant to glow with the track's own neon, not read
+      // as a real road tunnel.
+      strips: [{ name: "MountainTunnelStrip", s0: 690, s1: 820, every: 9, height: 6.5, length: 3, color: 0xff9a3c, intensity: 3 }],
+      pools: [{ material: "MountainTunnelStrip", count: 2, type: "point", color: 0xff9a3c, intensity: 80, distance: 22, fade: 15, cluster: 4 }],
       shelter: [{ s0: 690, s1: 822, ramp: 15, ambient: 0.2 }],
     },
     dispose: map.dispose,

@@ -151,6 +151,12 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
         Rock: { map: "rock", size: 6, strength: 1.2 },
       },
       emissive: { TunnelLights: 0.45 },
+      // The tunnel strips are modelled with a fixed amber emissive — this
+      // overrides the colour itself (not just its intensity, which the
+      // `emissive` map above already scales) to lit.glow's magenta, so
+      // the tunnel glows with the track's own neon rather than a real
+      // tunnel's sodium lighting. See restyleMaterials() in main.js.
+      materials: { TunnelLights: { emissive: new THREE.Color(0xff3cc8) } },
       wet: { materials: ["Asphalt", "AsphaltWorn", "PitAsphalt"], puddles: 0.45, damp: 0.38, ripples: 1 },
       // The eleven floodlight towers come as four pairs (one each side of
       // the road, at the same point on track) plus three singles, not
@@ -172,7 +178,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       // dimmer than before but still clearly visible against the night.
       pools: [
         { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 7000, distance: 70, angle: 0.75, penumbra: 0.7, fade: 40 },
-        { material: "TunnelLights", count: 2, type: "point", color: 0xffc68a, intensity: 150, distance: 30, fade: 20 },
+        { material: "TunnelLights", count: 2, type: "point", color: 0xff3cc8, intensity: 150, distance: 30, fade: 20 },
       ],
     },
     dispose: map.dispose,
