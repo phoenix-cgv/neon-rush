@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { CityBuildings } from "./city-buildings.js";
 import treeUrl from "../../assets/props/ornamental-tree.glb?url";
 import planterUrl from "../../assets/props/planter-box.glb?url";
 import wheatUrl from "../../assets/props/wheat-plant.glb?url";
@@ -57,77 +57,6 @@ function canvasTex(w, h, draw, { repeat = false, srgb = true } = {}) {
   t.anisotropy = 4;
   t.generateMipmaps = true;
   return t;
-}
-
-function leafTexture() {
-  const r = rng(11);
-  return canvasTex(256, 256, (g, w, h) => {
-    g.clearRect(0, 0, w, h);
-    const greens = ["#1c5a22", "#2a7a2e", "#3d9a3a", "#58b24a", "#7bc95a"];
-    for (let i = 0; i < 170; i++) {
-      const x = 16 + r() * (w - 32);
-      const y = 16 + r() * (h - 32);
-      const len = 26 + r() * 24;
-      const wid = len * (0.38 + r() * 0.12);
-      const rot = r() * Math.PI * 2;
-      g.save();
-      g.translate(x, y);
-      g.rotate(rot);
-      const col = greens[Math.floor(r() * greens.length)];
-      g.fillStyle = col;
-      g.beginPath();
-      g.ellipse(0, 0, len / 2, wid / 2, 0, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = "rgba(10,40,12,.55)"; // edge
-      g.lineWidth = 1;
-      g.stroke();
-      g.strokeStyle = "rgba(220,255,200,.35)"; // midrib
-      g.beginPath();
-      g.moveTo(-len / 2, 0);
-      g.lineTo(len / 2, 0);
-      g.stroke();
-      g.restore();
-    }
-  });
-}
-
-function barkTexture() {
-  const r = rng(23);
-  return canvasTex(64, 128, (g, w, h) => {
-    g.fillStyle = "#6b4a2d";
-    g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 120; i++) {
-      const x = r() * w;
-      const y = r() * h;
-      const l = 14 + r() * 40;
-      g.strokeStyle = r() < 0.5 ? "rgba(30,18,8,.45)" : "rgba(150,110,70,.35)";
-      g.lineWidth = 1 + r() * 2;
-      g.beginPath();
-      g.moveTo(x, y);
-      g.lineTo(x + (r() - 0.5) * 3, y + l);
-      g.stroke();
-    }
-  }, { repeat: true });
-}
-
-function needleTexture() {
-  const r = rng(37);
-  return canvasTex(128, 128, (g, w, h) => {
-    g.fillStyle = "#1d4a26";
-    g.fillRect(0, 0, w, h);
-    for (let i = 0; i < 700; i++) {
-      const x = r() * w;
-      const y = r() * h;
-      const a = (r() - 0.5) * 1.6 + Math.PI / 2;
-      const l = 5 + r() * 7;
-      g.strokeStyle = r() < 0.5 ? "rgba(12,48,22,.8)" : "rgba(86,150,74,.7)";
-      g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(x, y);
-      g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
-      g.stroke();
-    }
-  }, { repeat: true });
 }
 
 function pathTexture() {
@@ -243,75 +172,8 @@ function lawnify(material, tex) {
 // ---------------------------------------------------------------- geometry
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
-const _e = new THREE.Euler();
 const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
-
-/** Leaf-card canopy: many randomly-turned cards inside an ellipsoid. */
-function canopyGeometry(seed, { cards = 90, rx = 2.5, ry = 2.0, cy = 5.0, size = [2.0, 3.0] } = {}) {
-  const r = rng(seed);
-  const parts = [];
-  for (let i = 0; i < cards; i++) {
-    // uniform in an ellipsoid, pushed toward the shell so the crown is full
-    let x, y, z;
-    do {
-      x = r() * 2 - 1;
-      y = r() * 2 - 1;
-      z = r() * 2 - 1;
-    } while (x * x + y * y + z * z > 1);
-    const k = 0.55 + 0.45 * Math.cbrt(x * x + y * y + z * z);
-    _v.set(x * rx * k, cy + y * ry * k, z * rx * k);
-    const sz = size[0] + r() * (size[1] - size[0]);
-    const g = new THREE.PlaneGeometry(sz, sz);
-    _e.set((r() - 0.5) * 2.4, r() * Math.PI * 2, (r() - 0.5) * 2.4);
-    _q.setFromEuler(_e);
-    _m.compose(_v, _q, _s.set(1, 1, 1));
-    g.applyMatrix4(_m);
-    // outward normals from the crown's centre: shades like a soft sphere
-    const p = g.attributes.position;
-    const n = g.attributes.normal;
-    for (let j = 0; j < p.count; j++) {
-      _s.set(p.getX(j) / rx, (p.getY(j) - cy) / ry, p.getZ(j) / rx).normalize();
-      n.setXYZ(j, _s.x, _s.y, _s.z);
-    }
-    parts.push(g);
-  }
-  return mergeGeometries(parts, false);
-}
-
-function trunkGeometry(h, r0, r1, branches = 3, seed = 5) {
-  const r = rng(seed);
-  const parts = [new THREE.CylinderGeometry(r1, r0, h, 8, 3).translate(0, h / 2, 0)];
-  for (let i = 0; i < branches; i++) {
-    const len = 1.4 + r();
-    const g = new THREE.CylinderGeometry(0.05, 0.11, len, 5).translate(0, len / 2, 0);
-    g.rotateZ((0.5 + r() * 0.5) * (i % 2 ? 1 : -1));
-    g.rotateY(r() * Math.PI * 2);
-    g.translate(0, h * (0.6 + r() * 0.3), 0);
-    parts.push(g);
-  }
-  return mergeGeometries(parts, false);
-}
-
-function pineGeometry() {
-  const parts = [];
-  const tiers = 6;
-  for (let i = 0; i < tiers; i++) {
-    const t = i / (tiers - 1);
-    const radius = 2.0 - t * 1.55;
-    const height = 2.1 - t * 0.5;
-    const g = new THREE.ConeGeometry(radius, height, 10, 1, true);
-    g.translate(0, 2.3 + i * 1.05 + height / 2, 0);
-    // a slight droop: pull the rim down
-    const p = g.attributes.position;
-    for (let j = 0; j < p.count; j++) {
-      if (p.getY(j) < 2.3 + i * 1.05 + height * 0.2) p.setY(j, p.getY(j) - 0.12);
-    }
-    g.computeVertexNormals();
-    parts.push(g);
-  }
-  return mergeGeometries(parts, false);
-}
 
 // ------------------------------------------------------------ props (GLBs)
 const loader = new GLTFLoader();
@@ -402,9 +264,6 @@ export class CityNature {
     });
 
     // ---- textures
-    const leaf = own(leafTexture());
-    const bark = own(barkTexture());
-    const needles = own(needleTexture());
     const lawn = own(lawnTexture());
     const pave = own(pathTexture());
 
@@ -416,13 +275,18 @@ export class CityNature {
       }
     });
 
+    // ---- the buildings: modelled designs on the map's plots
+    this.buildings = new CityBuildings(scene, buildings);
+    const doorOf = new Map(this.buildings.placed.map((p) => [p.index, p]));
+
     // ---- paths from the pavement to every building's door
     // Doors face +Z (the map's -Y). A short forecourt straight out from the
     // door, then a straight run to the pavement's outer edge. A building whose
     // run would cut across another is left without a path.
     const paths = [];
     const fr = {};
-    for (const b of buildings) {
+    buildings.forEach((b, bi) => {
+      if (!doorOf.has(bi)) return; // no building stands here any more
       const cx = (b.min.x + b.max.x) / 2;
       const e = { x: cx, z: b.max.z };
       const f = { x: cx, z: b.max.z + 2.6 };
@@ -435,7 +299,7 @@ export class CityNature {
         tx: fr.tangent.x,
         tz: fr.tangent.z,
       };
-      if (Math.hypot(t.x - f.x, t.z - f.z) > 46) continue;
+      if (Math.hypot(t.x - f.x, t.z - f.z) > 46) return;
       let clear = true;
       for (const o of buildings) {
         if (o === b) {
@@ -446,7 +310,7 @@ export class CityNature {
         if (!clear) break;
       }
       if (clear) paths.push({ e, f, t });
-    }
+    });
     this.pathCount = paths.length;
 
     if (paths.length) {
@@ -496,69 +360,40 @@ export class CityNature {
     const spots = pits.filter((p) => clearOfBuildings(p, 3.4) && clearOfPaths(p, 2.4));
     this.treeCount = spots.length;
 
-    const barkMat = own(windify(new THREE.MeshStandardMaterial({ map: bark, roughness: 0.95 }), "tree"));
-    const leafMat = own(windify(new THREE.MeshStandardMaterial({
-      map: leaf, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.85,
-      // a little self-light from the same texture: leaves seen against the
-      // low sun would otherwise go black
-      emissive: 0x3d7a2c, emissiveMap: leaf, emissiveIntensity: 0.5,
-    }), "leaf"));
-    const needleMat = own(windify(new THREE.MeshStandardMaterial({
-      map: needles, side: THREE.DoubleSide, roughness: 0.9,
-      emissive: 0x2f6a30, emissiveMap: needles, emissiveIntensity: 0.3,
-    }), "tree"));
-
-    // Three kinds: broadleaf, pine, and the provided ornamental tree (which
-    // replaces the palms).
-    const kinds = [
-      { parts: [[trunkGeometry(3.6, 0.3, 0.17, 3, 5), barkMat], [canopyGeometry(101), leafMat]] },
-      { parts: [[trunkGeometry(3.2, 0.28, 0.16, 4, 7), barkMat], [canopyGeometry(202, { cards: 76, rx: 2.2, ry: 1.8, cy: 4.6 }), leafMat]] },
-      { parts: [[trunkGeometry(4.0, 0.32, 0.18, 3, 9), barkMat], [canopyGeometry(303, { cards: 104, rx: 2.8, ry: 2.2, cy: 5.4 }), leafMat]] },
-      { parts: [[trunkGeometry(3.0, 0.26, 0.14, 0, 3), barkMat], [pineGeometry(), needleMat]] },
-    ];
+    // Every tree is the provided low-poly tree (the textured broadleaf and
+    // pine trees are gone). If it failed to load there are simply no trees.
+    const buckets = [spots];
+    const kinds = [];
     if (props?.tree) {
       kinds.push({
-        ornamental: true,
         parts: props.tree.map(({ geometry, material }) => [geometry, own(windify(material, "tree"))]),
       });
+    } else {
+      buckets.length = 0;
     }
-    const pickR = rng(777);
-    const buckets = kinds.map(() => []);
-    spots.forEach((p) => {
-      const t = pickR();
-      const nBroad = 3;
-      // about half broadleaf, a quarter pine, a quarter ornamental (when loaded)
-      let v;
-      if (t < 0.45) v = Math.floor(pickR() * nBroad);
-      else if (t < 0.7 || !props?.tree) v = 3;
-      else v = 4;
-      buckets[v].push(p);
-    });
 
     const placeR = rng(888);
     const tint = new THREE.Color();
-    const warm = [0xc9a33a, 0xd2762c, 0xb8442a]; // a few late-season trees
+    const warm = [0xe6b84a, 0xe58a3a, 0xd05a3a]; // a few late-season trees
     buckets.forEach((list, vi) => {
       if (!list.length) return;
       for (const [geo, mat] of kinds[vi].parts) {
         const inst = own(new THREE.InstancedMesh(geo, mat, list.length));
         inst.castShadow = true;
-        inst.receiveShadow = mat !== leafMat;
+        inst.receiveShadow = true;
         inst.frustumCulled = false;
         list.forEach((p, i) => {
-          const sc = kinds[vi].ornamental ? 1.1 + placeR() * 0.5 : 0.85 + placeR() * 0.45;
+          const sc = 1.15 + placeR() * 0.6;
           _q.setFromAxisAngle(_v.set(0, 1, 0), placeR() * Math.PI * 2);
-          _m.compose(p, _q, _s.set(sc, sc, sc));
+          _m.compose(p, _q, _s.set(sc, sc * (0.9 + placeR() * 0.25), sc));
           inst.setMatrixAt(i, _m);
-          if (mat === leafMat) {
-            const accent = placeR() < 0.18;
-            tint.setHex(accent ? warm[Math.floor(placeR() * warm.length)] : 0xffffff);
-            if (!accent) tint.offsetHSL((placeR() - 0.5) * 0.04, 0, (placeR() - 0.5) * 0.16);
-            inst.setColorAt(i, tint);
-          }
+          const accent = placeR() < 0.16;
+          tint.setHex(accent ? warm[Math.floor(placeR() * warm.length)] : 0xffffff);
+          if (!accent) tint.offsetHSL((placeR() - 0.5) * 0.04, 0, -placeR() * 0.12);
+          inst.setColorAt(i, tint);
         });
         inst.instanceMatrix.needsUpdate = true;
-        if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+        inst.instanceColor.needsUpdate = true;
         scene.add(inst);
         this.objects.push(inst);
       }
@@ -631,6 +466,7 @@ export class CityNature {
   }
 
   dispose() {
+    this.buildings?.dispose();
     for (const o of this.objects) {
       this.scene.remove(o);
       o.dispose?.();

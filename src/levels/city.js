@@ -3,6 +3,7 @@ import mapUrl from "../../assets/maps/CityTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import { BlockyCrowd } from "./blocky-people.js";
 import { CityNature, loadCityProps } from "./city-nature.js";
+import { loadBuildingModels } from "./city-buildings.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
@@ -26,7 +27,7 @@ import { CityNature, loadCityProps } from "./city-nature.js";
 // ---------------------------------------------------------------------
 
 buildCity.preload = async () => {
-  await loadCityProps(); // the street's tree, planters, wheat, lamps and fences
+  await Promise.all([loadCityProps(), loadBuildingModels()]); // the street's props and the building models
   return loadMap(mapUrl);
 };
 
@@ -47,7 +48,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
     // Likewise the cone trees and cone grass tufts (the unnamed trunks are
     // the map's "Cylinder"s): CityNature plants textured, wind-blown ones at
     // the same TreePit and GreenIsland spots.
-    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder)/,
+    exclude: /^(Pedestrian|TreeFoliage|PineTrunk|PineCanopy|PalmTrunk|PalmFrond|GrassTuft|GreenIsland|Cylinder|Cube|FacadeWindows|Facade_window_panes|RoofCap|Cornice|Balcony|Door|Canopy|WaterTank|TankRoof|RoofGarden)/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
