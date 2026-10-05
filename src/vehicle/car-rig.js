@@ -565,7 +565,8 @@ export class CarRig {
     this.scratchCtx = ctx;
     this.scratchTex = new THREE.CanvasTexture(c);
     this.scratchTex.anisotropy = 4;
-    this.bodyMat.map = this.scratchTex;
+    // The model has no texture coordinates to hang a scratch map on.
+    if (!this.usesModel) this.bodyMat.map = this.scratchTex;
     this.bodyMat.needsUpdate = true;
   }
 

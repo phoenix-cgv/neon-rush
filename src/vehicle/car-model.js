@@ -83,6 +83,23 @@ export function applyCarModel(rig) {
   // Each node is moved, not cloned, so use a fresh copy of the scene.
   const copy = model.clone(true);
 
+  // Materials are per car. clone(true) shares them with the loaded scene and
+  // with every other car, and the ghost makes its materials see-through —
+  // on shared ones that turned every car's spoiler, tyres and trim
+  // transparent the moment a ghost existed.
+  //   body  -> this car's own paint (solid colour, per car)
+  //   light -> its headlamps, red -> its neon-red tail lamps
+  //   the rest (glass, trim, tyres, rims, metal) are private copies as authored
+  const own = new Map();
+  const special = { body: rig.bodyMat, light: rig.headMat, red: rig.tailMat };
+  for (const m of Object.values(special)) m.side = THREE.DoubleSide;
+  copy.traverse((o) => {
+    if (!o.isMesh) return;
+    const src = o.material;
+    if (!own.has(src)) own.set(src, special[src.name] ?? src.clone());
+    o.material = own.get(src);
+  });
+
   const body = new THREE.Group();
   body.name = "CarModel";
   body.matrixAutoUpdate = false;

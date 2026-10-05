@@ -24,9 +24,14 @@ import { ReplayController } from "./determinism.js";
 // rather than through race.cars, since it is not part of the race.
 // ---------------------------------------------------------------------
 
+const _side = new THREE.Vector3();
 const HOLD = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
 const GHOST_PAINT = 0x7fe3ff;
 const GHOST_OPACITY = 0.35;
+// At the start the ghost sits this far to the player's left, so it can be
+// seen beside the car rather than inside it, then eases into its true line.
+const START_OFFSET = 3.2; // m
+const OFFSET_FADE = 8 * 60; // fixed steps of racing over which it closes
 
 export class Ghost {
   /**
@@ -87,6 +92,14 @@ export class Ghost {
   render(alpha) {
     this.vehicle.writeTransform(alpha);
     this.rig.sync(this.vehicle.state);
+
+    // Display only: the physics ghost keeps its exact recorded line.
+    const t = Math.min(1, this.replay.frame / OFFSET_FADE);
+    const k = 1 - t * t * (3 - 2 * t); // smoothstep, 1 -> 0
+    if (k > 0.001) {
+      _side.set(-1, 0, 0).applyQuaternion(this.rig.root.quaternion);
+      this.rig.root.position.addScaledVector(_side, START_OFFSET * k);
+    }
   }
 
   dispose() {
