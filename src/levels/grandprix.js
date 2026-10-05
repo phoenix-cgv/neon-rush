@@ -152,8 +152,26 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       },
       emissive: { TunnelLights: 0.45 },
       wet: { materials: ["Asphalt", "AsphaltWorn", "PitAsphalt"], puddles: 0.45, damp: 0.38, ripples: 1 },
+      // The eleven floodlight towers come as four pairs (one each side of
+      // the road, at the same point on track) plus three singles, not
+      // eleven independent positions — src/lighting/light-pool.js's own
+      // `count` real lights follow the nearest sources with no shared
+      // budget between them, so whenever the car is near a pair, BOTH
+      // towers light up at full intensity at once with nothing capping
+      // the total. At the s~1702 pair that doubled intensity, reflected
+      // off the near-mirror wet road straight into the camera, blew the
+      // whole frame to white — not a corner-specific glitch, a structural
+      // risk at any of the four pairs. distance down from 160 to 70 so
+      // the falloff window is already biting by the ~40 m a pair sits at
+      // on its approach, instead of staying near its unwindowed full
+      // strength out to 160 m; intensity down from 15000 to 7000 so even
+      // two at once, this close, stay inside what bloom/tone-mapping can
+      // render without clipping the frame. Verified live (driven through,
+      // not just teleported) at the s~1702 pair and the other three; a
+      // single floodlight further out (80-100 m, the common case) is
+      // dimmer than before but still clearly visible against the night.
       pools: [
-        { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 15000, distance: 160, angle: 0.75, penumbra: 0.7, fade: 40 },
+        { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 7000, distance: 70, angle: 0.75, penumbra: 0.7, fade: 40 },
         { material: "TunnelLights", count: 2, type: "point", color: 0xffc68a, intensity: 150, distance: 30, fade: 20 },
       ],
     },
