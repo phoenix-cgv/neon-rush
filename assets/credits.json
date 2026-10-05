@@ -5,7 +5,7 @@
       "name": "three.js",
       "url": "https://threejs.org",
       "licence": "MIT",
-      "used_for": "Rendering, scene graph, math types"
+      "used_for": "Rendering, scene graph, math types. Also its add-ons (examples/jsm, same MIT licence): GLTFLoader, BufferGeometryUtils, and the post-processing passes EffectComposer, RenderPass, UnrealBloomPass, OutputPass, FXAAPass and ShaderPass (src/lighting/post.js, src/lighting/speed-fx.js)"
     },
     {
       "name": "Rapier (@dimforge/rapier3d-compat)",
@@ -48,7 +48,22 @@
       "used_for": "Official map 3 - mountain climb: road, rails, kerbs, tunnel, terrain and scenery, generated in Blender from blender/mountain/mountain_track.py. Loaded by src/levels/mountain.js"
     }
   ],
-  "textures": [],
+  "textures": [
+    {
+      "name": "Surface detail normal maps (grain, gravel, brick, tiles, panels, rock)",
+      "author": "Neon Rush team",
+      "licence": "Original work",
+      "used_for": "Bump detail on roads, paving, facades, concrete, rock and gravel traps. Generated in code at startup from height fields; no image files",
+      "path": "src/lighting/surface-detail.js"
+    }
+  ],
   "audio": [],
-  "learned_from": []
+  "learned_from": [
+    {
+      "name": "Ben Golus, \"Normal Mapping for a Triplanar Shader\" (2017)",
+      "url": "https://bgolus.medium.com/normal-mapping-for-a-triplanar-shader-10bf39dca05a",
+      "used_for": "The \"whiteout\" blend that combines the three projected normal-map samples with the surface normal in the triplanar projection",
+      "path": "src/lighting/surface-detail.js"
+    }
+  ]
 }

@@ -117,7 +117,47 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },
+    // Dusk on the pass. The sun is about 10 degrees above the horizon,
+    // so it rakes across the slopes from the side: lit rock faces glow
+    // orange, everything turned away from it falls into a cool blue fill,
+    // and every tree and ridge throws a long shadow across the road. The
+    // headlights come on from this level onward.
+    //
+    // Bloom's threshold is higher than the default here: a low sun lights
+    // the side of the white car almost head-on, and at 1.6 the paint
+    // itself bloomed.
+    lit: {
+      sun: [-120, 24, 45],
+      sunColor: 0xff9a55,
+      sunIntensity: 3.0,
+      hemi: [0x5a78b8, 0x2b2a35, 1.0],
+      // A big low sun, and dusky clouds lit orange on the side facing it.
+      sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640, clouds: 0.4, cloudColor: 0x7a5d6c, sunDisc: 10, sunSize: 0.045 },
+      fog: [0x9a8590, 200, 900],
+      exposure: 1.05,
+      envIntensity: 0.35,
+      bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
+      headlights: true,
+      glow: 0xff9a3c, // the setting sun
+      // Generated normal maps (src/lighting/surface-detail.js). The low
+      // sun rakes across the rock, which is exactly when bumps show most.
+      detail: {
+        "Fresh Dark Asphalt": { map: "grain", size: 1.5, strength: 0.6 },
+        "Asphalt Shoulder": { map: "grain", size: 1.5, strength: 0.7 },
+        "Mountain Rock": { map: "rock", size: 10, strength: 1.7 },
+        "Rock Highlight": { map: "rock", size: 8, strength: 1.7 },
+        "Tunnel Concrete": { map: "panels", size: 4, strength: 0.7 },
+        "Tunnel Interior": { map: "panels", size: 3, strength: 0.7 },
+        "Bridge Concrete": { map: "panels", size: 4, strength: 0.7 },
+      },
+      // The summit tunnel (walls 7.5 m out, roof 6.7 m up) was modelled
+      // with no lights. Sodium strips down the roof every 9 m, two real
+      // lights following the player between them, and the sky fill
+      // dimmed under the roof, which otherwise tinted the walls purple.
+      strips: [{ name: "MountainTunnelStrip", s0: 690, s1: 820, every: 9, height: 6.5, length: 3, color: 0xffa858, intensity: 3 }],
+      pools: [{ material: "MountainTunnelStrip", count: 2, type: "point", color: 0xffb070, intensity: 80, distance: 22, fade: 15, cluster: 4 }],
+      shelter: [{ s0: 690, s1: 822, ramp: 15, ambient: 0.2 }],
+    },
     dispose: map.dispose,
   };
 }

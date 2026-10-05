@@ -92,7 +92,18 @@ export const Save = {
 };
 
 export const QUALITY = {
-  high: { pixelRatio: 1.5, shadows: true, shadowMap: 2048 },
-  medium: { pixelRatio: 1.0, shadows: true, shadowMap: 1024 },
-  low: { pixelRatio: 0.75, shadows: false, shadowMap: 512 },
+  // bloom   the post-processing pass (src/lighting/post.js)
+  // lights  share of each light pool's real lights kept (src/lighting/
+  //         light-pool.js). Real lights are the dearest thing in the frame:
+  //         measured in the Grand Prix tunnel (AMD integrated GPU) the six
+  //         pool lights cost 3.9 ms of 14.6, against 0.7 for all post.
+  //         Medium halves them; low keeps the glowing fixtures but none
+  //         of their light on the road.
+  // detail  the generated normal maps (src/lighting/surface-detail.js)
+  // Without `lights`, medium was no cheaper than high on a screen at
+  // pixel ratio 1: the two differed only in a resolution cap that never
+  // applied and the shadow map's size.
+  high: { pixelRatio: 1.5, shadows: true, shadowMap: 2048, bloom: true, lights: 1, detail: true },
+  medium: { pixelRatio: 1.0, shadows: true, shadowMap: 1024, bloom: true, lights: 0.5, detail: true },
+  low: { pixelRatio: 0.75, shadows: false, shadowMap: 512, bloom: false, lights: 0, detail: false },
 };

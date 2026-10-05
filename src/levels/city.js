@@ -71,7 +71,42 @@ export function buildCity(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 68 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [60, 90, 40], fog: [0xb4c6d0, 220, 950], sky: 0xb4c6d0 },
+    // Midday by the sea. The sun is nearly overhead (about 72 degrees),
+    // so shadows are short and sharp; the fill light is low and grey, so
+    // the shaded side of every building is genuinely darker than the lit
+    // side, and the saturated billboards and boost orbs are the only
+    // strong colour in the street. A pale haze bleaches the far end of
+    // every road the way sea air does. Lamps are off (it is noon); the
+    // windows keep a faint glow.
+    lit: {
+      sun: [20, 115, 30],
+      sunColor: 0xfff4e2,
+      sunIntensity: 4.2,
+      hemi: [0x9ea7ab, 0x3b3833, 0.4],
+      // Fair-weather cumulus drifting over, and a small, fierce sun.
+      sky: { top: 0x2c66a3, horizon: 0xcfd9dc, bottom: 0x8d918a, clouds: 0.35, cloudColor: 0xf2f5f7, sunDisc: 14, sunSize: 0.028 },
+      fog: [0xc4cfd3, 140, 760],
+      exposure: 1.0,
+      envIntensity: 0.18,
+      bloom: { threshold: 2.2, strength: 0.35, radius: 0.3 },
+      emissive: { LampGlow: 0, "Warm Window Light": 0.25 },
+      glow: 0x35d0ff, // the billboards' cyan
+      // Generated normal maps (src/lighting/surface-detail.js): grit in the
+      // road, joints in the paving, courses in the brick, cast panels in
+      // the render and concrete. Size is metres per texture tile.
+      detail: {
+        Asphalt: { map: "grain", size: 1.5, strength: 0.6 },
+        RoadPatch: { map: "grain", size: 1.2, strength: 0.8 },
+        Pavement: { map: "tiles", size: 2, strength: 0.8 },
+        "Pavement Light": { map: "tiles", size: 2, strength: 0.8 },
+        "Facade Brick": { map: "brick", size: 1.2, strength: 1 },
+        "Facade Sandstone": { map: "panels", size: 3, strength: 0.7 },
+        "Facade White": { map: "panels", size: 4, strength: 0.6 },
+        "Facade Slate": { map: "panels", size: 4, strength: 0.6 },
+        "Facade Blue": { map: "panels", size: 4, strength: 0.6 },
+        Concrete: { map: "panels", size: 3, strength: 0.7 },
+      },
+    },
     dispose: () => {
       map.dispose();
       line.material.map.dispose(); // ...but not the texture on it

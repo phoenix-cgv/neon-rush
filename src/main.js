@@ -26,6 +26,16 @@ import { GameplayHud } from "./ui/gameplay-hud.js";
 import { GameplayEvents } from "./core/gameplay-events.js";
 import { Smoke } from "./vehicle/smoke.js";
 import { DebugOverlay } from "./debug/overlay.js";
+import { SkyEnvironment } from "./lighting/sky-environment.js";
+import { Sky } from "./lighting/sky.js";
+import { PostFX } from "./lighting/post.js";
+import { LevelLights } from "./lighting/level-lights.js";
+import { addFakeHeadlights } from "./lighting/fake-headlights.js";
+import { CheckpointGates } from "./lighting/checkpoint-gates.js";
+import { BoostTrails } from "./lighting/boost-trail.js";
+import { makeWet, wetUniforms } from "./lighting/wet-road.js";
+import { addDetail, detailSwitch } from "./lighting/surface-detail.js";
+import { AdaptiveResolution } from "./lighting/adaptive-resolution.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -45,6 +55,8 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
+
+const params = new URLSearchParams(location.search);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -82,41 +94,27 @@ sun.layers.enable(MAP_WORLD_LAYER);
 scene.add(sun, sun.target);
 
 // --- sky ---------------------------------------------------------------
-// A gradient dome instead of a flat clear colour. Costs one inverted
-// sphere and a nine-line shader, and it is the difference between a
-// horizon and a blank wall. (Level 1's real sky shader — day to dusk to
-// night — replaces this; the uniforms are already here for it.)
-const skyUniforms = {
-  uTop: { value: new THREE.Color(0x3f7fb5) },
-  uHorizon: { value: new THREE.Color(0xcfe2ea) },
-  uBottom: { value: new THREE.Color(0x6f7d6a) },
-};
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(900, 24, 16),
-  new THREE.ShaderMaterial({
-    side: THREE.BackSide,
-    depthWrite: false,
-    uniforms: skyUniforms,
-    vertexShader: `
-      varying vec3 vDir;
-      void main() {
-        vDir = normalize(position);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: `
-      uniform vec3 uTop, uHorizon, uBottom;
-      varying vec3 vDir;
-      void main() {
-        float h = vDir.y;
-        vec3 c = h > 0.0
-          ? mix(uHorizon, uTop, pow(clamp(h, 0.0, 1.0), 0.55))
-          : mix(uHorizon, uBottom, pow(clamp(-h, 0.0, 1.0), 0.4));
-        gl_FragColor = vec4(c, 1.0);
-      }`,
-  })
-);
-sky.frustumCulled = false;
-scene.add(sky);
+// A dome with a gradient, sun or moon, drifting clouds and stars; see
+// src/lighting/sky.js. `skyUniforms` is handed to the Mountain's fog
+// patch, which tints the gradient's three colours as it thickens.
+const SKY_RADIUS = 900;
+const sky = new Sky(SKY_RADIUS);
+const skyUniforms = sky.uniforms;
+scene.add(sky.mesh);
+
+// Reflections baked from that same dome (src/lighting/sky-environment.js),
+// bloom and tone mapping (src/lighting/post.js), and any extra lights a
+// level declares (src/lighting/level-lights.js). ?env=0 and ?post=0 turn
+// the first two off, for before/after comparisons; ?detail=0 does the
+// same for the normal maps (src/lighting/surface-detail.js).
+const skyEnv = params.get("env") === "0" ? null : new SkyEnvironment(renderer, sky.material, SKY_RADIUS);
+const post = new PostFX(renderer, scene, camera);
+const postAllowed = params.get("post") !== "0";
+const detailAllowed = params.get("detail") !== "0"; // ?detail=0: no normal maps, for comparison
+const levelLights = new LevelLights(scene);
+// Lowers the scene's resolution when frames run long (see
+// src/lighting/adaptive-resolution.js). ?adaptive=0 turns it off.
+const adaptive = new AdaptiveResolution(renderer, () => post.resize());
 
 // Per-level lighting. A level's `lit` may set any of these; anything it
 // leaves out falls back to the daylight defaults, so switching from a
@@ -124,9 +122,30 @@ scene.add(sky);
 //   sun          sun position relative to the car (sets its direction)
 //   sunColor, sunIntensity
 //   hemi         [sky colour, ground colour, intensity] of the fill light
-//   sky          { top, horizon, bottom } colours of the gradient dome
+//   sky          { top, horizon, bottom, clouds, cloudColor, stars, sunDisc,
+//                sunSize } — see src/lighting/sky.js
 //   fog          [colour, near, far]
 //   exposure     tone-mapping exposure
+//   envIntensity how strongly the sky-baked environment lights and
+//                reflects in every standard material (0 = off)
+//   bloom        { threshold, strength, radius } — see src/lighting/post.js
+//   lights       extra point/spot lights — see src/lighting/level-lights.js
+//   headlights   true to switch on the player's headlight spots (dusk, night)
+//   pools        light pools — see src/lighting/light-pool.js
+//   strips       glowing fittings the map lacks — see src/lighting/level-lights.js
+//   shelter      [{ s0, s1, ramp, ambient }] stretches under a roof (a
+//                tunnel): the sky fill and the environment are scaled to
+//                `ambient` there, since neither can be blocked by a roof
+//   emissive     { materialName: scale } on the map's glowing materials, so
+//                a level can switch street lamps off at noon or turn
+//                floodlights up at night without touching the .glb
+//   materials    { materialName: { roughness, metalness, ... } } overrides,
+//                e.g. wet asphalt at night
+//   glow         the level's effect colour: checkpoint gates, boost trail
+//   detail       { materialName: { map, size, strength } } — generated normal
+//                maps, projected without UVs, see src/lighting/surface-detail.js
+//   wet          { materials: [names], puddles, damp, ripples } — puddles and
+//                rain ripples on those materials, see src/lighting/wet-road.js
 const LIGHT_DEFAULTS = {
   sun: [60, 80, 30],
   sunColor: 0xfff3dc,
@@ -135,8 +154,44 @@ const LIGHT_DEFAULTS = {
   sky: { top: 0x3f7fb5, horizon: 0xcfe2ea, bottom: 0x6f7d6a },
   fog: [0x8fb4c4, 180, 620],
   exposure: 1.05,
+  envIntensity: 0.4,
+  bloom: {},
+  lights: [],
+  pools: [],
+  strips: [],
+  shelter: [],
+  emissive: {},
+  materials: {},
 };
-function applyLighting(lit) {
+// Share of each light pool kept, from the quality preset (see QUALITY).
+// Starts at the SAVED preset's value: applyQuality() first runs before
+// `level` is declared further down, and must find nothing to rebuild.
+let lightShare = (QUALITY[Save.get("quality")] ?? QUALITY.high).lights;
+
+// The current level's roofed stretches and the fill values they dim.
+let shelter = { zones: [], hemi: 0, env: 0 };
+
+/**
+ * How much open sky the player is under, 0..1: 1 in the open, `ambient`
+ * deep in a tunnel, ramped over `ramp` metres at each mouth. Neither the
+ * hemisphere fill nor the environment map knows about the tunnel roof,
+ * and without this the inside of the Mountain's tunnel was lit by the
+ * dusk sky, a faint purple, from nowhere.
+ */
+function openSky(s) {
+  let k = 1;
+  for (const z of shelter.zones) {
+    const ramp = z.ramp ?? 15;
+    let w = 0; // 0 outside .. 1 fully inside
+    if (s > z.s0 - ramp && s < z.s1 + ramp) {
+      w = Math.min(1, (s - (z.s0 - ramp)) / ramp, ((z.s1 + ramp) - s) / ramp);
+    }
+    k = Math.min(k, 1 - w * (1 - (z.ambient ?? 0.2)));
+  }
+  return k;
+}
+
+function applyLighting(lit, track = null) {
   const L = { ...LIGHT_DEFAULTS, ...lit };
   // Older levels give `sky` as one colour (their fog colour): keep the
   // default dome for them rather than painting it flat.
@@ -147,11 +202,64 @@ function applyLighting(lit) {
   hemi.color.set(L.hemi[0]);
   hemi.groundColor.set(L.hemi[1]);
   hemi.intensity = L.hemi[2];
-  skyUniforms.uTop.value.set(dome.top);
-  skyUniforms.uHorizon.value.set(dome.horizon);
-  skyUniforms.uBottom.value.set(dome.bottom);
+  sky.set(dome, L.sun, L.sunColor);
   scene.fog = new THREE.Fog(L.fog[0], L.fog[1], L.fog[2]);
   renderer.toneMappingExposure = L.exposure;
+  // After the dome's colours are set: the bake reads them.
+  if (skyEnv) {
+    scene.environment = skyEnv.bake();
+    scene.environmentIntensity = L.envIntensity;
+  }
+  post.setBloom(L.bloom);
+  // Fewer real lights on lower presets; a pool cut to none just leaves
+  // its fixtures glowing.
+  const pools = L.pools
+    .map((p) => ({ ...p, count: Math.ceil((p.count ?? 4) * lightShare) }))
+    .filter((p) => p.count > 0);
+  levelLights.build(L.lights, track, pools, L.strips);
+  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
+  restyleMaterials(L.emissive, L.materials);
+  if (L.detail && detailAllowed) {
+    scene.traverse((o) => {
+      const d = o.isMesh && o.material?.isMeshStandardMaterial && L.detail[o.material.name];
+      if (d) addDetail(o.material, d);
+    });
+  }
+  if (L.wet) {
+    scene.traverse((o) => {
+      if (o.isMesh && L.wet.materials.includes(o.material?.name)) makeWet(o.material);
+    });
+    wetUniforms.uPuddles.value = L.wet.puddles ?? 0.45;
+    wetUniforms.uDamp.value = L.wet.damp ?? 0.38;
+    wetUniforms.uRipples.value = L.wet.ripples ?? 1;
+  }
+}
+
+/**
+ * Per-level material looks, by material name: `emissive` scales a glow,
+ * `materials` overrides properties (wet asphalt is roughness down).
+ *
+ * The exported value of anything touched is kept on the material the
+ * first time it is seen, and every level starts from THAT, never from the
+ * current value: the map's materials are cached and shared between
+ * visits, so working from the live value would compound on every reload,
+ * and a property one level overrode would leak into the next.
+ */
+function restyleMaterials(emissive, overrides) {
+  scene.traverse((o) => {
+    const m = o.isMesh ? o.material : null;
+    if (!m || Array.isArray(m) || !m.isMeshStandardMaterial) return;
+    const base = (m.userData.base ??= {});
+    if (m.emissive) {
+      base.emissiveIntensity ??= m.emissiveIntensity;
+      m.emissiveIntensity = base.emissiveIntensity * (emissive[m.name] ?? 1);
+    }
+    for (const k of Object.keys(base)) if (k !== "emissiveIntensity") m[k] = base[k];
+    for (const [k, v] of Object.entries(overrides[m.name] ?? {})) {
+      base[k] ??= m[k];
+      m[k] = v;
+    }
+  });
 }
 
 const world = new RAPIER.World(WORLD.gravity);
@@ -190,13 +298,24 @@ gameplayEvents.on("pickup-collected", (e) => {
 
 // --- settings ----------------------------------------------------------
 function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
+  // Through the adaptive scaler: the preset sets the ceiling, it may
+  // draw below it when frames run long.
+  adaptive.setBase(Math.min(window.devicePixelRatio, q.pixelRatio));
   renderer.shadowMap.enabled = q.shadows;
   sun.castShadow = q.shadows;
   if (q.shadows && sun.shadow.mapSize.width !== q.shadowMap) {
     sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
     sun.shadow.map?.dispose();
     sun.shadow.map = null;
+  }
+  post.enabled = postAllowed && q.bloom;
+  post.resize();
+  detailSwitch.uDetailOn.value = q.detail ? 1 : 0;
+  // Light pools are sized from the preset, so a change rebuilds the
+  // level's lighting (cheap: a few lights and one environment bake).
+  if (q.lights !== lightShare) {
+    lightShare = q.lights;
+    if (level) applyLighting(level.lit ?? {}, level.track ?? null);
   }
 }
 function applyPresentation() {
@@ -251,6 +370,8 @@ let rockfall = null; // falling rocks, on levels that ask for them
 let crosswind = null; // lateral gusts, on levels that ask for them
 let fogPatch = null; // visibility hazard, on levels that ask for it
 let pits = null; // the pit lane, on maps that have one
+let gates = null; // checkpoint gates (presentation only — Progress does the counting)
+let trails = null; // drift / boost ribbons behind every car
 let director = null; // start lights, laps and the flag, on levels that race
 let ghost = null; // your own best lap, replayed alongside you
 let ghostBestLap = null; // its time, for the HUD — fixed for the level's visit, like the ghost itself
@@ -258,8 +379,33 @@ let recorder = null; // recording the lap in progress, so a new best gets a ghos
 let soloVehicle = null;
 let soloRig = null;
 let progress = null;
-const requested = new URLSearchParams(location.search).get("level");
+const requested = params.get("level");
+
+// --- photo mode (development) ------------------------------------------
+// ?level=grandprix&shot=1049 parks the player's car at s = 1049 m, lets
+// the suspension settle, then stops the simulation while rendering
+// carries on. Every lighting and shader change can then be judged on the
+// SAME frame before and after, which a moving car never gives you.
+//   shot   s along the centreline, m
+//   lat    lateral offset from the centreline, m (default 0)
+//   cam    0 chase, 1 hood, 2 wide chase (default 0)
+//   hud=0  hide every HUD element, for clean devlog shots
+// __dbg.shot(s, lat) re-poses live without a reload. The start lights
+// never go out in photo mode, so the field stays held where it is.
+const SETTLE_STEPS = 90; // 1.5 s for the springs to come to rest
+let photo = params.has("shot")
+  ? { s: Number(params.get("shot")) || 0, lateral: Number(params.get("lat")) || 0, settle: 0 }
+  : null;
+const HOLD_STILL = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
 let levelName = requested && Object.hasOwn(LEVELS, requested) ? requested : ORDER[0];
+
+/** Park the player at photo.s and let the car settle before freezing. */
+function poseForPhoto() {
+  if (!photo || !level?.track) return;
+  photo.s = level.track.spline.wrapS(photo.s);
+  respawn(level.track.spawnAt(photo.s, photo.lateral));
+  photo.settle = SETTLE_STEPS;
+}
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
@@ -272,6 +418,7 @@ document.body.appendChild(loadingNote);
 
 async function loadLevel(name) {
   if (loading) return;
+  adaptive.pause(2); // a load is one long frame, not a slow GPU
   let asset;
   if (LEVELS[name].preload) {
     loading = name;
@@ -306,7 +453,7 @@ async function loadLevel(name) {
   levelName = name;
   level = LEVELS[name](RAPIER, world, scene, asset);
 
-  applyLighting(level.lit ?? {});
+  applyLighting(level.lit ?? {}, level.track ?? null);
 
   director?.dispose();
   director = null;
@@ -326,6 +473,10 @@ async function loadLevel(name) {
   recorder = null;
   pits?.dispose();
   pits = null;
+  gates?.dispose();
+  gates = null;
+  trails?.dispose();
+  trails = null;
   pickups = null; // its meshes belong to the track and go with it
 
   // A track-less level builds its own car instead of a Race, and
@@ -354,6 +505,13 @@ async function loadLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    gates = new CheckpointGates(level.track, scene, {
+      color: level.lit?.glow,
+      scenery: asset?.scene ?? null, // the map's own objects, for placement
+      RAPIER,
+      world,
+    });
+    trails = new BoostTrails(scene, race.cars, { color: level.lit?.glow });
     if (level.fogPatch) fogPatch = new FogPatch(level.track, scene, level.fogPatch, skyUniforms);
     if (level.pit?.data) {
       pits = new PitLane(level.track, scene, level.pit.data, level.pit);
@@ -378,6 +536,13 @@ async function loadLevel(name) {
       recorder = new Recorder();
     }
     gameplayHud.setActive(true);
+    // The player's car only. Opponents' headlights are faked (glow and
+    // light on the road, not lights): two real spots per car across a
+    // six-car field is the 2.95 ms README §8 measured.
+    if (level.lit?.headlights) {
+      carRig.setHeadlights(true);
+      for (const c of race.cars) if (!c.isPlayer) addFakeHeadlights(c.rig);
+    }
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -391,6 +556,7 @@ async function loadLevel(name) {
     minimap.build([{ isPlayer: true, vehicle, rig: carRig }]);
     respawn();
   }
+  poseForPhoto();
 }
 
 function respawn(pose = null) {
@@ -415,6 +581,20 @@ await loadLevel(levelName);
 // A map that failed to download must not leave the game with no level.
 // The testbed is built in code, so it needs no download.
 if (!level) await loadLevel("testbed");
+
+// Photo mode shoots at full resolution; and the switch for comparisons.
+if (photo || params.get("adaptive") === "0") adaptive.setEnabled(false);
+
+if (photo) {
+  for (let i = 0; i < (Number(params.get("cam")) || 0); i++) cameraRig.cycle();
+  if (params.get("hud") === "0") {
+    // visibility, not display: each HUD toggles its own display on every
+    // level load, and this has to outlast that.
+    for (const el of [gameplayHud.root, raceHud.root, health.root]) el.style.visibility = "hidden";
+    minimap.enabled = false;
+    debug.setVisible(false);
+  }
+}
 
 renderer.domElement.addEventListener("click", () => {
   renderer.domElement.requestPointerLock?.()?.catch?.(() => {});
@@ -447,7 +627,8 @@ function frame(now) {
   // discharging it as a burst of catch-up steps on resume.
   if (menu.open) {
     accumulator = 0;
-    renderer.render(scene, camera);
+    adaptive.pause(0.5);
+    post.render();
     minimap.render(renderer, scene);
     input.endFrame();
     return;
@@ -487,8 +668,11 @@ function frame(now) {
   }
 
   accumulator += frameDt;
+  // Photo mode: once settled, nothing steps — the frame is held still.
+  if (photo && photo.settle <= 0) accumulator = 0;
   let controls = input.controls;
   while (accumulator >= WORLD.fixedDt) {
+    if (photo) photo.settle--;
     // Ramp the controls on the FIXED step, not the render frame.
     //
     // input.update() moves throttle, brake and steer toward their targets
@@ -499,12 +683,12 @@ function frame(now) {
     // drive — and a replay recorded on one machine would not reproduce on
     // another. Ramping in here makes the control trajectory a function of
     // the input alone.
-    controls = input.update(WORLD.fixedDt, !vehicle.grounded);
+    controls = photo ? HOLD_STILL : input.update(WORLD.fixedDt, !vehicle.grounded);
 
     if (race) {
       // Lights before cars: the step the lights go out on is the first
-      // step anyone may move.
-      director?.step(WORLD.fixedDt);
+      // step anyone may move. In photo mode they never go out.
+      if (!photo) director?.step(WORLD.fixedDt);
       for (const c of race.cars) c.vehicle.savePreviousState();
       const racing = director?.state === "racing";
       // Captures the PLAYER's state before this step's controls move it,
@@ -584,6 +768,9 @@ function frame(now) {
   // itself is a force field, already applied in the fixed step above.
   crosswind?.render(frameDt);
   pickups?.render();
+  gates?.update(frameDt, vehicle.s, progress);
+  trails?.update(frameDt);
+  wetUniforms.uTime.value += frameDt;
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
@@ -607,8 +794,15 @@ function frame(now) {
         : null;
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
   cameraRig.update(frameDt, state, input.look);
+  post.speed.update(frameDt, state, camera);
 
-  sky.position.copy(camera.position);
+  levelLights.update(state.position);
+  if (shelter.zones.length) {
+    const k = openSky(vehicle.s);
+    hemi.intensity = shelter.hemi * k;
+    if (skyEnv) scene.environmentIntensity = shelter.env * k;
+  }
+  sky.update(frameDt, camera);
   sun.target.position.copy(state.position);
   sun.position.copy(state.position).add(SUN_OFFSET);
 
@@ -621,12 +815,15 @@ function frame(now) {
     race,
   });
 
-  renderer.render(scene, camera);
+  adaptive.begin();
+  post.render();
 
   // No hide-list needed: the map camera only sees the track layer and the
   // blips, so the sky dome and debug vectors are never in its pass.
   minimap.update(state);
   minimap.render(renderer, scene);
+  adaptive.end();
+  adaptive.update(frameDt);
 
   input.endFrame();
 }
@@ -639,6 +836,7 @@ window.__dbg = {
   get progress() { return progress; },
   get race() { return race; },
   minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
+  post, skyEnv, levelLights, applyLighting, adaptive,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
@@ -646,14 +844,26 @@ window.__dbg = {
   get fogPatch() { return fogPatch; },
   get ghost() { return ghost; },
   get pits() { return pits; },
+  get gates() { return gates; },
+  get trails() { return trails; },
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
+  // render benchmark — see src/debug/benchmark.js
+  benchmark: () => import("./debug/benchmark.js"),
+  applyQuality,
+  QUALITY,
   get vehicle() { return vehicle; },
+  // photo mode — see the note by SETTLE_STEPS
+  shot(s, lateral = 0) {
+    photo = { s, lateral, settle: 0 };
+    poseForPhoto();
+  },
 };
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  post.resize();
 });
