@@ -104,6 +104,7 @@ const _fwd = new THREE.Vector3();
 /** One car's pair of trails and pools. */
 class CarGlow {
   constructor(parent, colour) {
+    this.rear = null;
     this.group = new THREE.Group();
     parent.add(this.group);
     this.material = trailMaterial(colour);
@@ -125,12 +126,16 @@ class CarGlow {
   update(now, rig, speed, lit, dt) {
     this.material.uniforms.uNow.value = now;
     this.poolMat.opacity += ((lit ? 0.85 : 0) - this.poolMat.opacity) * Math.min(1, dt * 10);
-    // the two wheels furthest behind the car's nose
-    _fwd.set(0, 0, -1).applyQuaternion(rig.root.quaternion);
-    const behind = rig.wheelMeshes
-      .map((w) => (w.pivot.getWorldPosition(_p), { w, d: _p.dot(_fwd) }))
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 2);
+    // The two rear wheels, fixed once from the rig's own layout (the nose points -z, so the
+    // rear has the larger z), left one first. Picking them afresh each frame by world
+    // position let the pair swap places, which tangled the two ribbons together.
+    this.rear ??= rig.wheelMeshes
+      .map((w, k) => ({ k, x: w.pivot.position.x, z: w.pivot.position.z }))
+      .sort((a, b) => b.z - a.z)
+      .slice(0, 2)
+      .sort((a, b) => a.x - b.x)
+      .map((e) => rig.wheelMeshes[e.k]);
+    const behind = this.rear.map((w) => ({ w }));
     for (let i = 0; i < 2; i++) {
       behind[i].w.pivot.getWorldPosition(_p);
       const y = _p.y - CAR.wheelRadius + 0.05;
