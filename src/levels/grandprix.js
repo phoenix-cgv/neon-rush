@@ -120,8 +120,9 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // four floodlight spots out of eleven towers, two tunnel lights out of
     // fifteen strips. Far fixtures only glow; near ones light the road.
     //
-    // The asphalt is glossy because it is wet, so it picks up the
-    // floodlights, the tunnel strips and the headlights as streaks.
+    // The asphalt is wet (src/lighting/wet-road.js): damp and glossy, with
+    // puddles that are near-mirrors and rain rippling in them, so the
+    // floodlights, tunnel strips and headlights streak across the road.
     lit: {
       sun: [-80, 45, 60], // the moon, low enough to be seen from the chase camera
       sunColor: 0x9fb4ff,
@@ -136,7 +137,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       headlights: true,
       glow: 0xff3cc8, // neon magenta against the night
       emissive: { TunnelLights: 0.45 },
-      materials: { Asphalt: { roughness: 0.32 }, AsphaltWorn: { roughness: 0.4 } },
+      wet: { materials: ["Asphalt", "AsphaltWorn", "PitAsphalt"], puddles: 0.45, damp: 0.38, ripples: 1 },
       pools: [
         { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 15000, distance: 160, angle: 0.75, penumbra: 0.7, fade: 40 },
         { material: "TunnelLights", count: 2, type: "point", color: 0xffc68a, intensity: 150, distance: 30, fade: 20 },

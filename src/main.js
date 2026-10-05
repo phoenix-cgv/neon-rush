@@ -33,6 +33,7 @@ import { LevelLights } from "./lighting/level-lights.js";
 import { addFakeHeadlights } from "./lighting/fake-headlights.js";
 import { CheckpointGates } from "./lighting/checkpoint-gates.js";
 import { BoostTrails } from "./lighting/boost-trail.js";
+import { makeWet, wetUniforms } from "./lighting/wet-road.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -130,6 +131,8 @@ const levelLights = new LevelLights(scene);
 //   materials    { materialName: { roughness, metalness, ... } } overrides,
 //                e.g. wet asphalt at night
 //   glow         the level's effect colour: checkpoint gates, boost trail
+//   wet          { materials: [names], puddles, damp, ripples } — puddles and
+//                rain ripples on those materials, see src/lighting/wet-road.js
 const LIGHT_DEFAULTS = {
   sun: [60, 80, 30],
   sunColor: 0xfff3dc,
@@ -167,6 +170,14 @@ function applyLighting(lit, track = null) {
   post.setBloom(L.bloom);
   levelLights.build(L.lights, track, L.pools);
   restyleMaterials(L.emissive, L.materials);
+  if (L.wet) {
+    scene.traverse((o) => {
+      if (o.isMesh && L.wet.materials.includes(o.material?.name)) makeWet(o.material);
+    });
+    wetUniforms.uPuddles.value = L.wet.puddles ?? 0.45;
+    wetUniforms.uDamp.value = L.wet.damp ?? 0.38;
+    wetUniforms.uRipples.value = L.wet.ripples ?? 1;
+  }
 }
 
 /**
@@ -691,6 +702,7 @@ function frame(now) {
   pickups?.render();
   gates?.update(frameDt);
   trails?.update(frameDt);
+  wetUniforms.uTime.value += frameDt;
   // Render-frame, not fixed-step: smoke changes nothing in the
   // simulation, so it must not cost a physics step or stutter at high
   // frame rates.
