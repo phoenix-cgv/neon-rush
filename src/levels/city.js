@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import mapUrl from "../../assets/maps/CityTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
+import { BlockyCrowd } from "./blocky-people.js";
 
 // ---------------------------------------------------------------------
 // OFFICIAL MAP 1 — City Track
@@ -37,11 +38,32 @@ export function buildCity(RAPIER, world, scene, gltf) {
     decals: /^(Line|CentreDash|CrosswalkBar|Manhole|Puddle|RoadPatch)/,
     overlays: /^(Road|KerbLeft|KerbRight|Pavement|GreenIsland|TreePit)/,
     minimap: /^(Road|KerbLeft|KerbRight|Pavement)/,
+    // The map's own round-headed pedestrians are left out; the crowd is
+    // rebuilt below from the same spots as blocky, voxel-style people.
+    exclude: /^Pedestrian/,
     // Road edge 7 m, kerb to 7.35, pavement from 7.35 to 12; nothing
     // standing inside 10 m. The car is 0.85 m either side of its centre.
     wallLimit: 9,
   });
   const { track } = map;
+
+  // Where the map's pedestrians stood: the feet of each "PedestrianLegs".
+  // Their height comes from the legs (which are 38% of a figure).
+  const spots = [];
+  const box = new THREE.Box3();
+  gltf.scene.updateMatrixWorld(true);
+  gltf.scene.traverse((o) => {
+    if (!o.isMesh || !/^PedestrianLegs/.test(o.name)) return;
+    box.setFromObject(o);
+    const height = (box.max.y - box.min.y) / 0.38;
+    spots.push({
+      x: (box.min.x + box.max.x) / 2,
+      y: box.min.y,
+      z: (box.min.z + box.max.z) / 2,
+      scale: Math.min(1.15, Math.max(0.85, height / 1.8)),
+    });
+  });
+  const crowd = new BlockyCrowd(scene, track, spots);
 
   // The model has a gantry but no line on the road, and a lap that ends at nothing reads as
   // a timing bug. A chequered strip across the road at s = 0.
@@ -84,6 +106,7 @@ export function buildCity(RAPIER, world, scene, gltf) {
       exposure: 1.0,
     },
     dispose: () => {
+      crowd.dispose();
       map.dispose();
       line.material.map.dispose(); // ...but not the texture on it
     },
