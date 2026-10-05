@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GROUP, ALL } from "../vehicle/vehicle.js";
+import { truckParts, TRUCK_HALF, TRUCK_COLOURS } from "./truck-model.js";
 import { idmAccel, cornerLookahead, avoidanceTarget, slew } from "./traffic-logic.js";
 
 // ---------------------------------------------------------------------
@@ -67,19 +68,25 @@ export class Traffic {
     this.cars = [];
 
     const L = track.length;
+    const trucksOk = !!truckParts();
     const spawnRing = (count, dir, phase) => {
       const usable = L - 2 * clearStart;
       for (let i = 0; i < count; i++) {
         const k = this.cars.length;
         const s = clearStart + ((i + phase) / count) * usable;
+        // About one vehicle in three is a truck (when the model is loaded).
+        const truck = trucksOk && hash(k + 200) < 0.34;
         this.cars.push({
+          truck,
+          half: truck ? TRUCK_HALF : HALF,
           dir,
           laneT: -dir * lane, // keep left: left of the direction of travel
           lat: -dir * lane, // where it actually is: laneT, unless steering round something
           s,
           speed: 0,
-          cruise: vMin + (vMax - vMin) * hash(k),
-          colour: COLOURS[Math.floor(hash(k + 50) * COLOURS.length)],
+          // trucks are a little slower and heavier on the brakes' patience
+          cruise: (vMin + (vMax - vMin) * hash(k)) * (truck ? 0.85 : 1),
+          colour: (truck ? TRUCK_COLOURS : COLOURS)[Math.floor(hash(k + 50) * (truck ? TRUCK_COLOURS : COLOURS).length)],
           body: null,
           prev: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
           cur: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
@@ -100,7 +107,7 @@ export class Traffic {
           .setRotation({ x: c.cur.q.x, y: c.cur.q.y, z: c.cur.q.z, w: c.cur.q.w })
       );
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(HALF.x, HALF.y, HALF.z)
+        RAPIER.ColliderDesc.cuboid(c.half.x, c.half.y, c.half.z)
           .setFriction(0.3)
           .setRestitution(0.1)
           // Its own collision layer, solid to every car and wheel ray.
@@ -121,7 +128,7 @@ export class Traffic {
     out.p
       .copy(_fr.position)
       .addScaledVector(_fr.right, c.lat)
-      .addScaledVector(_fr.up, HALF.y + RIDE);
+      .addScaledVector(_fr.up, c.half.y + RIDE);
     // -Z is forward, as for every car in the game.
     _basis.makeBasis(_right, _fr.up, _back.copy(_fwd).negate());
     out.q.setFromRotationMatrix(_basis);
@@ -232,9 +239,13 @@ export class Traffic {
   // five draw calls however many cars there are.
   // -------------------------------------------------------------------
   #buildMeshes() {
-    const n = this.cars.length;
-    const part = (geo, mat, perCar, local) => {
-      const inst = new THREE.InstancedMesh(geo, mat, n * perCar.length);
+    const sedans = this.cars.filter((c) => !c.truck);
+    const trucks = this.cars.filter((c) => c.truck);
+    sedans.forEach((c, i) => (c.slot = i));
+    trucks.forEach((c, i) => (c.slot = i));
+    const n = sedans.length;
+    const part = (geo, mat, perCar, local, count = n) => {
+      const inst = new THREE.InstancedMesh(geo, mat, count * perCar.length);
       inst.castShadow = true;
       inst.frustumCulled = false; // spread round the whole lap
       inst.userData.local = perCar.map((o) => new THREE.Matrix4().compose(o.p, o.q ?? new THREE.Quaternion(), _one));
@@ -271,30 +282,52 @@ export class Traffic {
       [{ p: V(-0.6, y0 + 0.72, 2.16) }, { p: V(0.6, y0 + 0.72, 2.16) }]
     );
     const col = new THREE.Color();
-    this.cars.forEach((c, i) => this.body.setColorAt(i, col.setHex(c.colour)));
-    this.body.instanceColor.needsUpdate = true;
+    sedans.forEach((c, i) => this.body.setColorAt(i, col.setHex(c.colour)));
+    if (n) this.body.instanceColor.needsUpdate = true;
     this.parts = [this.body, this.cabin, this.wheels, this.heads, this.tails];
+
+    // Trucks: the model, one instanced mesh per material. Its "paint"
+    // material takes each truck's own colour; the model stands on y = 0, so
+    // it is dropped to the road under the collider's centre.
+    this.truckParts = [];
+    const tp = truckParts();
+    if (trucks.length && tp) {
+      const drop = new THREE.Matrix4().makeTranslation(0, -(TRUCK_HALF.y + RIDE), 0);
+      for (const { name, geometry, material } of tp) {
+        const inst = new THREE.InstancedMesh(geometry, material, trucks.length);
+        inst.castShadow = true;
+        inst.frustumCulled = false;
+        inst.userData.local = [drop];
+        if (name === "paint") {
+          trucks.forEach((c, i) => inst.setColorAt(i, col.setHex(c.colour)));
+          inst.instanceColor.needsUpdate = true;
+        }
+        this.scene.add(inst);
+        this.truckParts.push(inst);
+      }
+    }
   }
 
   /** Pose every mesh, blending the last two steps like the racing cars. */
   render(alpha) {
-    this.cars.forEach((c, i) => {
+    this.cars.forEach((c) => {
       _p.lerpVectors(c.prev.p, c.cur.p, alpha);
       _q.slerpQuaternions(c.prev.q, c.cur.q, alpha);
       _m.compose(_p, _q, _one);
-      for (const inst of this.parts) {
+      for (const inst of c.truck ? this.truckParts : this.parts) {
         const locals = inst.userData.local;
         for (let j = 0; j < locals.length; j++) {
-          inst.setMatrixAt(i * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
+          inst.setMatrixAt(c.slot * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
         }
       }
     });
     for (const inst of this.parts) inst.instanceMatrix.needsUpdate = true;
+    for (const inst of this.truckParts) inst.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
     for (const c of this.cars) this.world.removeRigidBody(c.body); // removes its collider too
-    for (const inst of this.parts ?? []) {
+    for (const inst of [...(this.parts ?? []), ...(this.truckParts ?? [])]) {
       this.scene.remove(inst);
       inst.geometry.dispose();
       inst.material.dispose();

@@ -1,10 +1,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import modelUrl from "../../assets/car/neon-rush-car.glb?url";
+import modelUrl from "../../assets/car/volt-r9.glb?url";
 import { CAR } from "./config.js";
 
 // ---------------------------------------------------------------------
-// The car's visual model (assets/car/neon-rush-car.glb).
+// The car's visual model: the VOLT R9 (assets/car/volt-r9.glb).
 //
 // This only replaces how the car LOOKS. The collider, suspension and every
 // number in config.js are untouched; the model is scaled and placed so its
@@ -12,17 +12,17 @@ import { CAR } from "./config.js";
 //
 // The file is authored Z-up with its nose along -X. The game is Y-up with
 // the nose along -Z, so a model point (x, y, z) lands at (y, z, x) — a
-// proper rotation (no mirroring). The car is left/right symmetric, so
-// which side is which only matters for naming the wheels.
+// proper rotation (no mirroring).
 //
-// Node names drive the mapping:
-//   front_*_-1  front left     front_*_1  front right
-//   rear_*_-1   rear left      rear_*_1   rear right
-//   material "body"  -> the car's paint (per-car colour, takes damage)
-//   material "light" -> headlamps,  "red" -> tail lamps
+// Node names drive the mapping (glTF drops the decimal point, so the
+// wheel centres at x = +-1.47 read "147"):
+//   tire_-147_-1  = front (x < 0), left (y < 0); likewise rim_, hub_,
+//   brake_disc_, caliper_, turbine_spoke_ ... for the other three corners
+//   material "paint" -> this car's solid colour (per car)
+//   material "lamp"  -> headlamps,  "tail" -> neon-red tail lamps
 // ---------------------------------------------------------------------
 
-const SCALE = 0.93; // 2.8 m model wheelbase -> the 2.6 m the physics uses
+const SCALE = 0.884; // 2.94 m model wheelbase -> the 2.6 m the physics uses
 const ZUP_TO_YUP = new THREE.Matrix4().set(
   0, 1, 0, 0,
   0, 0, 1, 0,
@@ -63,7 +63,7 @@ const rotScale = new THREE.Matrix4()
   .multiply(ZUP_TO_YUP);
 const place = new THREE.Matrix4().makeTranslation(0, -CAR.comHeight, 0).multiply(rotScale);
 
-const WHEEL_PART = /^(front|rear)_(?:tire|rim|wheel_inner|spoke|hub)_(-1|1)/;
+const WHEEL_PART = /^(?:tire|rim|rim_inner|brake_disc|disc_face|caliper|turbine_spoke|hub|hub_badge)_(-?)147_(-1|1)/;
 
 /**
  * Swap a CarRig's built-in shell and wheels for the model, exactly as
@@ -90,11 +90,11 @@ export function applyCarModel(rig) {
   // with every other car, and the ghost makes its materials see-through —
   // on shared ones that turned every car's spoiler, tyres and trim
   // transparent the moment a ghost existed.
-  //   body  -> this car's own paint (solid colour, per car)
-  //   light -> its headlamps, red -> its neon-red tail lamps
+  //   paint -> this car's own solid colour
+  //   lamp  -> its headlamps, tail -> its neon-red tail lamps
   //   the rest (glass, trim, tyres, rims, metal) are private copies as authored
   const own = new Map();
-  const special = { body: rig.bodyMat, light: rig.headMat, red: rig.tailMat };
+  const special = { paint: rig.bodyMat, lamp: rig.headMat, tail: rig.tailMat };
   for (const m of Object.values(special)) m.side = THREE.DoubleSide;
   copy.traverse((o) => {
     if (!o.isMesh) return;
@@ -116,7 +116,8 @@ export function applyCarModel(rig) {
       body.add(node);
       continue;
     }
-    wheelNodes[(m[1] === "rear" ? 2 : 0) + (m[2] === "-1" ? 0 : 1)].push(node);
+    // m[1] is "-" for x = -1.47 (the nose end), m[2] the side.
+    wheelNodes[(m[1] === "-" ? 0 : 2) + (m[2] === "-1" ? 0 : 1)].push(node);
   }
 
   wheelNodes.forEach((nodes, i) => {

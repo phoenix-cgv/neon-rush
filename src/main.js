@@ -5,6 +5,7 @@ import { WORLD, CAR } from "./vehicle/config.js";
 import { Vehicle } from "./vehicle/vehicle.js";
 import { CarRig } from "./vehicle/car-rig.js";
 import { loadCarModel } from "./vehicle/car-model.js";
+import { loadTruckModel } from "./core/truck-model.js";
 import { CameraRig } from "./vehicle/camera-rig.js";
 import { Input } from "./core/input.js";
 import { Progress } from "./core/progress.js";
@@ -50,7 +51,7 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
-await loadCarModel(); // before any CarRig is built; falls back to the built-in car if it fails
+await Promise.all([loadCarModel(), loadTruckModel()]); // before any car or traffic is built; each falls back if it fails
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -651,7 +652,7 @@ function frame(now) {
       // Best lap per level, shown in the pause menu — and, if it's a new
       // best, the recording just finished becomes next visit's ghost.
       if (progress?.justCompletedLap) {
-        const rec = recorder?.recording ? recorder.end() : null;
+        const rec = recorder?.recording ? recorder.end(vehicle) : null;
         Save.submitLap(levelName, progress.lastLapTime, rec);
       }
     } else {

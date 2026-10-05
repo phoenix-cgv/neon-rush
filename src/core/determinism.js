@@ -87,7 +87,16 @@ export class Recorder {
     }
   }
 
-  end() {
+  /**
+   * @param {object} [vehicle]  if given, its state is stored as the final
+   *   snapshot, so a replay can be put exactly on the finish line.
+   */
+  end(vehicle = null) {
+    if (vehicle && this.recording) {
+      const k = vehicle.captureState();
+      for (const f of Object.keys(k)) k[f] = round4(k[f]);
+      this.keys[this.frames.length] = k;
+    }
     this.recording = false;
     return { start: this.start, frames: this.frames, keys: this.keys };
   }

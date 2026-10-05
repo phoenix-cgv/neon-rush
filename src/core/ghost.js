@@ -54,6 +54,7 @@ export class Ghost {
     this.vehicle.savePreviousState();
 
     this.recording = recording;
+    this.finished = false;
     this.replay = new ReplayController(recording);
     this.rig = new CarRig(GHOST_PAINT);
     this.#makeTranslucent();
@@ -87,7 +88,13 @@ export class Ghost {
     if (key) {
       const t = this.vehicle.body.translation();
       const off = Math.hypot(t.x - key.t[0], t.y - key.t[1], t.z - key.t[2]);
-      if (off > SNAP_DISTANCE) this.vehicle.restoreState(key);
+      // The last snapshot is the finish line itself. It is applied once,
+      // however far off: a ghost that crashed late in the lap still
+      // finishes it, and the snap is not repeated, so it then rolls on
+      // past the line instead of being pinned there.
+      const last = this.replay.frame === this.recording.frames.length;
+      if (last ? !this.finished : off > SNAP_DISTANCE) this.vehicle.restoreState(key);
+      if (last) this.finished = true;
     }
     this.vehicle.savePreviousState();
     this.vehicle.step(dt, racing ? this.replay.update() : HOLD);

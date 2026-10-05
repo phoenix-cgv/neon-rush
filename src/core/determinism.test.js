@@ -38,3 +38,14 @@ test("nothing is snapshotted before the lap starts", () => {
   r.begin(fakeVehicle(0));
   assert.deepEqual(r.end().keys, {});
 });
+
+test("ending with a vehicle stores the finish-line state as the last snapshot", () => {
+  const r = new Recorder();
+  r.begin(fakeVehicle(0));
+  for (let i = 0; i < 10; i++) {
+    r.snapshot(fakeVehicle(i));
+    r.capture(ctl);
+  }
+  const rec = r.end(fakeVehicle(99));
+  assert.equal(rec.keys[10].t[0], 99);
+});
