@@ -414,6 +414,31 @@ const requestedOk =
   Object.hasOwn(LEVELS, requested) &&
   (!ORDER.includes(requested) || ORDER.indexOf(requested) < (Save.get("maxLevel") | 0));
 let levelName = requestedOk ? requested : ORDER[0];
+
+// --- photo mode (development) ------------------------------------------
+// ?level=grandprix&shot=1049 parks the player's car at s = 1049 m, lets
+// the suspension settle, then stops the simulation while rendering
+// carries on. Every lighting and shader change can then be judged on the
+// SAME frame before and after, which a moving car never gives you.
+//   shot   s along the centreline, m
+//   lat    lateral offset from the centreline, m (default 0)
+//   cam    0 chase, 1 hood, 2 wide chase (default 0)
+//   hud=0  hide every HUD element, for clean devlog shots
+// __dbg.shot(s, lat) re-poses live without a reload. The start lights
+// never go out in photo mode, so the field stays held where it is.
+const SETTLE_STEPS = 90; // 1.5 s for the springs to come to rest
+let photo = params.has("shot")
+  ? { s: Number(params.get("shot")) || 0, lateral: Number(params.get("lat")) || 0, settle: 0 }
+  : null;
+const HOLD_STILL = { throttle: 0, brake: 0, steer: 0, handbrake: false, boost: false, pitch: 0, roll: 0 };
+
+/** Park the player at photo.s and let the car settle before freezing. */
+function poseForPhoto() {
+  if (!photo || !level?.track) return;
+  photo.s = level.track.spline.wrapS(photo.s);
+  respawn(level.track.spawnAt(photo.s, photo.lateral));
+  photo.settle = SETTLE_STEPS;
+}
 // Set while a map file is being fetched. The current level keeps running
 // meanwhile; a second request is ignored rather than racing the first.
 let loading = null;
@@ -677,9 +702,9 @@ function frame(now) {
     _dashLook.set(0.2, 1.1, -12).applyQuaternion(st.quaternion).add(st.position);
     camera.position.copy(_dashPos);
     camera.lookAt(_dashLook);
-    sky.position.copy(camera.position);
+    sky.update(frameDt, camera);
     level.update?.(now / 1000);
-    renderer.render(scene, camera);
+    post.render();
     input.endFrame();
     return;
   }
@@ -690,7 +715,7 @@ function frame(now) {
   // discharging it as a burst of catch-up steps on resume.
   if (menu.open) {
     accumulator = 0;
-    renderer.render(scene, camera);
+    post.render();
     input.endFrame();
     return;
   }
