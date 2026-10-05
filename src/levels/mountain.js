@@ -241,28 +241,27 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Afternoon light: a high, bright sun (about 53 degrees up, not the
-    // 25 of the old dusk setting) rather than a low golden one, a clear
-    // blue sky instead of a warm horizon, and a cooler, thinner haze
-    // suited to a climb this high rather than a sunset's amber dust. The
-    // higher sun also keeps shadows short and contained near the shadow
-    // camera's own frustum, rather than the long, grazing-angle ones a
-    // dusk sun casts across a mountain this tall. No headlights: nothing
-    // here is dim enough to need them. "Mountain Rock"/"Rock Highlight"
-    // are deliberately left out of `detail`: rockify() above already
-    // patches their shader directly (not through addPatch's stacking),
-    // so addDetail() on the same materials would silently replace
-    // rockify's onBeforeCompile instead of adding to it.
+    // Afternoon tipping into evening: the sun low and warm, on its way
+    // down rather than overhead, with a dusk sky and a haze that suits
+    // the climb. sun/hemi/sky/fog/exposure are the refined-palette
+    // tuning (higher, less grazing sun than the lighting-foundation
+    // branch's original); bloom/headlights/detail/glow/strips/pools/
+    // shelter are that branch's own fields. "Mountain Rock"/"Rock
+    // Highlight" are deliberately left out of `detail`: rockify() above
+    // already patches their shader directly (not through addPatch's
+    // stacking), so addDetail() on the same materials would silently
+    // replace rockify's onBeforeCompile instead of adding to it.
     lit: {
-      sun: [-60, 95, 40],
-      sunColor: 0xfff6e8,
-      sunIntensity: 3.0,
-      hemi: [0x9fcbea, 0x5a5648, 2.0],
-      sky: { top: 0x4f8ecb, horizon: 0xd7e6ea, bottom: 0x7c8a78 },
-      fog: [0xc9d6d8, 220, 1000],
-      exposure: 1.05,
+      sun: [-80, 46, 55],
+      sunColor: 0xffcf9e,
+      sunIntensity: 2.6,
+      hemi: [0x9db6d6, 0x4b4038, 1.6],
+      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
+      fog: [0xd2b79f, 200, 950],
+      exposure: 1.0,
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
-      glow: 0xff9a3c, // the tunnel's own neon amber — see strips/pools below
+      headlights: true,
+      glow: 0xff9a3c, // the setting sun
       // Generated normal maps (src/lighting/surface-detail.js).
       detail: {
         "Fresh Dark Asphalt": { map: "grain", size: 1.5, strength: 0.6 },
