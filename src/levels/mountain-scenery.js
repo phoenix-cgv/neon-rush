@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGLTFLoader } from "../core/gltf-loader.js";
 import planeUrl from "../../assets/props/airplane-2.glb?url";
 import towerAUrl from "../../assets/props/radio-tower-a.glb?url";
 import towerBUrl from "../../assets/props/radio-tower-b.glb?url";
@@ -27,7 +27,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 // slope rather than float. Nothing here is physical.
 // ---------------------------------------------------------------------
 
-const loader = new GLTFLoader();
+const loader = createGLTFLoader();
 let loading = null;
 let models = null;
 

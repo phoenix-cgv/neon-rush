@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGLTFLoader } from "./gltf-loader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import truckUrl from "../../assets/car/small-truck.glb?url";
 import carUrl from "../../assets/car/regular-car.glb?url";
@@ -52,7 +52,7 @@ const wheelSets = {}; // kind -> { corners: Vector3[4], radius, parts: [{ name, 
 export function loadTrafficModels() {
   return Promise.all(
     Object.entries(TRAFFIC_MODELS).map(([kind, def]) => {
-      loading[kind] ??= new GLTFLoader()
+      loading[kind] ??= createGLTFLoader()
         .loadAsync(def.url)
         .then((gltf) => {
           const { body, wheels } = flatten(gltf.scene, def);

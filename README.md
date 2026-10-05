@@ -414,6 +414,14 @@ likely you are to hit them.
   placed 3 m up against a 3.2 m barrier, sitting behind exactly the thing
   the driver looks past. Screenshot the level; do not assume that because
   an object was added it can be seen.
+- **Pack a map after every export from Blender:**
+  `npm run pack:map -- assets/maps/GrandPrix.glb` (in place). It is
+  lossless meshopt compression (the three maps: 35 MB → 21 MB). Do *not*
+  use Draco or `gltf-transform optimize` on a map: the track is read from
+  the road ribbon's vertex order, pieces are found by mesh name, and both
+  reorder, merge or join. Props and buildings are fine with Draco
+  (`npx @gltf-transform/cli draco in.glb out.glb`); every loader in the
+  game decodes both (src/core/gltf-loader.js). See tools/pack-map.mjs.
 
 ### Performance
 

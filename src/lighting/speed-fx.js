@@ -8,6 +8,9 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 //
 // Everything here is driven by GAME STATE, eased so it never snaps:
 //
+// (Removed: the heat shimmer and fringing below were too distracting with
+// several cars boosting at once; only the vignette is left.)
+//
 //   heat shimmer  While boosting, the image is wobbled around the car's
 //                 tail, as if seen through hot exhaust. This is a
 //                 refraction effect: the texture is sampled at an offset
@@ -54,22 +57,13 @@ const SpeedShader = {
     void main() {
       vec2 uv = vUv;
 
-      // Heat shimmer: an ellipse round the car's tail, wider than tall.
-      vec2 d = (uv - uCarScreen) * vec2(uAspect, 1.0);
-      float region = uBoost * smoothstep(0.2, 0.0, length(d * vec2(0.9, 1.7)));
-      vec2 wobble = vec2(
-        sin(uv.y * 95.0 + uTime * 15.0),
-        cos(uv.x * 75.0 - uTime * 12.0)
-      ) * 0.0045 * region;
-
-      // Chromatic fringing, growing with distance from the centre.
+      // (The heat shimmer round the tail and the red/blue fringing that
+      // used to come with boosting are gone: too distracting with several
+      // cars on screen. The boost shows as the neon lines behind the
+      // wheels instead — src/vehicle/wheel-glow.js.)
       vec2 fromC = uv - 0.5;
       float r2 = dot(fromC, fromC);
-      vec2 ca = fromC * r2 * 0.03 * uBoost;
-      vec3 col;
-      col.r = texture2D(tDiffuse, uv + wobble + ca).r;
-      col.g = texture2D(tDiffuse, uv + wobble).g;
-      col.b = texture2D(tDiffuse, uv + wobble - ca).b;
+      vec3 col = texture2D(tDiffuse, uv).rgb;
 
       // Vignette.
       col *= 1.0 - smoothstep(0.15, 0.6, r2) * (0.22 + 0.3 * uBoost);

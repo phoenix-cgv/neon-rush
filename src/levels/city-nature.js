@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGLTFLoader } from "../core/gltf-loader.js";
 import { CityBuildings } from "./city-buildings.js";
 import { CityAmenities } from "./city-amenities.js";
 import gardenUrl from "../../assets/props/garden.glb?url";
@@ -188,7 +188,7 @@ const _v = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
 // ------------------------------------------------------------ props (GLBs)
-const loader = new GLTFLoader();
+const loader = createGLTFLoader();
 let propsLoading = null;
 let props = null;
 

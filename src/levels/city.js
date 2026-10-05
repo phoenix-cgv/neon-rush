@@ -112,19 +112,33 @@ export function buildCity(RAPIER, world, scene, gltf) {
     nature,
     spawn: gate.position,
     quaternion: gate.quaternion,
-    // Early morning: a fresh, cool sun just up over the rooftops, a pale
-    // sky rather than the gold-and-shadow of dusk, and a light haze still
-    // sitting in the streets (thinner and cooler than the afternoon's
-    // amber one — morning mist, not sunset dust). The ground plane ends
-    // about 300 m out, so the fog closes in before the edge can show.
+    // Early morning: a low, golden sun just up over the rooftops, casting
+    // long shadows down the streets, under a clear blue sky (pale, not
+    // peach, at the horizon: peach there mixed with the blue into lavender
+    // across most of the view). The fill light is kept well below the sun so
+    // the shade side of every building reads as shade (a strong, even
+    // fill flattened the whole city to a pale, washed-out grey), and the
+    // haze is thin and blue rather than a white wash over the skyline.
     lit: {
-      sun: [-70, 42, 60],
-      sunColor: 0xfff1d6,
-      sunIntensity: 3.0,
-      hemi: [0xaed4ec, 0x5c5850, 1.8],
-      sky: { top: 0x6fa3d6, horizon: 0xf3dcc4, bottom: 0x8a9088 },
-      fog: [0xcdd9dc, 150, 560],
-      exposure: 1.05,
+      sun: [-80, 34, 55],
+      sunColor: 0xffd9a8,
+      sunIntensity: 3.6,
+      hemi: [0x8db6e2, 0x4a4036, 1.0],
+      sky: { top: 0x2c6cc4, horizon: 0xb8d4ec, bottom: 0x6b7466, clouds: 0.25 },
+      fog: [0xaec4da, 220, 760],
+      exposure: 0.95,
+      envIntensity: 0.3,
+      // A low sun glints straight off anything glossy into the camera,
+      // and bloom turned those glints into blinding white flares: the road
+      // paint (roughness 0.2) and the building models' shared texture
+      // (0.23, and part metal). Roughened to a sheen, and in daylight only
+      // something as bright as the sun disc blooms at all.
+      bloom: { threshold: 3, strength: 0.35, radius: 0.35 },
+      materials: {
+        Line: { roughness: 0.65 },
+        citybits_texture: { roughness: 0.75, metalness: 0.1 },
+        ShelterGlass: { roughness: 0.35 },
+      },
     },
     dispose: () => {
       crowd.dispose();

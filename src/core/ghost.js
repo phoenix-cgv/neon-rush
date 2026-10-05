@@ -71,7 +71,7 @@ export class Ghost {
     const endKey = recording.keys?.[recording.frames.length];
     this.total = lapDistance(recording.start.s, endKey?.s ?? recording.start.s, track.length);
     this.replay = new ReplayController(recording);
-    this.rig = new CarRig(GHOST_PAINT);
+    this.rig = new CarRig(GHOST_PAINT, { glossy: false });
     this.#makeTranslucent();
     this.scene.add(this.rig.root);
     this.rig.sync(this.vehicle.state);

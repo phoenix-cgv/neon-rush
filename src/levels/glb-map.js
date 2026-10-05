@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGLTFLoader, deinterleave } from "../core/gltf-loader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { Track } from "../track/track.js";
 import { MAP_WORLD_LAYER } from "../ui/minimap.js";
@@ -41,14 +41,14 @@ import { MAP_WORLD_LAYER } from "../ui/minimap.js";
 //   boxes from their own bounds. A grass blade is not a wall.
 // ---------------------------------------------------------------------
 
-const loader = new GLTFLoader();
+const loader = createGLTFLoader();
 const cache = new Map(); // url -> Promise<gltf>
 const prepared = new WeakMap(); // gltf -> merged meshes + track data
 
 /** Fetch and parse once; every later visit to the level reuses it. */
 export function loadMap(url) {
   if (!cache.has(url)) {
-    const p = loader.loadAsync(url).catch((err) => {
+    const p = loader.loadAsync(url).then((gltf) => deinterleave(gltf)).catch((err) => {
       cache.delete(url); // let a retry actually retry
       throw err;
     });

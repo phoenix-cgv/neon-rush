@@ -50,6 +50,9 @@ export class FogPatch {
    *             of it to take the default without overlapping something
    *             else — see the Mountain's zone, wedged into the ~55 m
    *             between the last rockfall zone and the finish line.
+   *   pastLine  for a zone that runs up to the line: m of the next lap it
+   *             stays at full strength, once the car has been through it.
+   *   fadeOut   m it then clears over; defaults to `ramp`.
    * @param {object} [skyUniforms]  main.js's uTop/uHorizon/uBottom, so the
    *   sky dome tints toward the fog too. Without this the dome keeps
    *   showing its ordinary blue gradient right through the murk — the
@@ -96,6 +99,17 @@ export class FogPatch {
 
   #strengthAt(z, s) {
     const ramp = z.ramp;
+    // Carried over the line: once the car has driven into the patch, the
+    // first `pastLine` m of the next lap stay at full strength and then
+    // clear over `fadeOut` m. A fresh patch (every new run) starts
+    // disarmed, so the grid itself is never in fog.
+    if (z.armed && s < z.s0 - ramp) {
+      const tail = z.pastLine ?? 0;
+      const fade = z.fadeOut ?? ramp;
+      if (s <= tail) return 1;
+      if (s < tail + fade) return 1 - (s - tail) / fade;
+      return 0;
+    }
     if (s <= z.s0 - ramp || s >= z.s1 + ramp) return 0;
     if (s < z.s0) return (s - (z.s0 - ramp)) / ramp;
     if (s > z.s1) return 1 - (s - z.s1) / ramp;
@@ -116,6 +130,11 @@ export class FogPatch {
     let k = 0;
     let zone = null;
     for (const z of this.zones) {
+      if (z.pastLine !== undefined) {
+        if (s >= z.s0 && s <= z.s1 + z.ramp) z.armed = true;
+        // well clear of both ends: the carried-over murk is spent
+        else if (s > z.pastLine + (z.fadeOut ?? z.ramp) && s < z.s0 - z.ramp) z.armed = false;
+      }
       const zk = this.#strengthAt(z, s);
       if (zk > k) {
         k = zk;

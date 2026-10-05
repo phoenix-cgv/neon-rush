@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR } from "./config.js";
 import { applyCarModel } from "./car-model.js";
+import { addPatch } from "../lighting/material-patches.js";
+
+const HEADLIGHT_INTENSITY = 110; // per lamp, when a level switches them on
 
 // The scene graph for the car — section 4 of the design document.
 //
@@ -195,7 +198,14 @@ function glowTexture() {
 
 export class CarRig {
   /** @param {number} paint  body colour, so a field of cars is legible */
-  constructor(paint = PAINT) {
+  /**
+   * @param {number} paint  body colour
+   * @param {object} [opts]  { glossy }: a clear coat over the paint (the
+   *   player's car). MeshPhysicalMaterial's clear coat is a second layer
+   *   of lighting on every pixel of the body, so the rivals, five cars
+   *   seen mostly at a distance, get the plain paint instead.
+   */
+  constructor(paint = PAINT, { glossy = true } = {}) {
     this.root = new THREE.Group();
     this.root.name = "CarRig";
 
@@ -205,13 +215,21 @@ export class CarRig {
 
     const h = CAR.halfExtents; // collider: 0.85 x 0.27 x 2.0
 
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: paint,
-      // Solid colour, not chrome: low metalness keeps the paint reading as
-      // the colour it is under any light, instead of mirroring the sky.
-      metalness: 0.12,
-      roughness: 0.42,
-    });
+    // Solid colour, not chrome: low metalness keeps the paint reading as
+    // the colour it is under any light, instead of mirroring the sky.
+    const bodyMat = glossy
+      ? new THREE.MeshPhysicalMaterial({
+          color: paint,
+          metalness: 0.15,
+          roughness: 0.32,
+          // ...under a glossy clear coat, like real car paint: a sharp
+          // layer of highlights and reflections over the colour. At night
+          // it is what makes a car stand out, catching every floodlight
+          // and headlight as it passes. Damage dulls it (setDamage).
+          clearcoat: 1,
+          clearcoatRoughness: 0.06,
+        })
+      : new THREE.MeshStandardMaterial({ color: paint, metalness: 0.15, roughness: 0.32 });
     const darkMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(paint).multiplyScalar(0.55),
       metalness: 0.5,
@@ -429,23 +447,55 @@ export class CarRig {
     // them: the whole body is now one geometry, so pushing vertices in
     // around an impact deforms the car as a single shell instead of
     // moving one box out of alignment with its neighbours.
-    this.bodyMesh =
-      this.chassisPivot.children.find((c) => c.isMesh && c.material === bodyMat) ??
-      null;
-    if (this.bodyMesh) {
-      const pos = this.bodyMesh.geometry.attributes.position;
-      this.pristine = new Float32Array(pos.array); // the undamaged shell
-      // Accumulated deformation, held SEPARATELY from the live vertices.
-      //
-      // The drawn shape is always pristine + dentField x shown, so repair
-      // converges on the original geometry by construction. Easing the
-      // live vertices toward pristine instead does not: the step size and
-      // the damage value decay at different rates, so the car stopped
-      // straightening while still visibly creased — 0.064 m of dent left
-      // after a full repair, which a respawn made permanent.
-      this.dentField = new Float32Array(pos.array.length);
-      this.bodyMesh.geometry.computeBoundingSphere();
-    }
+    //
+    // The car model's paint is spread over several meshes inside its own
+    // group (scaled from the model's units), not one shell on the pivot,
+    // so every painted mesh is a dentable PART. Each part keeps its
+    // undamaged vertices, those same vertices in the chassis's own metres
+    // (where dents are measured), and the inverse of its transform, to
+    // turn a dent back into the part's own units.
+    this.chassisPivot.updateMatrixWorld(true);
+    const toChassis = new THREE.Matrix4().copy(this.chassisPivot.matrixWorld).invert();
+    this.bodyParts = [];
+    this.chassisPivot.traverse((o) => {
+      if (!o.isMesh || o.material !== bodyMat) return;
+      // The model's geometry is shared by every car built from it; a dent
+      // in a shared buffer would dent the whole field.
+      if (this.usesModel) o.geometry = o.geometry.clone();
+      const rel = new THREE.Matrix4().multiplyMatrices(toChassis, o.matrixWorld);
+      const local = new Float32Array(o.geometry.attributes.position.array);
+      const chassis = new Float32Array(local.length);
+      const v = new THREE.Vector3();
+      for (let i = 0; i < local.length; i += 3) {
+        v.set(local[i], local[i + 1], local[i + 2]).applyMatrix4(rel);
+        chassis[i] = v.x;
+        chassis[i + 1] = v.y;
+        chassis[i + 2] = v.z;
+      }
+      this.bodyParts.push({
+        mesh: o,
+        pristine: local, // the undamaged shell, in the part's own units
+        chassis, // the same, in the chassis's metres
+        // Accumulated deformation (chassis metres), held SEPARATELY from
+        // the live vertices.
+        //
+        // The drawn shape is always pristine + dentField x shown, so repair
+        // converges on the original geometry by construction. Easing the
+        // live vertices toward pristine instead does not: the step size and
+        // the damage value decay at different rates, so the car stopped
+        // straightening while still visibly creased — 0.064 m of dent left
+        // after a full repair, which a respawn made permanent.
+        dentField: new Float32Array(local.length),
+        back: new THREE.Matrix3().setFromMatrix4(rel).invert(), // chassis metres -> part units
+        scale: rel.getMaxScaleOnAxis(),
+      });
+      o.geometry.computeBoundingSphere();
+    });
+    this.bodyMesh = this.bodyParts[0]?.mesh ?? null;
+    this.dentField = this.bodyParts.length ? true : null;
+    // No UVs on the model to draw scratches into: scuffs are worked out
+    // in the shader instead, from the paint's own position.
+    if (this.usesModel && this.bodyParts.length) this.#addScuffs(1 / this.bodyParts[0].scale);
     // The model is used as authored, so it gets no underglow.
     if (!this.usesModel) this.chassisPivot.add(this.glow);
     this.#initScratches(paint);
@@ -521,12 +571,13 @@ export class CarRig {
     // ever had.
     if (damage < 0.01 && this.dentField) {
       let live = false;
-      const f = this.dentField;
-      for (let i = 0; i < f.length; i++) {
-        if (f[i] === 0) continue;
-        f[i] *= 0.94;
-        if (Math.abs(f[i]) < 1e-4) f[i] = 0;
-        else live = true;
+      for (const { dentField: f } of this.bodyParts) {
+        for (let i = 0; i < f.length; i++) {
+          if (f[i] === 0) continue;
+          f[i] *= 0.94;
+          if (Math.abs(f[i]) < 1e-4) f[i] = 0;
+          else live = true;
+        }
       }
       if (live) this.dentDirty = true;
     }
@@ -620,9 +671,7 @@ export class CarRig {
    * the flank and a nose-on hit folds the nose.
    */
   #dent(dir, force) {
-    if (!this.bodyMesh) return;
-    const p = this.pristine;
-    const f = this.dentField;
+    if (!this.bodyParts.length) return;
     const depth = 0.045 + force * 0.11;
     // A random centre on the struck side, so repeated hits do not all
     // deepen one crater.
@@ -630,32 +679,100 @@ export class CarRig {
     const cy = dir.y * 0.3 + (Math.random() - 0.5) * 0.35;
     const cz = dir.z * 1.9 + (Math.random() - 0.5) * 1.6;
     const reach = 0.75 + force * 0.55;
-    for (let i = 0; i < p.length; i += 3) {
-      const dx = p[i] - cx;
-      const dy = p[i + 1] - cy;
-      const dz = p[i + 2] - cz;
-      const d = Math.hypot(dx, dy, dz);
-      if (d > reach) continue;
-      const w = 1 - d / reach;
-      const k = w * w * depth;
-      // Capped, or twenty hits on one panel fold the car through itself.
-      f[i] = clampAbs(f[i] - dir.x * k, DENT_MAX);
-      f[i + 1] = clampAbs(f[i + 1] - dir.y * k, DENT_MAX);
-      f[i + 2] = clampAbs(f[i + 2] - dir.z * k, DENT_MAX);
+    for (const { chassis: p, dentField: f } of this.bodyParts) {
+      for (let i = 0; i < p.length; i += 3) {
+        const dx = p[i] - cx;
+        const dy = p[i + 1] - cy;
+        const dz = p[i + 2] - cz;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > reach) continue;
+        const w = 1 - d / reach;
+        const k = w * w * depth;
+        // Capped, or twenty hits on one panel fold the car through itself.
+        f[i] = clampAbs(f[i] - dir.x * k, DENT_MAX);
+        f[i + 1] = clampAbs(f[i + 1] - dir.y * k, DENT_MAX);
+        f[i + 2] = clampAbs(f[i + 2] - dir.z * k, DENT_MAX);
+      }
     }
     this.dentDirty = true;
   }
 
   /** Redraw the shell as pristine + accumulated dents, scaled by `shown`. */
   #reshape(shown) {
-    if (!this.bodyMesh) return; // the car model has no single shell to dent
-    const pos = this.bodyMesh.geometry.attributes.position;
-    const a = pos.array;
-    const p = this.pristine;
-    const f = this.dentField;
-    for (let i = 0; i < a.length; i++) a[i] = p[i] + f[i] * shown;
-    pos.needsUpdate = true;
-    this.bodyMesh.geometry.computeVertexNormals();
+    const v = new THREE.Vector3();
+    for (const part of this.bodyParts) {
+      const pos = part.mesh.geometry.attributes.position;
+      const a = pos.array;
+      const p = part.pristine;
+      const f = part.dentField;
+      for (let i = 0; i < a.length; i += 3) {
+        // the dent is in chassis metres; the part's vertices in its own units
+        v.set(f[i] * shown, f[i + 1] * shown, f[i + 2] * shown).applyMatrix3(part.back);
+        a[i] = p[i] + v.x;
+        a[i + 1] = p[i + 1] + v.y;
+        a[i + 2] = p[i + 2] + v.z;
+      }
+      pos.needsUpdate = true;
+      part.mesh.geometry.computeVertexNormals();
+    }
+  }
+
+  /**
+   * Scuffs for the car model, which has no texture coordinates to draw
+   * scratches into: worked out in the paint's shader from each point's
+   * position on the body (so they stay put on the panel as the car moves).
+   * Dark, scorched blotches and thin bright scratches of bare metal,
+   * spreading over more of the car as damage rises (uDamage, set in
+   * #applyDamage). Damage is one number for the whole car, so scuffs
+   * spread everywhere; the dents are what show where it was hit.
+   * @param {number} perUnit  model units per chassis metre, so the pattern
+   *   is sized in metres whatever the model was authored in
+   */
+  #addScuffs(perUnit) {
+    const u = (this.bodyMat.userData.scuff = { uDamage: { value: 0 }, uScuffScale: { value: 1 / perUnit } });
+    addPatch(this.bodyMat, "scuff", (shader) => {
+      Object.assign(shader.uniforms, u);
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vScuffPos;")
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvScuffPos = position;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          `#include <common>
+          varying vec3 vScuffPos;
+          uniform float uDamage, uScuffScale;
+          float scuffHash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+          float scuffNoise(vec3 p) {
+            vec3 i = floor(p), f = fract(p);
+            f = f * f * (3.0 - 2.0 * f);
+            return mix(
+              mix(mix(scuffHash(i), scuffHash(i + vec3(1, 0, 0)), f.x),
+                  mix(scuffHash(i + vec3(0, 1, 0)), scuffHash(i + vec3(1, 1, 0)), f.x), f.y),
+              mix(mix(scuffHash(i + vec3(0, 0, 1)), scuffHash(i + vec3(1, 0, 1)), f.x),
+                  mix(scuffHash(i + vec3(0, 1, 1)), scuffHash(i + vec3(1, 1, 1)), f.x), f.y),
+              f.z);
+          }`
+        )
+        .replace(
+          "#include <map_fragment>",
+          `#include <map_fragment>
+          if (uDamage > 0.01) {
+            vec3 sp = vScuffPos * uScuffScale; // chassis metres
+            // blotches: big soft patches, more of the car as damage rises
+            float n = scuffNoise(sp * 2.2) * 0.65 + scuffNoise(sp * 6.0) * 0.35;
+            // (two octaves pile up round 0.5, so the edge comes down to meet them:
+            // a few patches by half damage, about half the paint at full)
+            float edge = 0.8 - uDamage * 0.32;
+            float blotch = smoothstep(edge, edge + 0.05, n);
+            // scratches: streaks running along the car (z), bare metal
+            float s = scuffNoise(sp * vec3(14.0, 14.0, 1.2));
+            float scratch = smoothstep(0.72, 0.78, s) * smoothstep(0.1, 0.5, uDamage)
+                          * step(0.5, scuffNoise(sp * 2.5 + 7.0));
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05, 0.045, 0.04), blotch * 0.85);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.62, 0.6), scratch * 0.8);
+          }`
+        );
+    });
   }
 
 
@@ -673,6 +790,11 @@ export class CarRig {
     // damaged long before the hue shift is obvious.
     this.bodyMat.roughness = this.cleanRoughness + (0.92 - this.cleanRoughness) * k;
     this.bodyMat.metalness = this.cleanMetalness * (1 - 0.75 * k);
+    if (this.bodyMat.isMeshPhysicalMaterial) {
+      this.bodyMat.clearcoat = 1 - 0.85 * k;
+      this.bodyMat.clearcoatRoughness = 0.06 + 0.5 * k;
+    }
+    if (this.bodyMat.userData.scuff) this.bodyMat.userData.scuff.uDamage.value = k;
 
     // Broken headlights. Dulled paint alone is easy to miss at chase-camera
     // distance — a lamp that has gone out is read instantly, and it is the
@@ -683,18 +805,53 @@ export class CarRig {
     this.headMat.color.lerpColors(CLEAN_LAMP, DEAD_LAMP, 1 - lamps);
   }
 
+  /**
+   * A soft rim of light round the paint's silhouette, strongest where the
+   * body turns away from the camera: the clear coat catching the night
+   * sky. Under a dim moon even glossy paint has almost nothing to reflect,
+   * so without it a car reads as a dark shape on dark asphalt. Set once
+   * per level (strength 0 is off); the uniforms are shared with the
+   * compiled shader, so changing them never recompiles it.
+   */
+  setRim(color, strength) {
+    const m = this.bodyMat;
+    const u = (m.userData.rim ??= { uRimColor: { value: new THREE.Color() }, uRim: { value: 0 } });
+    u.uRimColor.value.set(color);
+    u.uRim.value = strength;
+    addPatch(m, "rim", (shader) => {
+      Object.assign(shader.uniforms, u);
+      shader.fragmentShader = shader.fragmentShader
+        .replace("#include <common>", "#include <common>\nuniform vec3 uRimColor;\nuniform float uRim;")
+        .replace(
+          "#include <aomap_fragment>",
+          `float rimF = 1.0 - saturate(dot(normalize(normal), normalize(vViewPosition)));
+          // half the paint's own colour, so a car keeps its identity
+          totalEmissiveRadiance += mix(uRimColor, diffuseColor.rgb, 0.5) * (pow(rimF, 4.0) * uRim);
+          #include <aomap_fragment>`
+        );
+    });
+  }
+
   setHeadlights(on) {
+    // HEADLIGHT_INTENSITY: candela, each lamp. 60 aimed at 14 m lit only a
+    // small patch under the nose; this, aimed further out with a softer
+    // edge, lights the road ahead without a glaring hot spot.
     if (on && this.headlights.length === 0) this.#buildHeadlights();
-    for (const l of this.headlights) l.intensity = on ? 60 : 0;
+    for (const l of this.headlights) l.intensity = on ? HEADLIGHT_INTENSITY : 0;
     this.headMat.emissiveIntensity = on ? 2.2 : 1.0;
   }
 
   #buildHeadlights() {
     const { x, z } = this.headlightGeom;
     for (const sx of [-1, 1]) {
-      const light = new THREE.SpotLight(0xfff0d0, 0, 70, Math.PI / 7, 0.45, 1.2);
+      // A wide, very soft cone aimed 25 m down the road, so the beam is a
+      // wash spreading ahead of the car rather than a hot spot at the
+      // nose: enough to read the road by where the floodlights don't
+      // reach, never so bright it bleaches the asphalt, the neon rails or
+      // the floodlit stretches it drives into.
+      const light = new THREE.SpotLight(0xfff0d0, 0, 50, Math.PI / 5, 0.85, 1.0);
       light.position.set(sx * x, 0, -z);
-      light.target.position.set(sx * x, -0.6, -z - 14);
+      light.target.position.set(sx * x, -0.9, -z - 25);
       this.chassisPivot.add(light, light.target);
       this.headlights.push(light);
     }

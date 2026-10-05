@@ -2,6 +2,7 @@ import mapUrl from "../../assets/maps/GrandPrix.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 import * as THREE from "three";
 import { buildArmco } from "./armco.js";
+import { neonSigns } from "./neon-signs.js";
 import { GrandPrixScenery, loadGrandPrixProps } from "./grandprix-scenery.js";
 
 // ---------------------------------------------------------------------
@@ -94,9 +95,29 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     { side: 1, s0: L - 3, s1: 3 },
     ...pitSkips(track, map.pit, offset),
   ];
-  for (const o of buildArmco(track, scene, { offset, skip })) {
+  // A neon strip along the top of the rail, all the way round: at night it
+  // traces the circuit's edge where the floodlights don't reach. Four
+  // sectors of the lap, each its own colour (the track's magenta, then
+  // cyan, violet and orange), blending at the joins, so the colour also
+  // tells you where you are. Not through the tunnel, which has its own
+  // neon rails (GrandPrixScenery).
+  const neon = { colors: [0xff3cc8, 0x2ee6ff, 0x8a4dff, 0xff7a1a], skip: [{ s0: 2330, s1: 2560 }] };
+  for (const o of buildArmco(track, scene, { offset, skip, neon })) {
     track.objects.push(o); // disposed with the track
   }
+
+  // The signs as neon: a glowing tube round every sponsor banner, the
+  // bridge banner and the Turn 1 brake boards, over a darkened, softly
+  // backlit face (they were flat, evenly glowing pastel slabs).
+  const signs = neonSigns(map.group, scene, {
+    BannerRed: { tube: 0xff2d6f, face: 0x2a0a14, faceGlow: 0.06 },
+    BannerBlue: { tube: 0x23d9ff, face: 0x061a26, faceGlow: 0.06 },
+    BannerYellow: { tube: 0xffb627, face: 0x261a06, faceGlow: 0.06 },
+    BridgeBanner: { tube: 0xff3cc8, face: 0x22081c, faceGlow: 0.08 },
+    // the numbers are black, so the face stays light enough to read them
+    BrakeBoardWhite: { tube: 0x23d9ff, face: 0xd8dde2, faceGlow: 0.15 },
+  });
+  for (const o of signs) track.objects.push(o); // disposed with the track
 
   // Cacti, tents and apple trees on the open grass, and neon rails through
   // the tunnel (road distance 2,338-2,552 m).
@@ -131,6 +152,10 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // wide, grippy circuit built for sustained drifting, with its own
     // title/burst UI. See Race and Vehicle for how this reaches the car.
     driftBoost: true,
+    // Crashes cost 60% of what they do elsewhere: two laps in a six-car
+    // field means plenty of contact, and a car wrecked by a few knocks
+    // ended the race before it got going.
+    damageScale: 0.6,
     // A proper race: start lights, two laps, a classification. timeLimit
     // scales with laps (was 8 min for three) rather than being a fixed
     // ceiling, so it stays exactly as generous relative to a real race
@@ -142,7 +167,8 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // is 100 km/h, not the usual 60 — see the note near the top of this
     // file for why.
     pit: { data: map.pit, limitKmh: 100, repairTime: 3, aiDamage: 0.5 },
-    pickups: { repair: 6, boost: 8 },
+    // dimmed: against the night, at full glow the orbs bloomed into glare
+    pickups: { repair: 6, boost: 8, glow: 0.4 },
     spawn: gate.position,
     quaternion: gate.quaternion,
     // Night, after rain. The only daylight is a dim blue moon; the scene
@@ -165,8 +191,13 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       fog: [0x0d1222, 140, 700],
       exposure: 1.1,
       envIntensity: 0.6,
-      bloom: { threshold: 1.5, strength: 0.45, radius: 0.25 },
+      // threshold up from 1.5 and strength down from 0.45: only the neon
+      // itself and the lamp heads bloom, not every lit surface near them
+      bloom: { threshold: 2, strength: 0.35, radius: 0.25 },
       headlights: true,
+      // a cool moonlit edge on every car's glossy paint, so the field
+      // stands out against the night (CarRig.setRim)
+      carRim: [0x9fb4ff, 0.35],
       glow: 0xff3cc8, // neon magenta against the night
       // Generated normal maps (src/lighting/surface-detail.js); the asphalt
       // is also wet, and the two patches stack (material-patches.js).
@@ -179,13 +210,21 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
         TunnelConcrete: { map: "panels", size: 4, strength: 0.7 },
         Rock: { map: "rock", size: 6, strength: 1.2 },
       },
-      emissive: { TunnelLights: 0.45 },
+      // The floodlight heads were driven to 12x white, which bloomed into a
+      // blinding disc; at 0.4 of that they still glow and halo, but you can
+      // look at them. The big screen likewise, a little.
+      // TunnelLights down from 0.45: a tube of strips, close on every side,
+      // bloomed into a glare at that strength.
+      emissive: { TunnelLights: 0.3, FloodlightGlow: 0.4, BigScreen: 0.7 },
       // The tunnel strips are modelled with a fixed amber emissive — this
       // overrides the colour itself (not just its intensity, which the
       // `emissive` map above already scales) to lit.glow's magenta, so
       // the tunnel glows with the track's own neon rather than a real
       // tunnel's sodium lighting. See restyleMaterials() in main.js.
       materials: { TunnelLights: { emissive: new THREE.Color(0xff3cc8) } },
+      // The tunnel (road distance 2,338-2,552 m) is roofed: the sky fill is
+      // dimmed under it and no rain ripples there (main.js, `shelter`).
+      shelter: [{ s0: 2338, s1: 2552, ramp: 15, ambient: 0.5 }],
       wet: { materials: ["Asphalt", "AsphaltWorn", "PitAsphalt"], puddles: 0.45, damp: 0.38, ripples: 1 },
       // The eleven floodlight towers come as four pairs (one each side of
       // the road, at the same point on track) plus three singles, not
@@ -206,8 +245,16 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
       // single floodlight further out (80-100 m, the common case) is
       // dimmer than before but still clearly visible against the night.
       pools: [
-        { material: "FloodlightGlow", count: 4, type: "spot", color: 0xdfe8ff, intensity: 7000, distance: 70, angle: 0.75, penumbra: 0.7, fade: 40 },
-        { material: "TunnelLights", count: 2, type: "point", color: 0xff3cc8, intensity: 150, distance: 30, fade: 20 },
+        // 5000 (was 7000) with a softer edge: a pool of light on the road
+        // you drive through, not a white-out under each tower. Three real
+        // lights (was four): every lit pixel pays for each one, and the
+        // fourth nearest tower is usually too far to light anything seen.
+        { material: "FloodlightGlow", count: 3, type: "spot", color: 0xdfe8ff, intensity: 5000, distance: 70, angle: 0.8, penumbra: 0.9, fade: 40 },
+        // Gliding, not hopping: two steady lights sliding along the strips a
+        // little ahead of the car (see LightPool's `glide`). Hopping from
+        // strip to strip faded them in and out at every one, and the
+        // walls pulsed in time with the strips.
+        { material: "TunnelLights", count: 2, type: "point", color: 0xff3cc8, intensity: 90, distance: 30, fade: 20, glide: true, glideAhead: [4, 18] },
       ],
     },
     dispose: () => {

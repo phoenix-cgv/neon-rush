@@ -77,6 +77,25 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 document.body.appendChild(renderer.domElement);
 
+// First visit only: start weak graphics on Medium. The lab machines the
+// game is marked on are untested; an integrated or software GPU on High
+// (four floodlights, 2048 shadows, 1.5x resolution) is where it lagged.
+// Once anything is saved this never runs again, so a player's own
+// choice in Settings always stands.
+if (Save.firstVisit && weakGpu(renderer)) Save.data.quality = "medium";
+
+/** Integrated, mobile or software graphics, judged by the GPU's own name. */
+function weakGpu(r) {
+  try {
+    const gl = r.getContext();
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    return /Intel|Iris|UHD|HD Graphics|Radeon\(TM\) (Vega \d+ )?Graphics|Vega \d+ Graphics|Mali|Adreno|PowerVR|Apple GPU|SwiftShader|llvmpipe|Basic Render/i.test(name);
+  } catch {
+    return false;
+  }
+}
+
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 1500);
 const SUN_OFFSET = new THREE.Vector3(60, 80, 30);
@@ -141,6 +160,8 @@ const adaptive = new AdaptiveResolution(renderer, () => post.resize());
 //   bloom        { threshold, strength, radius } — see src/lighting/post.js
 //   lights       extra point/spot lights — see src/lighting/level-lights.js
 //   headlights   true to switch on the player's headlight spots (dusk, night)
+//   carRim       [colour, strength]: a rim of light on every car's paint, so
+//                cars stand out at night — see CarRig.setRim
 //   pools        light pools — see src/lighting/light-pool.js
 //   strips       glowing fittings the map lacks — see src/lighting/level-lights.js
 //   shelter      [{ s0, s1, ramp, ambient }] stretches under a roof (a
@@ -188,6 +209,18 @@ let shelter = { zones: [], hemi: 0, env: 0 };
  * and without this the inside of the Mountain's tunnel was lit by the
  * dusk sky, a faint purple, from nowhere.
  */
+/** 0 out in the open .. 1 fully under a shelter's roof, at road distance s. */
+function underRoof(s) {
+  let in_ = 0;
+  for (const z of shelter.zones) {
+    const ramp = z.ramp ?? 15;
+    if (s > z.s0 - ramp && s < z.s1 + ramp) {
+      in_ = Math.max(in_, Math.min(1, (s - (z.s0 - ramp)) / ramp, ((z.s1 + ramp) - s) / ramp));
+    }
+  }
+  return in_;
+}
+
 function openSky(s) {
   let k = 1;
   for (const z of shelter.zones) {
@@ -221,13 +254,13 @@ function applyLighting(lit, track = null) {
     scene.environmentIntensity = L.envIntensity;
   }
   post.setBloom(L.bloom);
-  // Fewer real lights on lower presets; a pool cut to none just leaves
-  // its fixtures glowing.
-  const pools = L.pools
-    .map((p) => ({ ...p, count: Math.ceil((p.count ?? 4) * lightShare) }))
-    .filter((p) => p.count > 0);
+  // Fewer real lights on lower presets, but never none: a pool cut to
+  // zero left its fixtures glowing over an unlit road, so on Low the
+  // floodlights looked like they did nothing at all. One light per pool,
+  // on the nearest fixture, is one spot in the shaders.
+  const pools = L.pools.map((p) => ({ ...p, count: Math.max(1, Math.ceil((p.count ?? 4) * lightShare)) }));
   levelLights.build(L.lights, track, pools, L.strips);
-  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
+  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity, rain: L.wet?.ripples ?? 1, puddles: L.wet?.puddles ?? 0.45, damp: L.wet?.damp ?? 0.38 };
   restyleMaterials(L.emissive, L.materials);
   if (L.detail && detailAllowed) {
     scene.traverse((o) => {
@@ -447,21 +480,29 @@ let bootDone = false; // the loading screen stays up until the title page is rea
 
 async function loadLevel(name) {
   if (loading) return;
+  // Held until the level is fully ready, shader warm-up included: a second
+  // load starting meanwhile would dispose this level's materials while
+  // they were still compiling. Cleared however the load ends.
+  loading = name;
+  try {
+    await buildLevel(name);
+  } finally {
+    loading = null;
+  }
+}
+
+async function buildLevel(name) {
   adaptive.pause(2); // a load is one long frame, not a slow GPU
   let asset;
   if (LEVELS[name].preload) {
-    loading = name;
     loadingScreen.show(LEVEL_TITLES[name] ?? name);
     try {
       asset = await LEVELS[name].preload();
     } catch (err) {
       console.error(`[loadLevel] could not load map "${name}"`, err);
       loadingScreen.fail(`Could not load ${name} — see console`);
-      loading = null;
       return;
     }
-    loading = null;
-    if (bootDone) loadingScreen.hide();
   }
   if (level) {
     // Before applyLighting below replaces scene.fog for the new level:
@@ -524,6 +565,7 @@ async function loadLevel(name) {
     // comes from the level so the testbed stays a testbed.
     race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0, gameplayEvents, {
       driftBoost: level.driftBoost === true,
+      damageScale: level.damageScale ?? 1,
     });
     vehicle = race.player.vehicle;
     carRig = race.player.rig;
@@ -569,6 +611,16 @@ async function loadLevel(name) {
     gameplayHud.setActive(true);
     speedo.setActive(true);
     levelFresh = true;
+    // The player's car only. Opponents' headlights are faked (glow and
+    // light on the road, not lights): two real spots per car across a
+    // six-car field is the 2.95 ms README §8 measured.
+    if (level.lit?.headlights) {
+      carRig.setHeadlights(true);
+      for (const c of race.cars) if (!c.isPlayer) addFakeHeadlights(c.rig);
+    }
+    // Night levels: a moonlit rim on every car's paint, so the field stands
+    // out against the dark (CarRig.setRim).
+    if (level.lit?.carRim) for (const c of race.cars) c.rig.setRim(...level.lit.carRim);
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -584,6 +636,40 @@ async function loadLevel(name) {
     respawn();
   }
   poseForPhoto();
+  // Compile every shader the level will need while the loading screen is
+  // still up. Left to the first frame each one is drawn, the compiles
+  // land mid-race (on Windows, Direct3D's compiler takes 50-300 ms per
+  // program) and the game freezes the first time it reaches the tunnel,
+  // a boost, a crash, a checkpoint gate.
+  await warmShaders();
+  if (bootDone) loadingScreen.hide();
+}
+
+/**
+ * Compile the programs for everything in the scene, hidden things
+ * included (gate fragments, trails, sparks, the boost glow appear later
+ * and are invisible now), against the lights the level will race under.
+ */
+const WARM_LIMIT = 4000; // ms
+
+async function warmShaders() {
+  const hidden = [];
+  scene.traverse((o) => {
+    if (!o.visible) {
+      hidden.push(o);
+      o.visible = true;
+    }
+  });
+  try {
+    // Never longer than WARM_LIMIT: a program that stalls must not trap
+    // the loading screen. Whatever is left compiles on first draw, as it
+    // always used to.
+    await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, WARM_LIMIT))]);
+  } catch (err) {
+    console.warn("[warmShaders]", err); // a frame will compile them instead
+  } finally {
+    for (const o of hidden) o.visible = false;
+  }
 }
 
 function respawn(pose = null) {
@@ -706,6 +792,9 @@ function frame(now) {
     camera.lookAt(_dashLook);
     sky.update(frameDt, camera);
     level.update?.(now / 1000);
+    // the floodlights and tunnel lights round the car on the backdrop too,
+    // or the title page shows the towers glowing over an unlit road
+    levelLights.update(st.position);
     post.render();
     input.endFrame();
     return;
@@ -931,6 +1020,15 @@ function frame(now) {
     const k = openSky(vehicle.s);
     hemi.intensity = shelter.hemi * k;
     if (skyEnv) scene.environmentIntensity = shelter.env * k;
+    // No rain falls under the roof, so the road there is dry: the puddles'
+    // ripples, catching every strip light, made the tunnel road shimmer,
+    // and their mirror finish threw the lights back as glare.
+    if (level.lit?.wet) {
+      const roof = underRoof(vehicle.s);
+      wetUniforms.uRipples.value = shelter.rain * (1 - roof);
+      wetUniforms.uPuddles.value = shelter.puddles * (1 - roof);
+      wetUniforms.uDamp.value = shelter.damp + (0.85 - shelter.damp) * roof;
+    }
   }
   sky.update(frameDt, camera);
   sun.target.position.copy(state.position);

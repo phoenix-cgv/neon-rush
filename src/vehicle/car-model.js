@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { createGLTFLoader } from "../core/gltf-loader.js";
 import modelUrl from "../../assets/car/volt-r9.glb?url";
 import { CAR } from "./config.js";
 
@@ -35,7 +35,7 @@ let model = null; // the parsed scene, once loaded
 
 /** Fetch once. Resolves to null (and the procedural car stays) on failure. */
 export function loadCarModel() {
-  loading ??= new GLTFLoader()
+  loading ??= createGLTFLoader()
     .loadAsync(modelUrl)
     .then((gltf) => {
       // The file's own materials are used as authored, with one flag: draw

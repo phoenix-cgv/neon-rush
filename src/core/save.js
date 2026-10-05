@@ -50,7 +50,17 @@ function write(data) {
   }
 }
 
+/** Whether this browser has saved settings yet (false on a first visit). */
+function hasSaved() {
+  try {
+    return localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export const Save = {
+  firstVisit: !hasSaved(),
   data: read(),
 
   get(k) {
