@@ -454,8 +454,13 @@ export class CarRig {
   /**
    * Read the vehicle state and pose the graph. No physics happens here, and
    * no transform maths happens outside it.
+   * @param {boolean} boostGlow  Whether boosting brightens the tail lights,
+   *   underglow and body glow beyond their braking/idle look — the same
+   *   Grand Prix feature as the drift combo and the boost screen effect
+   *   (see Vehicle's driftBoost). Off elsewhere, boosting looks like simply
+   *   not braking; WheelGlow's neon trail is the only "going fast" tell.
    */
-  sync(state) {
+  sync(state, boostGlow = true) {
     this.root.position.copy(state.position);
     this.root.quaternion.copy(state.quaternion);
 
@@ -474,10 +479,11 @@ export class CarRig {
     // Brake lights brighten under braking, and the paint picks up a glow
     // while boosting. Both read from state the physics already publishes.
     const braking = state.gear === 1 && state.speed > 1 && state.wheels[0].load > 0;
-    this.tailMat.emissiveIntensity = state.boosting ? 3.0 : braking ? 2.2 : TAIL_IDLE;
-    this.glowMat.opacity = state.boosting ? 0.85 : braking ? 0.65 : 0.45;
-    this.bodyMat.emissive.setHex(state.boosting ? 0x1a5f6b : 0x000000);
-    this.bodyMat.emissiveIntensity = state.boosting ? 0.8 : 0;
+    const boosting = boostGlow && state.boosting;
+    this.tailMat.emissiveIntensity = boosting ? 3.0 : braking ? 2.2 : TAIL_IDLE;
+    this.glowMat.opacity = boosting ? 0.85 : braking ? 0.65 : 0.45;
+    this.bodyMat.emissive.setHex(boosting ? 0x1a5f6b : 0x000000);
+    this.bodyMat.emissiveIntensity = boosting ? 0.8 : 0;
 
     // A new impact scratches and dents ONCE, on the frame it happens.
     // Driving these off the damage value instead would redraw scratches

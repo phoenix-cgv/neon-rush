@@ -58,6 +58,7 @@ export class Race {
     this.eventBus = eventBus;
     this.cars = [];
     const { driftBoost = false } = opts;
+    this.driftBoost = driftBoost; // read back by render() for the cars' boost glow
 
     const names = Object.keys(PERSONALITIES);
     // The player is white so damage reads on it; the opponents keep strong
@@ -179,7 +180,7 @@ export class Race {
   render(alpha) {
     for (const c of this.cars) {
       c.vehicle.writeTransform(alpha);
-      c.rig.sync(c.vehicle.state);
+      c.rig.sync(c.vehicle.state, this.driftBoost);
     }
   }
 
