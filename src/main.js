@@ -5,7 +5,7 @@ import { WORLD, CAR } from "./vehicle/config.js";
 import { Vehicle } from "./vehicle/vehicle.js";
 import { CarRig } from "./vehicle/car-rig.js";
 import { loadCarModel } from "./vehicle/car-model.js";
-import { loadTruckModel } from "./core/truck-model.js";
+import { loadTrafficModels } from "./core/traffic-models.js";
 import { CameraRig } from "./vehicle/camera-rig.js";
 import { Input } from "./core/input.js";
 import { Progress } from "./core/progress.js";
@@ -51,7 +51,7 @@ import { buildMountain } from "./levels/mountain.js";
 // ---------------------------------------------------------------------
 
 await RAPIER.init();
-await Promise.all([loadCarModel(), loadTruckModel()]); // before any car or traffic is built; each falls back if it fails
+await Promise.all([loadCarModel(), loadTrafficModels()]); // before any car or traffic is built; each falls back if it fails
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);

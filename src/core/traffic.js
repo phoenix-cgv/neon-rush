@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GROUP, ALL } from "../vehicle/vehicle.js";
-import { truckParts, TRUCK_HALF, TRUCK_COLOURS } from "./truck-model.js";
+import { trafficParts, TRAFFIC_MODELS } from "./traffic-models.js";
 import { idmAccel, cornerLookahead, avoidanceTarget, slew } from "./traffic-logic.js";
 
 // ---------------------------------------------------------------------
@@ -68,17 +68,21 @@ export class Traffic {
     this.cars = [];
 
     const L = track.length;
-    const trucksOk = !!truckParts();
     const spawnRing = (count, dir, phase) => {
       const usable = L - 2 * clearStart;
       for (let i = 0; i < count; i++) {
         const k = this.cars.length;
         const s = clearStart + ((i + phase) / count) * usable;
-        // About one vehicle in three is a truck (when the model is loaded).
-        const truck = trucksOk && hash(k + 200) < 0.34;
+        // About one vehicle in three is a truck, the rest regular cars. A
+        // model that failed to load falls back (truck -> car -> the old box).
+        const want = hash(k + 200) < 0.34 ? "truck" : "car";
+        const kind = trafficParts(want) ? want : trafficParts("car") ? "car" : "box";
+        const truck = kind === "truck";
+        const palette = TRAFFIC_MODELS[kind]?.colours ?? COLOURS;
         this.cars.push({
+          kind,
           truck,
-          half: truck ? TRUCK_HALF : HALF,
+          half: TRAFFIC_MODELS[kind]?.half ?? HALF,
           dir,
           laneT: -dir * lane, // keep left: left of the direction of travel
           lat: -dir * lane, // where it actually is: laneT, unless steering round something
@@ -86,7 +90,7 @@ export class Traffic {
           speed: 0,
           // trucks are a little slower and heavier on the brakes' patience
           cruise: (vMin + (vMax - vMin) * hash(k)) * (truck ? 0.85 : 1),
-          colour: (truck ? TRUCK_COLOURS : COLOURS)[Math.floor(hash(k + 50) * (truck ? TRUCK_COLOURS : COLOURS).length)],
+          colour: palette[Math.floor(hash(k + 50) * palette.length)],
           body: null,
           prev: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
           cur: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
@@ -239,10 +243,9 @@ export class Traffic {
   // five draw calls however many cars there are.
   // -------------------------------------------------------------------
   #buildMeshes() {
-    const sedans = this.cars.filter((c) => !c.truck);
-    const trucks = this.cars.filter((c) => c.truck);
+    const sedans = this.cars.filter((c) => c.kind === "box"); // fallback boxes
     sedans.forEach((c, i) => (c.slot = i));
-    trucks.forEach((c, i) => (c.slot = i));
+    for (const c of sedans) c.insts = null; // filled below
     const n = sedans.length;
     const part = (geo, mat, perCar, local, count = n) => {
       const inst = new THREE.InstancedMesh(geo, mat, count * perCar.length);
@@ -286,26 +289,33 @@ export class Traffic {
     if (n) this.body.instanceColor.needsUpdate = true;
     this.parts = [this.body, this.cabin, this.wheels, this.heads, this.tails];
 
-    // Trucks: the model, one instanced mesh per material. Its "paint"
-    // material takes each truck's own colour; the model stands on y = 0, so
-    // it is dropped to the road under the collider's centre.
-    this.truckParts = [];
-    const tp = truckParts();
-    if (trucks.length && tp) {
-      const drop = new THREE.Matrix4().makeTranslation(0, -(TRUCK_HALF.y + RIDE), 0);
+    // Model vehicles: one instanced mesh per material, per kind. The
+    // "paint" material takes each vehicle's own colour. The models stand on
+    // y = 0, so they are dropped to the road under the collider's centre.
+    this.modelParts = [];
+    for (const kind of ["car", "truck"]) {
+      const group = this.cars.filter((c) => c.kind === kind);
+      const tp = trafficParts(kind);
+      if (!group.length || !tp) continue;
+      group.forEach((c, i) => (c.slot = i));
+      const drop = new THREE.Matrix4().makeTranslation(0, -(TRAFFIC_MODELS[kind].half.y + RIDE), 0);
+      const insts = [];
       for (const { name, geometry, material } of tp) {
-        const inst = new THREE.InstancedMesh(geometry, material, trucks.length);
+        const inst = new THREE.InstancedMesh(geometry, material, group.length);
         inst.castShadow = true;
         inst.frustumCulled = false;
         inst.userData.local = [drop];
         if (name === "paint") {
-          trucks.forEach((c, i) => inst.setColorAt(i, col.setHex(c.colour)));
+          group.forEach((c, i) => inst.setColorAt(i, col.setHex(c.colour)));
           inst.instanceColor.needsUpdate = true;
         }
         this.scene.add(inst);
-        this.truckParts.push(inst);
+        insts.push(inst);
+        this.modelParts.push(inst);
       }
+      for (const c of group) c.insts = insts;
     }
+    for (const c of sedans) c.insts = this.parts;
   }
 
   /** Pose every mesh, blending the last two steps like the racing cars. */
@@ -314,7 +324,7 @@ export class Traffic {
       _p.lerpVectors(c.prev.p, c.cur.p, alpha);
       _q.slerpQuaternions(c.prev.q, c.cur.q, alpha);
       _m.compose(_p, _q, _one);
-      for (const inst of c.truck ? this.truckParts : this.parts) {
+      for (const inst of c.insts) {
         const locals = inst.userData.local;
         for (let j = 0; j < locals.length; j++) {
           inst.setMatrixAt(c.slot * locals.length + j, _part.multiplyMatrices(_m, locals[j]));
@@ -322,12 +332,12 @@ export class Traffic {
       }
     });
     for (const inst of this.parts) inst.instanceMatrix.needsUpdate = true;
-    for (const inst of this.truckParts) inst.instanceMatrix.needsUpdate = true;
+    for (const inst of this.modelParts) inst.instanceMatrix.needsUpdate = true;
   }
 
   dispose() {
     for (const c of this.cars) this.world.removeRigidBody(c.body); // removes its collider too
-    for (const inst of [...(this.parts ?? []), ...(this.truckParts ?? [])]) {
+    for (const inst of [...(this.parts ?? []), ...(this.modelParts ?? [])]) {
       this.scene.remove(inst);
       inst.geometry.dispose();
       inst.material.dispose();
