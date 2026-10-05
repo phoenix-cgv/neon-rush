@@ -118,9 +118,15 @@ export class Vehicle {
     //
     // Rapier needs BOTH directions to agree, so clearing the car bit in
     // the ghost's filter is enough to sever car-to-ghost on its own.
+    //
+    // Traffic and falling rocks are cleared too (GROUP.traffic). They move
+    // in response to the PLAYER, so on the replay they are never where
+    // they were on the recorded lap: a ghost that can hit them crashes
+    // into a car that was not there and, being a replay, never recovers.
+    // It still meets the road, kerbs, rails and walls the lap met.
     colDesc.setCollisionGroups(
       this.isGhost
-        ? (GROUP.ghost << 16) | (ALL & ~GROUP.car)
+        ? (GROUP.ghost << 16) | (ALL & ~GROUP.car & ~GROUP.traffic)
         : (GROUP.car << 16) | ALL
     );
     this.collider = world.createCollider(colDesc, this.body);
@@ -129,7 +135,7 @@ export class Vehicle {
     // real car's wheel rays land on the ghost's chassis and it drives
     // over a rival it cannot collide with.
     this.queryGroups = this.isGhost
-      ? (GROUP.ghost << 16) | (ALL & ~GROUP.car)
+      ? (GROUP.ghost << 16) | (ALL & ~GROUP.car & ~GROUP.traffic)
       : (GROUP.car << 16) | (ALL & ~GROUP.ghost);
 
     // --- per-wheel state --------------------------------------------

@@ -30,6 +30,8 @@ const GHOST_PAINT = 0x7fe3ff;
 const GHOST_OPACITY = 0.35;
 // At the start the ghost sits this far to the player's right, so it can be
 // seen beside the car rather than inside it, then eases into its true line.
+// How far off its recorded line the ghost may drift before being put back.
+const SNAP_DISTANCE = 0.5; // m
 const START_OFFSET = 3.2; // m
 const OFFSET_FADE = 8 * 60; // fixed steps of racing over which it closes
 
@@ -51,6 +53,7 @@ export class Ghost {
     this.vehicle.restoreState(recording.start);
     this.vehicle.savePreviousState();
 
+    this.recording = recording;
     this.replay = new ReplayController(recording);
     this.rig = new CarRig(GHOST_PAINT);
     this.#makeTranslucent();
@@ -79,6 +82,13 @@ export class Ghost {
    * rather than holding the last input forever.
    */
   step(dt, racing) {
+    // Back onto the recorded line if it has strayed (see KEY_EVERY).
+    const key = racing ? this.recording.keys?.[this.replay.frame] : null;
+    if (key) {
+      const t = this.vehicle.body.translation();
+      const off = Math.hypot(t.x - key.t[0], t.y - key.t[1], t.z - key.t[2]);
+      if (off > SNAP_DISTANCE) this.vehicle.restoreState(key);
+    }
     this.vehicle.savePreviousState();
     this.vehicle.step(dt, racing ? this.replay.update() : HOLD);
   }

@@ -603,6 +603,7 @@ function frame(now) {
       if (racing && recorder && !recorder.recording) recorder.begin(vehicle);
       // Every car is stepped BEFORE the single solve, so no car sees a
       // world the others have not moved in yet.
+      recorder?.snapshot(vehicle);
       race.step(WORLD.fixedDt, controls);
       recorder?.capture(controls);
       ghost?.step(WORLD.fixedDt, racing);
