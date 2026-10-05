@@ -130,12 +130,24 @@ export function buildMountain(RAPIER, world, scene, gltf) {
       sun: [-120, 24, 45],
       sunColor: 0xff9a55,
       sunIntensity: 3.0,
-      hemi: [0x5a78b8, 0x2b2a35, 1.0],
+      // A low sun at this elevation hits the (horizontal) road at a
+      // grazing angle, so very little of its nominal intensity actually
+      // lands there — most of the scene's real visibility has to come
+      // from the ambient fill instead. hemi was 1.0 and envIntensity 0.35
+      // (barely above City's full-daylight 0.4/0.18), which left the
+      // whole track outside the tunnel reading as near-black except for
+      // the fake headlight cone — "dusk" rendering as "night" with no
+      // artificial lights to justify it, unlike the Grand Prix's actual
+      // floodlit night. Raised so the road is legible at a glance; the
+      // sun keeps doing the job described below (rim-light on the car,
+      // raking light on the rock) since neither its angle nor intensity
+      // changed.
+      hemi: [0x5a78b8, 0x2b2a35, 2.4],
       // A big low sun, and dusky clouds lit orange on the side facing it.
       sky: { top: 0x1e3a78, horizon: 0xf09a58, bottom: 0x3a3640, clouds: 0.4, cloudColor: 0x7a5d6c, sunDisc: 10, sunSize: 0.045 },
       fog: [0x9a8590, 200, 900],
       exposure: 1.05,
-      envIntensity: 0.35,
+      envIntensity: 0.7,
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
       headlights: true,
       glow: 0xff9a3c, // the setting sun
