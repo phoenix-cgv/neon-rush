@@ -171,6 +171,9 @@ export function normalMap(kind) {
   return tex;
 }
 
+/** One switch for every detailed material, set from the quality preset. */
+export const detailSwitch = { uDetailOn: { value: 1 } };
+
 const VERT_PARS = /* glsl */ `varying vec3 vDetailPos;`;
 const VERT_MAIN = /* glsl */ `vDetailPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`;
 
@@ -178,6 +181,7 @@ const FRAG_PARS = /* glsl */ `
   uniform sampler2D uDetailMap;
   uniform float uDetailScale;    // 1 / metres per tile
   uniform float uDetailStrength;
+  uniform float uDetailOn;       // 0 on "low" quality: no sampling at all
   varying vec3 vDetailPos;
 
   // One projection's normal-map sample, as a tilt (xy) and up (z).
@@ -191,7 +195,7 @@ const FRAG_PARS = /* glsl */ `
 const FRAG_MAIN = /* glsl */ `
   // Faded out with distance: past ~90 m a bump is smaller than a pixel,
   // and skipping the work there is most of what keeps this cheap.
-  float detailFade = 1.0 - smoothstep(40.0, 90.0, length(vViewPosition));
+  float detailFade = uDetailOn * (1.0 - smoothstep(40.0, 90.0, length(vViewPosition)));
   if (detailFade > 0.0) {
     float k = uDetailStrength * detailFade;
     // The surface normal so far is in VIEW space; take it to world space
@@ -225,6 +229,7 @@ export function addDetail(material, { map = "grain", size = 2, strength = 1 } = 
     uDetailMap: { value: normalMap(map) },
     uDetailScale: { value: 1 / size },
     uDetailStrength: { value: strength },
+    ...detailSwitch, // shared, not copied: one value turns them all off
   };
   addPatch(material, "detail", (shader) => {
     Object.assign(shader.uniforms, uniforms);

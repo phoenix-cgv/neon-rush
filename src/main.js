@@ -34,7 +34,8 @@ import { addFakeHeadlights } from "./lighting/fake-headlights.js";
 import { CheckpointGates } from "./lighting/checkpoint-gates.js";
 import { BoostTrails } from "./lighting/boost-trail.js";
 import { makeWet, wetUniforms } from "./lighting/wet-road.js";
-import { addDetail } from "./lighting/surface-detail.js";
+import { addDetail, detailSwitch } from "./lighting/surface-detail.js";
+import { AdaptiveResolution } from "./lighting/adaptive-resolution.js";
 import { buildTestbed } from "./levels/testbed.js";
 import { buildCity } from "./levels/city.js";
 import { buildGrandPrix } from "./levels/grandprix.js";
@@ -111,6 +112,9 @@ const post = new PostFX(renderer, scene, camera);
 const postAllowed = params.get("post") !== "0";
 const detailAllowed = params.get("detail") !== "0"; // ?detail=0: no normal maps, for comparison
 const levelLights = new LevelLights(scene);
+// Lowers the scene's resolution when frames run long (see
+// src/lighting/adaptive-resolution.js). ?adaptive=0 turns it off.
+const adaptive = new AdaptiveResolution(renderer, () => post.resize());
 
 // Per-level lighting. A level's `lit` may set any of these; anything it
 // leaves out falls back to the daylight defaults, so switching from a
@@ -159,6 +163,11 @@ const LIGHT_DEFAULTS = {
   emissive: {},
   materials: {},
 };
+// Share of each light pool kept, from the quality preset (see QUALITY).
+// Starts at the SAVED preset's value: applyQuality() first runs before
+// `level` is declared further down, and must find nothing to rebuild.
+let lightShare = (QUALITY[Save.get("quality")] ?? QUALITY.high).lights;
+
 // The current level's roofed stretches and the fill values they dim.
 let shelter = { zones: [], hemi: 0, env: 0 };
 
@@ -202,7 +211,12 @@ function applyLighting(lit, track = null) {
     scene.environmentIntensity = L.envIntensity;
   }
   post.setBloom(L.bloom);
-  levelLights.build(L.lights, track, L.pools, L.strips);
+  // Fewer real lights on lower presets; a pool cut to none just leaves
+  // its fixtures glowing.
+  const pools = L.pools
+    .map((p) => ({ ...p, count: Math.ceil((p.count ?? 4) * lightShare) }))
+    .filter((p) => p.count > 0);
+  levelLights.build(L.lights, track, pools, L.strips);
   shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
   restyleMaterials(L.emissive, L.materials);
   if (L.detail && detailAllowed) {
@@ -284,7 +298,9 @@ gameplayEvents.on("pickup-collected", (e) => {
 
 // --- settings ----------------------------------------------------------
 function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
+  // Through the adaptive scaler: the preset sets the ceiling, it may
+  // draw below it when frames run long.
+  adaptive.setBase(Math.min(window.devicePixelRatio, q.pixelRatio));
   renderer.shadowMap.enabled = q.shadows;
   sun.castShadow = q.shadows;
   if (q.shadows && sun.shadow.mapSize.width !== q.shadowMap) {
@@ -294,6 +310,13 @@ function applyQuality(q = QUALITY[Save.get("quality")] ?? QUALITY.high) {
   }
   post.enabled = postAllowed && q.bloom;
   post.resize();
+  detailSwitch.uDetailOn.value = q.detail ? 1 : 0;
+  // Light pools are sized from the preset, so a change rebuilds the
+  // level's lighting (cheap: a few lights and one environment bake).
+  if (q.lights !== lightShare) {
+    lightShare = q.lights;
+    if (level) applyLighting(level.lit ?? {}, level.track ?? null);
+  }
 }
 function applyPresentation() {
   // These two were in DEFAULTS but never read back, so the toggles
@@ -395,6 +418,7 @@ document.body.appendChild(loadingNote);
 
 async function loadLevel(name) {
   if (loading) return;
+  adaptive.pause(2); // a load is one long frame, not a slow GPU
   let asset;
   if (LEVELS[name].preload) {
     loading = name;
@@ -558,6 +582,9 @@ await loadLevel(levelName);
 // The testbed is built in code, so it needs no download.
 if (!level) await loadLevel("testbed");
 
+// Photo mode shoots at full resolution; and the switch for comparisons.
+if (photo || params.get("adaptive") === "0") adaptive.setEnabled(false);
+
 if (photo) {
   for (let i = 0; i < (Number(params.get("cam")) || 0); i++) cameraRig.cycle();
   if (params.get("hud") === "0") {
@@ -600,6 +627,7 @@ function frame(now) {
   // discharging it as a burst of catch-up steps on resume.
   if (menu.open) {
     accumulator = 0;
+    adaptive.pause(0.5);
     post.render();
     minimap.render(renderer, scene);
     input.endFrame();
@@ -787,12 +815,15 @@ function frame(now) {
     race,
   });
 
+  adaptive.begin();
   post.render();
 
   // No hide-list needed: the map camera only sees the track layer and the
   // blips, so the sky dome and debug vectors are never in its pass.
   minimap.update(state);
   minimap.render(renderer, scene);
+  adaptive.end();
+  adaptive.update(frameDt);
 
   input.endFrame();
 }
@@ -805,7 +836,7 @@ window.__dbg = {
   get progress() { return progress; },
   get race() { return race; },
   minimap, menu, Save, input, renderer, health, smoke, gameplayEvents,
-  post, skyEnv, levelLights, applyLighting,
+  post, skyEnv, levelLights, applyLighting, adaptive,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
@@ -818,6 +849,10 @@ window.__dbg = {
   get director() { return director; },
   // physics test harness — see src/core/determinism.js
   determinism: () => import("./core/determinism.js"),
+  // render benchmark — see src/debug/benchmark.js
+  benchmark: () => import("./debug/benchmark.js"),
+  applyQuality,
+  QUALITY,
   get vehicle() { return vehicle; },
   // photo mode — see the note by SETTLE_STEPS
   shot(s, lateral = 0) {
