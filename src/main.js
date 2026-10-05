@@ -695,7 +695,13 @@ function frame(now) {
   smoke.update(frameDt, race ? race.cars : [{ vehicle }]);
   driftFx.update(frameDt, vehicle.state, carRig);
   wheelGlow.enabled = level?.name === "grandprix";
-  wheelGlow.update(now / 1000, carRig, vehicle.state, !dashboard.open);
+  wheelGlow.update(
+    now / 1000,
+    race
+      ? race.cars.map((c) => ({ rig: c.rig, state: c.vehicle.state, colour: c.isPlayer ? 0xff6a0a : c.colour, boostOnly: c.isPlayer }))
+      : [{ rig: carRig, state: vehicle.state, colour: 0xff6a0a, boostOnly: true }],
+    !dashboard.open
+  );
 
   const state = vehicle.state;
   health.update(state.damage);
