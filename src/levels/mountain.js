@@ -100,7 +100,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
   });
   const { track } = map;
   applyRefinedLook(map.group);
-  const scenery = new MountainScenery(scene, track, map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)));
+  const scenery = new MountainScenery(scene, track, map.group.children.filter((m) => /Grass|Mountain Rock|Rock Highlight/.test(m.name)), { tunnel: [683, 821] });
 
   const gate = track.spawnAt(0);
   return {

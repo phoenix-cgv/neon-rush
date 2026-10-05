@@ -3,13 +3,19 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import planeUrl from "../../assets/props/airplane-2.glb?url";
 import towerAUrl from "../../assets/props/radio-tower-a.glb?url";
 import towerBUrl from "../../assets/props/radio-tower-b.glb?url";
+import goatUrl from "../../assets/props/goat.glb?url";
+import islandUrl from "../../assets/props/island-fox.glb?url";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 // ---------------------------------------------------------------------
 // Mountain Track scenery from the provided models:
 //
 //   radio towers   on the highest ground clear of the road, two designs
 //                  alternating, each with a red beacon that pulses
-//   aeroplanes     circling the peak, at different heights and speeds
+//   aeroplane      one biplane wandering a looping route across the mountain
+//   goats          small herds grazing on the slopes beside the road
+//   islands        two floating islands, one with a fox, drifting over the peak
+//   neon streaks   light running along the road through the tunnel
 //
 // Towers stand where a downward ray finds the terrain, so they sit on the
 // slope rather than float. Nothing here is physical.
@@ -20,17 +26,33 @@ let loading = null;
 let models = null;
 
 /** Merge a glTF's meshes into world-space geometry, re-based so (0,0,0) is the middle of the foot. */
-function bake(gltf, { footY = null } = {}) {
+function bake(gltf, { footY = null, merge = false } = {}) {
   gltf.scene.updateMatrixWorld(true);
-  const parts = [];
+  let parts = [];
+  const byMaterial = new Map();
   gltf.scene.traverse((o) => {
     if (!o.isMesh) return;
     const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+    if (merge) {
+      // many tiny meshes sharing a handful of materials: one draw call per material
+      for (const k of Object.keys(geometry.attributes)) if (!["position", "normal", "uv"].includes(k)) geometry.deleteAttribute(k);
+      if (!geometry.attributes.uv) geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count * 2), 2));
+      const list = byMaterial.get(o.material) ?? byMaterial.set(o.material, []).get(o.material);
+      list.push(geometry.index ? geometry.toNonIndexed() : geometry);
+      return;
+    }
     const material = o.material.clone();
     material.vertexColors = !!geometry.attributes.color;
     material.side = THREE.DoubleSide;
     parts.push({ geometry, material });
   });
+  if (merge) {
+    for (const [mat, list] of byMaterial) {
+      const material = mat.clone();
+      material.side = THREE.DoubleSide;
+      parts.push({ geometry: mergeGeometries(list), material });
+    }
+  }
   const box = new THREE.Box3();
   parts.forEach((p) => (p.geometry.computeBoundingBox(), box.union(p.geometry.boundingBox)));
   if (footY !== null) {
@@ -42,8 +64,14 @@ function bake(gltf, { footY = null } = {}) {
 }
 
 export function loadMountainProps() {
-  loading ??= Promise.all([loader.loadAsync(planeUrl), loader.loadAsync(towerAUrl), loader.loadAsync(towerBUrl)])
-    .then(([plane, a, b]) => (models = { plane: bake(plane), towerA: bake(a, { footY: -0.3 }), towerB: bake(b, { footY: -0.3 }) }))
+  loading ??= Promise.all([planeUrl, towerAUrl, towerBUrl, goatUrl, islandUrl].map((u) => loader.loadAsync(u)))
+    .then(([plane, a, b, goat, island]) => (models = {
+      plane: bake(plane),
+      towerA: bake(a, { footY: -0.3 }),
+      towerB: bake(b, { footY: -0.3 }),
+      goat: bake(goat, { footY: 0 }),
+      island: bake(island, { merge: true }),
+    }))
     .catch((err) => {
       console.error("[mountain-scenery] could not load the mountain models", err);
       return (models = null);
@@ -57,14 +85,18 @@ export class MountainScenery {
    * @param {object} track
    * @param {THREE.Object3D[]} ground  terrain meshes, for finding the high points
    */
-  constructor(scene, track, ground) {
+  constructor(scene, track, ground, { tunnel = null } = {}) {
     this.scene = scene;
     this.group = new THREE.Group();
     this.group.name = "MountainScenery";
     scene.add(this.group);
     this.beacons = [];
     this.flyers = [];
+    this.goats = [];
+    this.islands = [];
     this.towerCount = 0;
+    this.tunnelUniforms = { uTime: { value: 0 } };
+    if (tunnel) this.#neonTunnel(track, tunnel[0], tunnel[1]);
     if (!models) return;
 
     // ---- find the high ground, clear of the road
@@ -114,16 +146,11 @@ export class MountainScenery {
       this.towerCount++;
     });
 
-    // ---- aeroplanes round the peak
+    // ---- one aeroplane, wandering a looping route over the whole mountain
     const cx = chosen[0]?.x ?? 0;
     const cz = chosen[0]?.z ?? 0;
     const top = chosen[0]?.y ?? 70;
-    const orbits = [
-      { rx: 150, rz: 120, alt: top + 70, period: 55, phase: 0, dir: 1, bank: 0.25 },
-      { rx: 210, rz: 170, alt: top + 120, period: 80, phase: 2.1, dir: -1, bank: 0.2 },
-      { rx: 110, rz: 90, alt: top + 38, period: 40, phase: 4.2, dir: 1, bank: 0.3 },
-    ];
-    for (const o of orbits) {
+    {
       const body = new THREE.Group();
       for (const { geometry, material } of models.plane.parts) {
         const mat = material.clone();
@@ -137,19 +164,159 @@ export class MountainScenery {
       const root = new THREE.Group();
       root.add(body);
       this.group.add(root);
-      this.flyers.push({ root, cx, cz, ...o });
+      this.plane = { root, cx, cz, alt: top + 75 };
+    }
+
+    // ---- goats grazing on the grass beside the road
+    {
+      const rr = (a) => { let t = a >>> 0; return () => ((t = (Math.imul(t ^ (t >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296); };
+      const rand = rr(31337);
+      const fr = {};
+      const grass = ground.filter((m) => /Grass/.test(m.name));
+      const herds = [];
+      for (let n = 0; n < 1500 && herds.length < 6; n++) {
+        const sPos = 60 + rand() * (track.length - 120);
+        if ((sPos > 660 && sPos < 840) || (sPos > 1000 && sPos < 1180)) continue; // tunnel, viaduct
+        if (herds.some((h) => Math.abs(h.s - sPos) < 120)) continue;
+        track.frameAt(sPos, fr);
+        const side = rand() < 0.5 ? -1 : 1;
+        const off = 15 + rand() * 12;
+        const x = fr.position.x + fr.right.x * side * off;
+        const z = fr.position.z + fr.right.z * side * off;
+        rc.set(probe.set(x, fr.position.y + 60, z), down);
+        const hit = rc.intersectObjects(grass, false)[0];
+        if (!hit || Math.abs(hit.point.y - fr.position.y) > 5) continue;
+        if (hit.face && hit.face.normal.y < 0.8) continue; // too steep to graze
+        herds.push({ s: sPos, x, z, y: hit.point.y });
+      }
+      herds.forEach((h, hi) => {
+        const count = 3 + (hi % 3);
+        for (let k = 0; k < count; k++) {
+          const gx = h.x + (rand() - 0.5) * 7;
+          const gz = h.z + (rand() - 0.5) * 7;
+          rc.set(probe.set(gx, h.y + 20, gz), down);
+          const hit = rc.intersectObjects(grass, false)[0];
+          if (!hit || Math.abs(hit.point.y - h.y) > 3) continue;
+          const g = new THREE.Group();
+          for (const { geometry, material } of models.goat.parts) {
+            const m = new THREE.Mesh(geometry, material);
+            m.castShadow = true;
+            g.add(m);
+          }
+          const sc = 0.011 + rand() * 0.003;
+          g.scale.setScalar(sc);
+          g.position.set(gx, hit.point.y, gz);
+          this.group.add(g);
+          this.goats.push({ obj: g, x: gx, z: gz, y: hit.point.y, yaw: rand() * 6.28, phase: rand() * 6.28, range: 1.5 + rand() * 2 });
+        }
+      });
+    }
+
+    // ---- two floating islands, the larger with the fox
+    [
+      { x: cx - 70, z: cz + 40, alt: top + 45, scale: 15, spin: 0.05 },
+      { x: cx + 130, z: cz - 110, alt: top + 95, scale: 11, spin: -0.07 },
+    ].forEach((d, i) => {
+      const g = new THREE.Group();
+      for (const { geometry, material } of models.island.parts) {
+        const m = new THREE.Mesh(geometry, material);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        g.add(m);
+      }
+      g.scale.setScalar(d.scale);
+      g.position.set(d.x, d.alt, d.z);
+      this.group.add(g);
+      this.islands.push({ obj: g, ...d, phase: i * 2 });
+    });
+  }
+
+  // Light running along the road through the tunnel: a bright centre streak
+  // and two side lines, each pulsing forward in the direction of travel.
+  #neonTunnel(track, s0, s1) {
+    const fr = {};
+    const step = 2;
+    const lines = [
+      { off: 0, w: 0.55, color: [0.1, 0.95, 1.0], speed: 1.0 },
+      { off: -4.2, w: 0.35, color: [1.0, 0.1, 0.75], speed: 0.8 },
+      { off: 4.2, w: 0.35, color: [1.0, 0.1, 0.75], speed: 0.8 },
+    ];
+    for (const L of lines) {
+      const pos = [], uv = [], idx = [];
+      let n = 0;
+      for (let sPos = s0 - 6; sPos <= s1 + 6; sPos += step, n++) {
+        track.frameAt(sPos, fr);
+        const c = fr.position.clone().addScaledVector(fr.right, L.off).addScaledVector(fr.up, 0.1);
+        const a = c.clone().addScaledVector(fr.right, -L.w);
+        const b = c.clone().addScaledVector(fr.right, L.w);
+        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        uv.push(0, sPos, 1, sPos);
+        if (n) { const k = (n - 1) * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { ...this.tunnelUniforms, uColor: { value: new THREE.Vector3(...L.color) }, uSpeed: { value: L.speed }, uS0: { value: s0 }, uS1: { value: s1 } },
+        vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+        fragmentShader: `varying vec2 vUv; uniform float uTime; uniform vec3 uColor; uniform float uSpeed; uniform float uS0; uniform float uS1;
+          void main(){
+            float edge = 1.0 - abs(vUv.x * 2.0 - 1.0);
+            float core = pow(edge, 0.6);
+            // pulses run forward along the tunnel; a faint base keeps the line lit between them
+            float ph = fract(vUv.y / 14.0 - uTime * uSpeed * 0.9);
+            float pulse = smoothstep(0.0, 0.08, ph) * (1.0 - smoothstep(0.08, 0.5, ph));
+            float fade = smoothstep(uS0 - 6.0, uS0 + 4.0, vUv.y) * (1.0 - smoothstep(uS1 - 4.0, uS1 + 6.0, vUv.y));
+            float a = core * (0.6 + 1.1 * pulse) * fade;
+            gl_FragColor = vec4(uColor * (0.6 + 1.4 * pulse) * a, a);
+          }`,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 5;
+      this.group.add(mesh);
     }
   }
 
   /** t in seconds. */
   update(t) {
+    this.tunnelUniforms.uTime.value = t;
     for (const b of this.beacons) b.mesh.visible = Math.sin(t * 2.4 + b.phase) > -0.2;
-    for (const f of this.flyers) {
-      const phi = f.phase + (f.dir * t * Math.PI * 2) / f.period;
-      f.root.position.set(f.cx + Math.cos(phi) * f.rx, f.alt + Math.sin(phi * 3) * 3, f.cz + Math.sin(phi) * f.rz);
-      const tx = -Math.sin(phi) * f.rx * f.dir;
-      const tz = Math.cos(phi) * f.rz * f.dir;
-      f.root.rotation.set(0, Math.atan2(-tx, -tz), f.bank * f.dir, "YXZ");
+    if (this.plane) {
+      // a looping route that wanders: two incommensurate harmonics, so it
+      // never retraces itself and sweeps over the whole mountain
+      const P = this.plane;
+      const at = (u) => [
+        P.cx + 210 * Math.cos(u) + 90 * Math.cos(2.7 * u + 1.3),
+        P.alt + 22 * Math.sin(1.9 * u),
+        P.cz + 170 * Math.sin(u * 1.0 + 0.4) + 80 * Math.sin(2.3 * u),
+      ];
+      const u = t * 0.085;
+      const [x, y, z] = at(u);
+      const [x2, , z2] = at(u + 0.02);
+      const [x0, , z0] = at(u - 0.02);
+      P.root.position.set(x, y, z);
+      const hx = x2 - x, hz = z2 - z;
+      // turn rate gives the bank
+      const turn = Math.atan2((x2 - x) * (z - z0) - (z2 - z) * (x - x0), (x2 - x) * (x - x0) + (z2 - z) * (z - z0));
+      P.root.rotation.set(0, Math.atan2(-hx, -hz), THREE.MathUtils.clamp(turn * 9, -0.5, 0.5), "YXZ");
+    }
+    for (const g of this.goats) {
+      // graze: a slow amble back and forth, pausing at the ends
+      const w = Math.sin(t * 0.18 + g.phase);
+      const along = Math.sign(w) * Math.pow(Math.abs(w), 0.6) * g.range;
+      g.obj.position.set(g.x + Math.sin(g.yaw) * along, g.y, g.z + Math.cos(g.yaw) * along);
+      g.obj.rotation.y = g.yaw + (Math.cos(t * 0.18 + g.phase) > 0 ? 0 : Math.PI);
+    }
+    for (const i of this.islands) {
+      i.obj.position.y = i.alt + Math.sin(t * 0.4 + i.phase) * 2.2;
+      i.obj.rotation.y = t * i.spin;
     }
   }
 
