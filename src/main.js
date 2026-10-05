@@ -141,6 +141,8 @@ const adaptive = new AdaptiveResolution(renderer, () => post.resize());
 //   bloom        { threshold, strength, radius } — see src/lighting/post.js
 //   lights       extra point/spot lights — see src/lighting/level-lights.js
 //   headlights   true to switch on the player's headlight spots (dusk, night)
+//   carRim       [colour, strength]: a rim of light on every car's paint, so
+//                cars stand out at night — see CarRig.setRim
 //   pools        light pools — see src/lighting/light-pool.js
 //   strips       glowing fittings the map lacks — see src/lighting/level-lights.js
 //   shelter      [{ s0, s1, ramp, ambient }] stretches under a roof (a
@@ -188,6 +190,18 @@ let shelter = { zones: [], hemi: 0, env: 0 };
  * and without this the inside of the Mountain's tunnel was lit by the
  * dusk sky, a faint purple, from nowhere.
  */
+/** 0 out in the open .. 1 fully under a shelter's roof, at road distance s. */
+function underRoof(s) {
+  let in_ = 0;
+  for (const z of shelter.zones) {
+    const ramp = z.ramp ?? 15;
+    if (s > z.s0 - ramp && s < z.s1 + ramp) {
+      in_ = Math.max(in_, Math.min(1, (s - (z.s0 - ramp)) / ramp, ((z.s1 + ramp) - s) / ramp));
+    }
+  }
+  return in_;
+}
+
 function openSky(s) {
   let k = 1;
   for (const z of shelter.zones) {
@@ -221,13 +235,13 @@ function applyLighting(lit, track = null) {
     scene.environmentIntensity = L.envIntensity;
   }
   post.setBloom(L.bloom);
-  // Fewer real lights on lower presets; a pool cut to none just leaves
-  // its fixtures glowing.
-  const pools = L.pools
-    .map((p) => ({ ...p, count: Math.ceil((p.count ?? 4) * lightShare) }))
-    .filter((p) => p.count > 0);
+  // Fewer real lights on lower presets, but never none: a pool cut to
+  // zero left its fixtures glowing over an unlit road, so on Low the
+  // floodlights looked like they did nothing at all. One light per pool,
+  // on the nearest fixture, is one spot in the shaders.
+  const pools = L.pools.map((p) => ({ ...p, count: Math.max(1, Math.ceil((p.count ?? 4) * lightShare)) }));
   levelLights.build(L.lights, track, pools, L.strips);
-  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity };
+  shelter = { zones: L.shelter, hemi: L.hemi[2], env: L.envIntensity, rain: L.wet?.ripples ?? 1, puddles: L.wet?.puddles ?? 0.45, damp: L.wet?.damp ?? 0.38 };
   restyleMaterials(L.emissive, L.materials);
   if (L.detail && detailAllowed) {
     scene.traverse((o) => {
@@ -524,6 +538,7 @@ async function loadLevel(name) {
     // comes from the level so the testbed stays a testbed.
     race = new Race(RAPIER, world, scene, level.track, level.opponents ?? 0, gameplayEvents, {
       driftBoost: level.driftBoost === true,
+      damageScale: level.damageScale ?? 1,
     });
     vehicle = race.player.vehicle;
     carRig = race.player.rig;
@@ -569,6 +584,16 @@ async function loadLevel(name) {
     gameplayHud.setActive(true);
     speedo.setActive(true);
     levelFresh = true;
+    // The player's car only. Opponents' headlights are faked (glow and
+    // light on the road, not lights): two real spots per car across a
+    // six-car field is the 2.95 ms README §8 measured.
+    if (level.lit?.headlights) {
+      carRig.setHeadlights(true);
+      for (const c of race.cars) if (!c.isPlayer) addFakeHeadlights(c.rig);
+    }
+    // Night levels: a moonlit rim on every car's paint, so the field stands
+    // out against the dark (CarRig.setRim).
+    if (level.lit?.carRim) for (const c of race.cars) c.rig.setRim(...level.lit.carRim);
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -706,6 +731,9 @@ function frame(now) {
     camera.lookAt(_dashLook);
     sky.update(frameDt, camera);
     level.update?.(now / 1000);
+    // the floodlights and tunnel lights round the car on the backdrop too,
+    // or the title page shows the towers glowing over an unlit road
+    levelLights.update(st.position);
     post.render();
     input.endFrame();
     return;
@@ -931,6 +959,15 @@ function frame(now) {
     const k = openSky(vehicle.s);
     hemi.intensity = shelter.hemi * k;
     if (skyEnv) scene.environmentIntensity = shelter.env * k;
+    // No rain falls under the roof, so the road there is dry: the puddles'
+    // ripples, catching every strip light, made the tunnel road shimmer,
+    // and their mirror finish threw the lights back as glare.
+    if (level.lit?.wet) {
+      const roof = underRoof(vehicle.s);
+      wetUniforms.uRipples.value = shelter.rain * (1 - roof);
+      wetUniforms.uPuddles.value = shelter.puddles * (1 - roof);
+      wetUniforms.uDamp.value = shelter.damp + (0.85 - shelter.damp) * roof;
+    }
   }
   sky.update(frameDt, camera);
   sun.target.position.copy(state.position);

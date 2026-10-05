@@ -53,9 +53,9 @@ function ringGeometry() {
  * ring, not a solid object. `vUv.y` is RingGeometry's own radial
  * coordinate (0 at the inner edge, 1 at the outer), `vUv.x` the angle.
  */
-function ringMaterial(color) {
+function ringMaterial(color, glow = 1) {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(color) }, uTime: { value: 0 } },
+    uniforms: { uColor: { value: new THREE.Color(color).multiplyScalar(glow) }, uTime: { value: 0 } },
     vertexShader: `
       varying vec2 vUv;
       void main() {
@@ -87,6 +87,8 @@ function ringMaterial(color) {
  *   `boostSeconds`, if set, turns every boost orb into a clock bonus
  *   instead of a boost-charge refill — for a level raced against a
  *   countdown rather than against a field of other cars.
+ *   `glow` scales how brightly the orbs and their rings shine (default 1):
+ *   at night, against a dark track, full strength bloomed into glare.
  */
 export class Pickups {
   constructor(track, scene, plan = {}, eventBus = null) {
@@ -96,6 +98,7 @@ export class Pickups {
     this.time = 0;
     this.eventBus = eventBus;
     this.boostSeconds = plan.boostSeconds ?? null;
+    this.glow = plan.glow ?? 1;
 
     const repairCount = plan.repair ?? 0;
     const boostCount = plan.boost ?? 0;
@@ -136,12 +139,15 @@ export class Pickups {
   #build(color, count) {
     if (count === 0) return null;
     const geo = new THREE.IcosahedronGeometry(CORE_RADIUS, 1);
+    // The glow does the work, not reflected light: a dark, matte base, so
+    // a car's headlights don't throw a hot highlight off a glossy gem
+    // (which bloomed into a white ball at night).
     const mat = new THREE.MeshStandardMaterial({
-      color,
+      color: new THREE.Color(color).multiplyScalar(0.25),
       emissive: color,
-      emissiveIntensity: 2.4,
-      roughness: 0.2,
-      metalness: 0.1,
+      emissiveIntensity: 2.4 * this.glow,
+      roughness: 0.65,
+      metalness: 0,
     });
     const core = new THREE.InstancedMesh(geo, mat, count);
     core.frustumCulled = false; // they ring the whole track
@@ -152,7 +158,7 @@ export class Pickups {
     this.scene.add(core);
     this.track.objects.push(core); // disposed with the track
 
-    const ring = new THREE.InstancedMesh(ringGeometry(), ringMaterial(color), count);
+    const ring = new THREE.InstancedMesh(ringGeometry(), ringMaterial(color, this.glow), count);
     ring.frustumCulled = false;
     ring.castShadow = false;
     ring.layers.disable(MINIMAP_LAYER);

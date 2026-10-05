@@ -159,8 +159,11 @@ class Trail {
     if (this.last) this.travelled += this.last.distanceTo(_o);
     this.last = (this.last ?? new THREE.Vector3()).copy(_o);
 
-    const heat = st.boosting ? 1 : st.driftFactor > 0 ? 0.3 + 0.35 * st.driftFactor : 0;
-    const width = st.boosting ? WIDTH_BOOST : WIDTH_DRIFT;
+    // Drifting only. Boosting used to lay a wide, white-hot ribbon too;
+    // with a field of cars boosting it filled the road with colour, and
+    // the thin neon lines behind the wheels (WheelGlow) already show it.
+    const heat = !st.boosting && st.driftFactor > 0 ? 0.3 + 0.35 * st.driftFactor : 0;
+    const width = WIDTH_DRIFT;
 
     // Age the history.
     for (let i = 2; i < N * 2; i++) this.age[i] = Math.min(1, this.age[i] + dt / LIFE);

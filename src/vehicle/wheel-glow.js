@@ -140,7 +140,9 @@ class CarGlow {
       behind[i].w.pivot.getWorldPosition(_p);
       const y = _p.y - CAR.wheelRadius + 0.05;
       this.pools[i].position.set(_p.x, y + 0.01, _p.z);
-      this.pools[i].visible = this.poolMat.opacity > 0.01;
+      // Lines only: the coloured glow patch under each tyre is off. With a
+      // field of cars it turned the road into a mess of colour.
+      this.pools[i].visible = false;
       if (lit && speed > 1.5) this.trails[i].add(_p.x, y, _p.z, now);
       this.trails[i].rebuild(now);
     }

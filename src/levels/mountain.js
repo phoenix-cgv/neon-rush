@@ -214,14 +214,15 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // A short 10 m ramp (see FogPatch's `ramp` option, default 40) so it
     // reads as present almost the instant the rocks stop, not a 40 m fade
     // that is still near-baseline visibility for the first several
-    // seconds. Full strength holds for the next 160 m, nearly the whole
-    // remaining stretch, clearing only in the last 15 m before the line —
-    // there to be driven through right up to the flag, not resolved with
-    // a big empty buffer beforehand, but still gone before the line
-    // itself so it never reads as lingering past it. Denser than the
+    // seconds. Full strength then holds all the way to the line and on
+    // past it: the mist doesn't know where the flag is, and murk that
+    // cut out just before the line read as a switch being flipped. The
+    // first 40 m past the line stay thick and it clears over the next
+    // 80 m (`pastLine`/`fadeOut`), but only after the car has driven in,
+    // so a fresh run never starts on a fogged grid. Denser than the
     // default near/far too (12/80, not 20/140): the default read as too
     // faint to notice at a glance.
-    fogPatch: [{ s0: 1300, s1: 1460, ramp: 10, near: 12, far: 80, signOffset: 7.4 }],
+    fogPatch: [{ s0: 1300, s1: 1480, ramp: 10, pastLine: 40, fadeOut: 80, near: 12, far: 80, signOffset: 7.4 }],
     name: "mountain",
     index: 2,
     title: "Mountain Track",
@@ -251,14 +252,20 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     // already patches their shader directly (not through addPatch's
     // stacking), so addDetail() on the same materials would silently
     // replace rockify's onBeforeCompile instead of adding to it.
+    // Dusk proper: the sun about 18 degrees up and deep orange, so shadows
+    // run long across the road, and a cool, dimmer fill so the shade they
+    // cast reads blue-dark against the lit side. The fill can't go much
+    // lower: a grazing sun puts little light on flat road, and with too
+    // little fill the open track goes black (see cf7cf6b).
     lit: {
-      sun: [-80, 46, 55],
-      sunColor: 0xffcf9e,
-      sunIntensity: 2.6,
-      hemi: [0x9db6d6, 0x4b4038, 1.6],
-      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
-      fog: [0xd2b79f, 200, 950],
-      exposure: 1.0,
+      sun: [-85, 32, 60],
+      sunColor: 0xff9a55,
+      sunIntensity: 3.4,
+      hemi: [0x7183ad, 0x3b2b22, 0.95],
+      sky: { top: 0x26365f, horizon: 0xff8f4f, bottom: 0x3a2b25, cloudColor: 0xe8a07a },
+      fog: [0x9a5a44, 240, 1050],
+      exposure: 0.92,
+      envIntensity: 0.3,
       bloom: { threshold: 2.6, strength: 0.4, radius: 0.35 },
       headlights: true,
       glow: 0xff9a3c, // the setting sun

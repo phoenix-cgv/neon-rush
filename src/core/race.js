@@ -48,7 +48,7 @@ export class Race {
    * @param {THREE.Scene} scene
    * @param {object} track
    * @param {number} opponents  how many AI cars
-   * @param {object} [opts]  { driftBoost } — see Vehicle
+   * @param {object} [opts]  { driftBoost, damageScale } — see Vehicle
    */
   constructor(RAPIER, world, scene, track, opponents = 5, eventBus = null, opts = {}) {
     this.RAPIER = RAPIER;
@@ -57,7 +57,7 @@ export class Race {
     this.track = track;
     this.eventBus = eventBus;
     this.cars = [];
-    const { driftBoost = false } = opts;
+    const { driftBoost = false, damageScale = 1 } = opts;
     this.driftBoost = driftBoost; // read back by render() for the cars' boost glow
 
     const names = Object.keys(PERSONALITIES);
@@ -73,7 +73,7 @@ export class Race {
       const lateral = (i % 2 === 0 ? -1 : 1) * GRID_STAGGER;
       const pose = track.spawnAt(s, lateral);
 
-      const vehicle = new Vehicle(RAPIER, world, pose.position, { driftBoost });
+      const vehicle = new Vehicle(RAPIER, world, pose.position, { driftBoost, damageScale });
       vehicle.body.setRotation(
         { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w },
         true

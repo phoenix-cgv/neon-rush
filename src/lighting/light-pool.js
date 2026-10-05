@@ -68,6 +68,7 @@ export class LightPool {
   constructor(scene, def, track) {
     this.scene = scene;
     this.def = def;
+    this.track = track;
     this.fade = def.fade ?? 40;
     this.sources = findSources(scene, def.material, def.cluster ?? 15).map((position) => {
       const target = new THREE.Vector3();
@@ -96,6 +97,7 @@ export class LightPool {
 
   /** Move the lights onto the sources nearest `pos`. Once per rendered frame. */
   update(pos) {
+    if (this.def.glide && this.track) return this.#glide(pos);
     const src = this.sources;
     for (const s of src) s.d = s.position.distanceTo(pos);
     src.sort((a, b) => a.d - b.d);
@@ -111,6 +113,44 @@ export class LightPool {
       const w = cut === Infinity ? 1 : THREE.MathUtils.clamp((cut - s.d) / this.fade, 0, 1);
       l.intensity = (this.def.intensity ?? 100) * w;
     }
+  }
+
+  /**
+   * `glide: true`, for a row of fixtures close together (the tunnel's
+   * strips, every few metres): hopping from fixture to fixture faded each
+   * light out and back in at every strip, so the walls pulsed as you
+   * drove. Instead the lights slide smoothly along the row — light k sits
+   * `glideAhead[k]` m down the road from the car, on the line between the
+   * two fixtures either side of that point — at a steady intensity, fading
+   * only over `fade` m at the ends of the row.
+   */
+  #glide(pos) {
+    const t = this.track;
+    const L = t.length;
+    this.row ??= this.sources
+      .map((s) => ({ s: t.project(s.position).s, p: s.position }))
+      .sort((a, b) => a.s - b.s);
+    const row = this.row;
+    if (!row.length) return;
+    const car = t.project(pos).s;
+    const ahead = this.def.glideAhead ?? [4, 18];
+    const first = row[0].s;
+    const last = row[row.length - 1].s;
+    this.lights.forEach((l, k) => {
+      let s = car + (ahead[k] ?? 0);
+      if (s > L) s -= L;
+      // fade in and out over `fade` m beyond either end of the row
+      const outside = s < first ? first - s : s > last ? s - last : 0;
+      const w = THREE.MathUtils.clamp(1 - outside / this.fade, 0, 1);
+      l.intensity = (this.def.intensity ?? 100) * w;
+      if (!w) return;
+      const cs = THREE.MathUtils.clamp(s, first, last);
+      let i = 0;
+      while (i < row.length - 2 && row[i + 1].s < cs) i++;
+      const a = row[i], b = row[Math.min(i + 1, row.length - 1)];
+      const f = b.s > a.s ? (cs - a.s) / (b.s - a.s) : 0;
+      l.position.lerpVectors(a.p, b.p, f);
+    });
   }
 
   dispose() {

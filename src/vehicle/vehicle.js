@@ -87,6 +87,10 @@ export class Vehicle {
     // The drift-combo mechanic (title, fill multiplier, tank extension —
     // see #drift) is a Grand Prix feature; off by default.
     this.driftBoost = opts.driftBoost === true;
+    // How hard crashes bite on this level: 1 everywhere except where a
+    // level softens it (the Grand Prix, a longer race with a full field to
+    // trade paint with). Scales every source of damage.
+    this.damageScale = opts.damageScale ?? 1;
 
     // --- the chassis rigid body -------------------------------------
     // Body origin IS the centre of mass, so wheel mounts are measured
@@ -616,7 +620,7 @@ export class Vehicle {
     const full = clamp(Math.abs(closing) / CAR.damageRef, 0, 1);
     const bite = full - clamp(already / CAR.damageRef, 0, 1);
     if (bite <= 0) return 0;
-    this.damage = clamp(this.damage + bite * CAR.damageGain, 0, 1);
+    this.damage = clamp(this.damage + bite * CAR.damageGain * this.damageScale, 0, 1);
 
     // Publish WHERE it was hit, in the car's own frame, so the rig can
     // put the dent on the panel that actually met the wall. The rig has
@@ -820,7 +824,7 @@ export class Vehicle {
       1
     );
     this.landingPenalty = severity;
-    this.damage = clamp(this.damage + severity * CAR.damageLanding, 0, 1);
+    this.damage = clamp(this.damage + severity * CAR.damageLanding * this.damageScale, 0, 1);
 
     // Scrub speed rather than teleport or stop: the player keeps control,
     // they just lose the corner.
