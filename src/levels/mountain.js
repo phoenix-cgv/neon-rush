@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import mapUrl from "../../assets/maps/MountainTrack.glb?url";
 import { loadMap, buildMapTrack } from "./glb-map.js";
 
@@ -29,6 +30,45 @@ import { loadMap, buildMapTrack } from "./glb-map.js";
 
 buildMountain.preload = () => loadMap(mapUrl);
 
+// ---------------------------------------------------------------------
+// The refined look, applied to the map's own materials by name (the same
+// palette as the refined City Track: blue-charcoal asphalt, limestone
+// concrete, coral accents, softer greens and warm-grey rock). The values
+// are Blender's linear RGB, so they are set as linear. Geometry is
+// untouched, so the road, rails and colliders are exactly as before.
+// ---------------------------------------------------------------------
+const REFINED = {
+  "Fresh Dark Asphalt": [0.085, 0.105, 0.118],
+  "Asphalt Shoulder": [0.15, 0.17, 0.18],
+  "White Road Marking": [0.92, 0.92, 0.9],
+  "Racing Red": [0.78, 0.19, 0.14], // kerb and gantry: coral
+  "Curb White": [0.76, 0.76, 0.69],
+  "Grass Dark": [0.1, 0.22, 0.15],
+  "Grass Mid": [0.13, 0.27, 0.18],
+  "Grass Light": [0.23, 0.39, 0.25],
+  "Mountain Rock": [0.3, 0.29, 0.28],
+  "Rock Highlight": [0.5, 0.46, 0.4],
+  "Tunnel Concrete": [0.63, 0.64, 0.58],
+  "Tunnel Interior": [0.2, 0.22, 0.23],
+  "Bridge Concrete": [0.68, 0.7, 0.64],
+  "Pine Green": [0.05, 0.2, 0.09],
+  "Pine Dark": [0.03, 0.12, 0.05],
+  "Tree Bark": [0.18, 0.07, 0.025],
+};
+
+function applyRefinedLook(group) {
+  const seen = new Set(); // materials are shared between meshes
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      const c = m && REFINED[m.name];
+      if (!c || seen.has(m)) continue;
+      seen.add(m);
+      m.color.setRGB(c[0], c[1], c[2], THREE.LinearSRGBColorSpace);
+    }
+  });
+}
+
 // `gltf` is what preload() resolved to — loadLevel in main.js awaits it.
 export function buildMountain(RAPIER, world, scene, gltf) {
   const map = buildMapTrack(RAPIER, world, scene, gltf, {
@@ -55,6 +95,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     track: { checkpointSpacing: 120 },
   });
   const { track } = map;
+  applyRefinedLook(map.group);
 
   const gate = track.spawnAt(0);
   return {
@@ -117,7 +158,17 @@ export function buildMountain(RAPIER, world, scene, gltf) {
     race: { laps: 1, timeLimit: 90 },
     spawn: gate.position,
     quaternion: gate.quaternion,
-    lit: { sun: [70, 110, 40], fog: [0xa7bccb, 260, 1000], sky: 0xa7bccb },
+    // Late-afternoon light, as on the refined City Track: low warm sun, a
+    // dusk sky, and a haze that suits the climb.
+    lit: {
+      sun: [-80, 46, 55],
+      sunColor: 0xffcf9e,
+      sunIntensity: 2.6,
+      hemi: [0x9db6d6, 0x4b4038, 1.6],
+      sky: { top: 0x3a5f94, horizon: 0xf0b88a, bottom: 0x4a423c },
+      fog: [0xd2b79f, 200, 950],
+      exposure: 1.0,
+    },
     dispose: map.dispose,
   };
 }
