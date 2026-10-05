@@ -4,6 +4,7 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { FXAAPass } from "three/addons/postprocessing/FXAAPass.js";
+import { SpeedFx } from "./speed-fx.js";
 
 // ---------------------------------------------------------------------
 // Post-processing: the frame is rendered into an off-screen HDR buffer,
@@ -41,6 +42,9 @@ import { FXAAPass } from "three/addons/postprocessing/FXAAPass.js";
 //   linear and the bloom works on real light values, then OutputPass
 //   applies the renderer's ACES curve and exposure once, at the end.
 //
+// After bloom, the speed/boost pass (src/lighting/speed-fx.js) distorts
+// and streaks the image from the player's speed and boost.
+//
 // The minimap is drawn afterwards straight to the canvas, without post.
 // ---------------------------------------------------------------------
 
@@ -71,6 +75,8 @@ export class PostFX {
       BLOOM_DEFAULTS.threshold
     );
     this.composer.addPass(this.bloom);
+    this.speed = new SpeedFx();
+    this.composer.addPass(this.speed.pass);
     this.composer.addPass(new OutputPass());
     this.composer.addPass(new FXAAPass());
   }

@@ -726,6 +726,7 @@ function frame(now) {
         : null;
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
   cameraRig.update(frameDt, state, input.look);
+  post.speed.update(frameDt, state, camera);
 
   levelLights.update(state.position);
   sky.update(frameDt, camera);
