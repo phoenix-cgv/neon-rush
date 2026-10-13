@@ -329,6 +329,8 @@ const gameplayHud = new GameplayHud();
 const speedo = new Speedo();
 const outline = new TrackOutline();
 const storyCard = new StoryCard(); // the story, over a held race (src/core/story.js)
+const PREVIEW_SETTLE = 350; // ms the track selection must hold before it loads
+let previewTimer = null;
 // Race HUD is hidden behind the home screen.
 const hudStyle = document.createElement("style");
 hudStyle.textContent = "body.dash-open .hud{visibility:hidden !important}";
@@ -880,6 +882,17 @@ const dashboard = new Dashboard({
   levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
   onClick: buttonSound,
   onChange: () => applyAssists(),
+  // Arrowing to another track loads it, so the backdrop behind the title
+  // page is the track you are looking at. Settled first: holding the
+  // arrow through three levels should load the one you stop on, not all
+  // three in turn.
+  onSelect: (i) => {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      const want = ORDER[i];
+      if (want && want !== levelName && !loading) loadLevel(want);
+    }, PREVIEW_SETTLE);
+  },
   onPlay: (i) => {
     document.body.classList.remove("dash-open");
     audio.unlock();

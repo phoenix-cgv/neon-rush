@@ -125,3 +125,31 @@ test("maxDamage: null turns the wreck check off", () => {
 
   assert.equal(director.state, "racing");
 });
+test("a podium finish wins when the level allows one, and fourth still loses", () => {
+  // The rival crosses first, so the player is second.
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 1, podium: 3 });
+  director.state = "racing";
+  race.frozen = false;
+  race.cars[1].progress.lap = 2; // rival takes the flag
+  director.step(1);
+  race.player.progress.lap = 2; // player follows them home
+  director.step(1);
+
+  assert.equal(director.outcome, "won");
+  assert.equal(director.reason, "finished-podium");
+});
+
+test("without a podium, anything but first is a loss", () => {
+  const race = makeRace();
+  const director = new RaceDirector(race, { laps: 1 }); // podium defaults to 1
+  director.state = "racing";
+  race.frozen = false;
+  race.cars[1].progress.lap = 2;
+  director.step(1);
+  race.player.progress.lap = 2;
+  director.step(1);
+
+  assert.equal(director.outcome, "lost");
+  assert.equal(director.reason, "finished-behind");
+});

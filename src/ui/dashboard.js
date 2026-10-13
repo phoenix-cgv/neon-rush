@@ -25,10 +25,11 @@ const DISPLAY = "Anton,Impact,'Arial Narrow Bold',Haettenschweiler,sans-serif";
 const GLASS = "background:rgba(14,18,24,.88);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)";
 
 export class Dashboard {
-  constructor({ gameName, levels, onPlay, onChange, onClick } = {}) {
+  constructor({ gameName, levels, onPlay, onChange, onSelect, onClick } = {}) {
     this.gameName = gameName;
     this.levels = levels; // [{ id, title }] in play order
     this.onPlay = onPlay;
+    this.onSelect = onSelect; // the arrows moved to another track
     this.onChange = onChange;
     this.onClick = onClick;
     this.open = false;
@@ -105,6 +106,9 @@ export class Dashboard {
         color:${CREAM};opacity:.9">${text}</button>`;
 
     this.root.innerHTML = `
+      ${this.panelOpen
+        ? `<div data-act="dismiss" style="position:absolute;inset:0;pointer-events:auto"></div>`
+        : ""}
       <div style="position:absolute;inset:0;background:
         linear-gradient(90deg,rgba(8,14,20,.88) 0%,rgba(8,14,20,.55) 32%,rgba(8,14,20,0) 62%),
         linear-gradient(180deg,rgba(18,34,60,.45) 0%,rgba(255,120,60,.14) 55%,rgba(8,12,18,.55) 100%)"></div>
@@ -199,13 +203,16 @@ export class Dashboard {
   }
 
   #act(act) {
+    let moved = false;
     if (act === "play") {
       this.hide();
       return this.onPlay?.(this.selected);
     }
-    if (act === "settings" || act === "credits") this.panelOpen = this.panelOpen === act ? null : act;
-    else if (act === "prev" && this.selected > 0) this.selected--;
-    else if (act === "next" && this.selected < this.#max() - 1) this.selected++;
+    // Anywhere that is not a control, while a panel is open: close it.
+    if (act === "dismiss") this.panelOpen = null;
+    else if (act === "settings" || act === "credits") this.panelOpen = this.panelOpen === act ? null : act;
+    else if (act === "prev" && this.selected > 0) moved = this.#moveTo(this.selected - 1);
+    else if (act === "next" && this.selected < this.#max() - 1) moved = this.#moveTo(this.selected + 1);
     else if (act.startsWith("toggle:")) {
       const k = act.split(":")[1];
       Save.set(k, Save.get(k) === false);
@@ -213,7 +220,15 @@ export class Dashboard {
       Save.set("controlScheme", act.split(":")[1]);
     }
     this.onChange?.(this.selected);
+    if (moved) this.onSelect?.(this.selected);
     this.render();
+  }
+
+  /** Move the selection, and say whether it actually went anywhere. */
+  #moveTo(i) {
+    if (i === this.selected) return false;
+    this.selected = i;
+    return true;
   }
 }
 

@@ -42,6 +42,12 @@ export class RaceDirector {
       // damage scale, not a per-level tuning knob like laps or
       // timeLimit — but a level can still pass null to turn it off.
       maxDamage = 1,
+      // How far down the order still counts as winning. 1 is "win it or
+      // lose it", which is right for a solo run against the clock, where
+      // finishing at all is first place. The Grand Prix sets 3: a podium
+      // in a six-car field pays, and the story treats that as the
+      // mission done (see the announcer in src/core/audio.js).
+      podium = 1,
       eventBus = null,
     } = {}
   ) {
@@ -51,6 +57,7 @@ export class RaceDirector {
     this.timeLimit = timeLimit;
     this.maxRespawns = maxRespawns;
     this.maxDamage = maxDamage;
+    this.podium = Math.max(1, podium);
     this.eventBus = eventBus;
     this.state = "lights";
     this.outcome = null;
@@ -91,8 +98,10 @@ export class RaceDirector {
       this.finished.push({ car: c, time: this.raceTime });
       this.#emit("car-finished", { car: c, position: this.finished.length });
       if (c.isPlayer) {
-        const won = this.finished.length === 1;
-        this.#finishPlayer(won ? "won" : "lost", won ? "finished-first" : "finished-behind");
+        const place = this.finished.length;
+        const won = place <= this.podium;
+        const why = place === 1 ? "finished-first" : won ? "finished-podium" : "finished-behind";
+        this.#finishPlayer(won ? "won" : "lost", why);
       }
     }
 
