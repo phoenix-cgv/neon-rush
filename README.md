@@ -87,6 +87,8 @@ Full map:
 | `src/vehicle/camera-rig.js` | Chase / cockpit / wide cameras |
 | `src/core/input.js` | Keyboard → control struct (the vehicle never sees a key) |
 | `src/core/audio.js` | All sound, procedural: music, engine, effects, per-level ambience. See `docs/AUDIO.md` |
+| `src/core/story.js` | **Every word of the story**, the three purses and the repair bill. Edit this to rewrite the game's writing |
+| `src/ui/story-card.js` | The card the story is shown on (it holds the start lights while it is up) |
 | `src/core/gameplay-events.js` | Tiny event bus: systems `emit`, `main.js` listens (audio, HUD) |
 | `src/track/spline.js` | Arc-length centreline, frames, curvature, projection |
 | `src/track/track.js` | Road + runoff + barriers, checkpoints, **level-author API** |

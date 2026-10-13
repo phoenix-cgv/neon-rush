@@ -94,10 +94,19 @@ export class GameplayHud {
 
   /** A brief "+Ns" callout when a pickup extends a time-trial's clock. */
   flashTimeBonus(seconds) {
+    this.flashToast(`+${seconds}s`, 1300);
+  }
+
+  /**
+   * Put a line in the toast slot for `ms`. Used for the time bonus above
+   * and for the story's first-time teaching (see TUTORIALS in
+   * src/core/story.js), which needs to linger long enough to read.
+   */
+  flashToast(text, ms = 1300) {
     clearTimeout(this.toastTimer);
-    this.toast.textContent = `+${seconds}s`;
+    this.toast.textContent = text;
     this.toast.style.display = "block";
-    this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), 1300);
+    this.toastTimer = setTimeout(() => (this.toast.style.display = "none"), ms);
   }
 
   update(progress, track, state, ghostBestLap = null, hazard = null, finished = false) {

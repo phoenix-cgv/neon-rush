@@ -25,19 +25,44 @@ export const DEFAULTS = {
   controlScheme: "both",
   // furthest level reached, 1-based (City = 1)
   maxLevel: 1,
+  // --- the story (src/core/story.js) --------------------------------
+  // Purses banked, keyed by level. A level pays ONCE, the first time it
+  // is won, so replaying cannot grind the repair bill down.
+  earned: {},
+  // Story cards already shown, keyed by "intro", a level name, or
+  // "<level>-win" / "ending", so no card is ever shown twice.
+  storySeen: {},
+  // First-time teaching prompts already given (see story.js TUTORIALS).
+  taught: {},
   bindings: null, // null = use DEFAULT_BINDINGS
   // Best lap per level, keyed by level name: a lap time only means
   // something on the track it was set on.
   records: {},
 };
 
+/**
+ * Defaults plus whatever was stored. The maps (records, and the story's
+ * earned / storySeen / taught) are rebuilt rather than taken from
+ * DEFAULTS: shared out by reference they would be the SAME object every
+ * time, and the first write would edit the defaults themselves.
+ */
+function fresh(stored) {
+  return {
+    ...DEFAULTS,
+    records: {},
+    earned: {},
+    storySeen: {},
+    taught: {},
+    ...stored,
+  };
+}
+
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
-    const data = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
-    return data;
+    return fresh(raw ? JSON.parse(raw) : {});
   } catch {
-    return { ...DEFAULTS };
+    return fresh({});
   }
 }
 
@@ -101,8 +126,29 @@ export const Save = {
     return true;
   },
 
+  /**
+   * Bank a level's purse, once. Returns the amount actually added, so the
+   * caller knows whether this was the win that paid.
+   */
+  bank(level, amount) {
+    this.data.earned = this.data.earned ?? {};
+    if (this.data.earned[level]) return 0; // already paid for this one
+    this.data.earned[level] = amount;
+    write(this.data);
+    return amount;
+  },
+
+  /** Has this story card been shown before? Marks it shown if not. */
+  firstTime(key, group = "storySeen") {
+    this.data[group] = this.data[group] ?? {};
+    if (this.data[group][key]) return false;
+    this.data[group][key] = true;
+    write(this.data);
+    return true;
+  },
+
   reset() {
-    this.data = { ...DEFAULTS };
+    this.data = fresh({});
     write(this.data);
   },
 };

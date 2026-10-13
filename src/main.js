@@ -16,6 +16,8 @@ import { Menu } from "./ui/menu.js";
 import { Speedo } from "./ui/speedo.js";
 import { TrackOutline } from "./ui/track-outline.js";
 import { Dashboard } from "./ui/dashboard.js";
+import { StoryCard } from "./ui/story-card.js";
+import { BILL, CHAPTERS, INTRO, ENDING, RETRY, TUTORIALS, purseFor, totalEarned, money } from "./core/story.js";
 import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
@@ -326,6 +328,7 @@ const raceHud = new RaceHud();
 const gameplayHud = new GameplayHud();
 const speedo = new Speedo();
 const outline = new TrackOutline();
+const storyCard = new StoryCard(); // the story, over a held race (src/core/story.js)
 // Race HUD is hidden behind the home screen.
 const hudStyle = document.createElement("style");
 hudStyle.textContent = "body.dash-open .hud{visibility:hidden !important}";
@@ -699,6 +702,69 @@ async function buildLevel(name) {
 }
 
 /**
+ * First-time teaching (story.js TUTORIALS): the moment a mechanic first
+ * matters, say so once — then never again, for the life of the save. Only
+ * while actually racing, and never over a hazard warning, which is the
+ * more urgent use of the same corner of the screen.
+ */
+function teach(state) {
+  if (director?.state !== "racing" || storyCard.open) return;
+  for (const [key, t] of Object.entries(TUTORIALS)) {
+    if (Save.get("taught")?.[key]) continue;
+    if (!t.when(state, level)) continue;
+    if (Save.firstTime(key, "taught")) gameplayHud.flashToast(t.text, 3200);
+    return; // one at a time
+  }
+}
+
+/**
+ * What to show when a race ends: the act's closing lines the first time
+ * it is won, the ending once the Grand Prix falls, or a nudge on a loss.
+ * Returns null when there is nothing to say and the title page can come
+ * straight back.
+ */
+function closingCard(name, won) {
+  if (!CHAPTERS[name]) return null;
+  if (!won) return RETRY;
+  const paid = Save.bank(name, purseFor(name));
+  const owing = BILL - totalEarned(Save.get("earned"));
+  if (name === "grandprix" && owing <= 0 && Save.firstTime("ending")) return ENDING;
+  if (!paid || !Save.firstTime(`${name}-win`)) return null; // already told
+  return {
+    act: CHAPTERS[name].act,
+    title: "Paid",
+    lines: CHAPTERS[name].win,
+    note: `${money(paid)} banked  ·  ${money(Math.max(0, owing))} still owing`,
+  };
+}
+
+/**
+ * The act's opening card, once per player per level — and before it, on a
+ * brand new save, the one that sets the whole thing up.
+ *
+ * Called when a ROUND STARTS, not when a level is built: the first level
+ * is built during boot, before there is a game to hold, and pressing PULL
+ * OFF on a level that is already loaded never rebuilds it. The start
+ * lights are held until the card is dismissed (see frame()).
+ */
+function showBriefing(name) {
+  const chapter = CHAPTERS[name];
+  if (!chapter) return;
+  const brief = () => {
+    if (!Save.firstTime(name)) return;
+    storyCard.show({
+      act: chapter.act,
+      title: chapter.title,
+      lines: chapter.brief,
+      note: `Purse ${money(chapter.purse)}  ·  bill ${money(BILL - totalEarned(Save.get("earned")))} still owing`,
+    });
+  };
+  // On a new save the intro comes first, then the act card behind it.
+  if (Save.firstTime("intro")) storyCard.show(INTRO, brief);
+  else brief();
+}
+
+/**
  * Compile the programs for everything in the scene, hidden things
  * included (gate fragments, trails, sparks, the boost glow appear later
  * and are invisible now), against the lights the level will race under.
@@ -807,7 +873,8 @@ const dashboard = new Dashboard({
     audio.setScene("game");
     // The level behind the title page is already loaded and untouched
     // (after a win it is the next level): just start it.
-    if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]);
+    if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]).then(() => showBriefing(ORDER[i]));
+    else showBriefing(ORDER[i]);
   },
 });
 function showDashboard() {
@@ -952,7 +1019,13 @@ function frame(now) {
     finishedFor += frameDt;
     if (finishedFor >= RESULTS_DELAY && !leaving) {
       leaving = true;
-      returnToTitle(won ? ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length] : levelName);
+      const next = won ? ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length] : levelName;
+      // The act's closing card, then the title page. The purse is banked
+      // here, once (Save.bank), so the money on the title screen only ever
+      // counts levels actually won.
+      const card = closingCard(levelName, won);
+      if (card) storyCard.show(card, () => returnToTitle(next));
+      else returnToTitle(next);
     }
   } else if (!leaving) {
     finishedFor = 0;
@@ -975,12 +1048,14 @@ function frame(now) {
     // drive — and a replay recorded on one machine would not reproduce on
     // another. Ramping in here makes the control trajectory a function of
     // the input alone.
-    controls = photo ? HOLD_STILL : input.update(WORLD.fixedDt, !vehicle.grounded);
+    controls = photo || storyCard.open ? HOLD_STILL : input.update(WORLD.fixedDt, !vehicle.grounded);
 
     if (race) {
       // Lights before cars: the step the lights go out on is the first
       // step anyone may move. In photo mode they never go out.
-      if (!photo) director?.step(WORLD.fixedDt);
+      // A story card holds the start lights, so reading one never costs
+      // the player time on the clock.
+      if (!photo && !storyCard.open) director?.step(WORLD.fixedDt);
       for (const c of race.cars) c.vehicle.savePreviousState();
       const racing = director?.state === "racing";
       // Captures the PLAYER's state before this step's controls move it,
@@ -1117,6 +1192,7 @@ function frame(now) {
         ? "FOG"
         : null;
   gameplayHud.update(progress, level.track, state, ghostBestLap, hazard, director?.state === "finished");
+  teach(state);
   cameraRig.update(frameDt, state, input.look);
   // Same flag as the drift-combo mechanic and its sparks: a Grand Prix
   // feature, so City and the Mountain show only WheelGlow's neon trail
