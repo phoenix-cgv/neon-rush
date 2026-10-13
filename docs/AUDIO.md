@@ -16,6 +16,7 @@ Think of it as a small mixing desk:
  level ambience ──► ambience bus ─► sound bus        │
  one-shot effects ───────────────► sound bus ────────┤
  sound bus ─► tunnel echo (only in the tunnel) ──────┤
+ sound bus, music bus ─► reverb ─────────────────────┤
                                                      ▼
                        master ─► pause muffle ─► limiter ─► speakers
 ```
@@ -28,8 +29,16 @@ Think of it as a small mixing desk:
 - The **pause muffle** is a lowpass filter. It is wide open normally and closes
   to 380 Hz while the pause menu is open, so everything sounds muffled, like
   underwater, instead of cutting out.
+- The **reverb** is one room shared by everything. Both buses send a little
+  into it, so the Sound and Music toggles still silence it. Without it every
+  sound sat flat against the speaker. Its tail is generated, not loaded —
+  noise that fades out, which is what a room's tail is — so there is still
+  no audio file anywhere. How much each level sends is set in `setLevel`:
+  the mountain is open air, the city is a street with close walls.
 - The **limiter** (a compressor) squashes loud pile-ups, such as a crash
-  during a fanfare, so the sound never clips.
+  during a fanfare, so the sound never clips. It is deliberately gentle and
+  a little slow, so the crack at the front of a kick or a crash gets
+  through rather than being flattened.
 
 Browsers refuse to make sound until the player clicks something. So nothing is
 built at start-up: the first click calls `audio.unlock()`, which builds the
@@ -48,7 +57,7 @@ the engine, tyre squeal, whoosh, ambience and music, and `audio.updateOpponent()
 steers each AI car's engine.
 
 Every sound prints a line starting `[audio]` to the browser console. You can
-also play any of them yourself from the console: `__dbg.audio.checkpoint()`,
+also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 `__dbg.audio.crash(0.8)`, and so on.
 
 ## Every sound and what triggers it
@@ -60,7 +69,6 @@ also play any of them yourself from the console: `__dbg.audio.checkpoint()`,
 | Button back | Back and Resume buttons | Two falling notes |
 | Start light 1–5 | `start-light` (race director lights a lamp) | Short flat square beep, same pitch each time, like F1 |
 | GO | `race-started` (lights out) | Higher, longer square tone with a sawtooth fifth |
-| Checkpoint | `checkpoint` | Two quick rising triangle pings |
 | Checkpoint missed | `checkpoint-missed` | Dull falling sawtooth buzz |
 | Lap complete | `lap-complete` | Fast four-note rising arpeggio |
 | Wrong way | `wrong-way` | Two harsh low beeps, like an alarm |
@@ -89,11 +97,46 @@ also play any of them yourself from the console: `__dbg.audio.checkpoint()`,
 | Rock landing | `rock-landed` | Deep rumble and thud, louder the closer it lands |
 | Rock hit | `rock-hit-car` | Sharp stony crack on top of the normal crash |
 
+Passing a checkpoint makes no sound on purpose: it fires 19 times a lap on the
+Grand Prix, and a ping that often nags rather than informs. Missing one still
+sounds.
+
 Only the **player's** events make sound. The AI cars fire the same
 events, and without a filter the Grand Prix would chime constantly.
 
 Scrapes along a wall report lots of tiny hits, so tiny ones are ignored and
 crashes are limited to a few per second.
+
+## The music
+
+Synthwave, because that is what a neon street racer wants. Each track is a
+**chord progression, one chord a bar**, played on a 16-step grid:
+
+| | Grand Prix (`night`) | City (`day`) | Title |
+|---|---|---|---|
+| Tempo | 128 bpm | 112 bpm | 84 bpm |
+| Chords | Am – F – C – G | C – G – Am – F | Am – F – C – G |
+| Kit | kick on every beat, claps on 2 and 4, hats off the beat | kick on 1 and 3, lighter | none |
+| Loop | ~15 s | ~17 s | ~23 s |
+
+The progression runs **twice** before anything repeats, the second time with
+the arpeggio an octave up, so the loop is eight bars. (It used to be eight
+notes on a square wave — a 1.1-second loop on the Grand Prix.)
+
+Every instrument is built from layers rather than one oscillator:
+
+- **Kick** a sine dropped hard in pitch.
+- **Clap / hats** short bursts of noise, each taking a different slice of the
+  noise buffer so no two are identical.
+- **Bass** two sawtooths a few cents apart through a resonant lowpass that
+  closes as the note decays — the detuning gives it weight, the closing
+  filter makes it move.
+- **Arpeggio** the same idea higher up, alternating left and right.
+- **Pad** the chord held under everything, spread across the stereo field and
+  slow to arrive.
+
+To change a track, edit `MUSIC` at the top of `audio.js`: the chords, the
+tempo, and the one-bar drum rows are all plain arrays.
 
 ## The drift squeal
 
@@ -119,7 +162,7 @@ and pans left and then right.
 
 **City Track (day).** Calm and bright. A soft traffic hum, a little air, and a
 bird chirp every few seconds. Oncoming and passing traffic whooshes by when it
-misses you narrowly. The music is the original gentle arpeggio.
+misses you narrowly.
 
 **Mountain Track (day, exposed).** Inside the tunnel everything gets an echo, so
 the engine and effects sound like they are in a concrete tube. The wind *is* the ambience. Its volume and
@@ -129,7 +172,7 @@ is a low breeze. Falling rocks are the big sound: a rumble when a boulder lands,
 scaled by distance, so you hear one before you see where it fell.
 
 **Grand Prix (night race).** More intense on purpose. The music switches to a
-lower, faster minor arpeggio with a driving bass pulse. Underneath is a slow,
+faster, harder cut of the same kit (see "The music"). Underneath is a slow,
 breathing low drone and a distant crowd swell. Each of the five AI cars has its
 own engine voice, louder the closer it is, so a car pulling alongside is heard
 before it is seen. Tucking into a car's slipstream adds a whoosh. Driving onto the grass or gravel adds a low rumble, and crossing the line gives a crowd cheer.
@@ -140,6 +183,10 @@ one fades in, then frees the old one.
 
 ## Design choices that apply everywhere
 
+- **Every effect is two voices, not one.** A single oscillator with a volume
+  envelope is a beep. The effects helper plays two of them a few cents apart
+  through a lowpass that closes as the sound decays, panned slightly, with a
+  touch of random pitch on every trigger so repeats are never identical.
 - **Nothing is created every frame.** The engine, squeal, whoosh, ambience and
   AI engine voices are built once and only have their volume and pitch nudged.
   One-shot sounds create a few short-lived nodes when they play, which is

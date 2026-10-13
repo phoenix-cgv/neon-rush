@@ -418,7 +418,10 @@ function rearSlip(wheels = []) {
 // reassigned on every loadLevel, so the closures read whatever it is now.
 // Progress events do not name a car, so match them against the player's own.
 const fromPlayer = (e) => e.progress && e.progress === race?.cars[0]?.progress;
-gameplayEvents.on("checkpoint", (e) => { if (fromPlayer(e)) audio.checkpoint(); });
+// Passing a checkpoint is deliberately silent. It fires 19 times a lap on
+// the Grand Prix — about once every five seconds for a whole race — and a
+// ping that often reads as nagging rather than as information. Missing one
+// still sounds: that one is rare, and it is telling you something.
 gameplayEvents.on("checkpoint-missed", (e) => { if (fromPlayer(e)) audio.checkpointMissed(); });
 gameplayEvents.on("lap-complete", (e) => { if (fromPlayer(e)) audio.lapComplete(); });
 gameplayEvents.on("wrong-way", (e) => { if (fromPlayer(e)) audio.wrongWay(); });

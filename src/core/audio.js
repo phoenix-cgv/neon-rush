@@ -3,14 +3,49 @@
 // refuse to start an AudioContext before a user gesture, so everything
 // is created lazily by unlock(), which the dashboard calls from a click.
 
-// Arpeggios, MIDI. "day" is the original; "night" (Grand Prix) is lower,
-// faster and minor, with a driving bass pulse under it.
-const MUSIC = {
-  day: { notes: [57, 60, 64, 67, 55, 59, 62, 65], stepSec: 0.2, bass: false, type: "square", dur: 0.18, vol: 0.5 },
-  night: { notes: [45, 57, 48, 57, 43, 55, 46, 55], stepSec: 0.14, bass: true, type: "square", dur: 0.18, vol: 0.5 },
-  // Title screen: slow, soft and calm, with a low pad under it.
-  title: { notes: [57, 64, 69, 72, 67, 64, 60, 64], stepSec: 0.55, bass: false, type: "triangle", dur: 0.95, vol: 0.5, pad: [45, 52, 57] },
+// The music: synthwave, which is what a neon street racer wants — a kick
+// on every beat, hats off the beat, a detuned saw bass moving under a
+// filter, and a pad washing underneath.
+//
+// Each track is a chord progression, one chord a bar, played on a 16th
+// note grid (16 steps a bar). The progression runs twice before it
+// repeats, the second time with the arpeggio an octave up, so the loop
+// is eight bars rather than the one-second cycle this replaced.
+//
+// `bass` and the drum rows are one bar of 16 steps:
+//   bass  0 silent, 1 root, 2 the octave above
+//   kick / clap / hat  1 to hit
+// `arp` indexes the chord's own notes, so a figure follows the harmony.
+const DRIVE = {
+  kick: [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
+  clap: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+  hat:  [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,1],
+  bass: [1,0,1,0, 1,0,2,0, 1,0,1,0, 1,2,0,0],
 };
+const LIGHT = {
+  kick: [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+  clap: [0,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+  hat:  [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+  bass: [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,0,0],
+};
+// A chord is its bass root plus the notes the arpeggio and pad draw from.
+const Am = { root: 45, notes: [57, 60, 64] };
+const F  = { root: 41, notes: [57, 60, 65] };
+const C  = { root: 48, notes: [55, 60, 64] };
+const G  = { root: 43, notes: [55, 59, 62] };
+
+const MUSIC = {
+  // Grand Prix, night: i-VI-III-VII in A minor, the outrun progression,
+  // fast and driving.
+  night: { bpm: 128, chords: [Am, F, C, G], drums: DRIVE, arpEvery: 2, padVol: 0.1, leadVol: 0.2, leadType: "sawtooth" },
+  // City, morning: the same four chords turned to start on C, so it
+  // reads bright rather than brooding, and a lighter kit under it.
+  day: { bpm: 112, chords: [C, G, Am, F], drums: LIGHT, arpEvery: 2, padVol: 0.11, leadVol: 0.16, leadType: "triangle" },
+  // Title screen: no drums at all, mostly pad, the arpeggio sparse and
+  // soft — it sits under the menu rather than in front of it.
+  title: { bpm: 84, chords: [Am, F, C, G], drums: null, arpEvery: 4, padVol: 0.16, leadVol: 0.1, leadType: "triangle" },
+};
+const STEPS_PER_BAR = 16;
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
 const clamp01 = (x) => clamp(x, 0, 1);
@@ -57,12 +92,16 @@ export class GameAudio {
     // together instead of clipping.
     this.master = c.createGain();
     this.master.gain.value = 0.8;
+    // Gentle, and slow enough to let the crack at the front of a sound
+    // through: at 8:1 from -12 dB with a 3 ms attack it was catching every
+    // transient, which is exactly the part that gives a kick or a crash
+    // its punch. It still has to stop a crash over a fanfare clipping.
     this.limiter = c.createDynamicsCompressor();
-    this.limiter.threshold.value = -12;
-    this.limiter.knee.value = 8;
-    this.limiter.ratio.value = 8;
-    this.limiter.attack.value = 0.003;
-    this.limiter.release.value = 0.2;
+    this.limiter.threshold.value = -9;
+    this.limiter.knee.value = 6;
+    this.limiter.ratio.value = 4;
+    this.limiter.attack.value = 0.008;
+    this.limiter.release.value = 0.25;
     // While paused everything runs through this lowpass: the game goes
     // "underwater" instead of going silent.
     this.muffle = c.createBiquadFilter();
@@ -82,6 +121,30 @@ export class GameAudio {
     this.raceBus.connect(this.musicGain);
     this.sfxGain = c.createGain();
     this.sfxGain.connect(this.master);
+
+    // One room for the whole game.
+    //
+    // Everything used to be bone dry — the only thing in the file that put
+    // a sound anywhere was the tunnel's echo. A dry sound has no space
+    // around it and sits flat against the speaker however well it is
+    // synthesised, which is most of why the game sounded flat. One
+    // convolver, fed from the two buses so the Sound and Music toggles
+    // still silence it, gives everything the same room.
+    //
+    // The impulse is generated, not loaded: noise that dies away, which is
+    // what a room's tail is. No asset, so nothing to credit.
+    this.reverb = c.createConvolver();
+    this.reverb.buffer = this.#impulse(2.4, 2.8);
+    this.reverbReturn = c.createGain();
+    this.reverbReturn.gain.value = 1;
+    this.reverb.connect(this.reverbReturn).connect(this.master);
+    // Separate sends, so a level can be wetter without drowning the music.
+    this.sfxVerb = c.createGain();
+    this.sfxVerb.gain.value = 0.16;
+    this.sfxGain.connect(this.sfxVerb).connect(this.reverb);
+    this.musicVerb = c.createGain();
+    this.musicVerb.gain.value = 0.3;
+    this.musicGain.connect(this.musicVerb).connect(this.reverb);
 
     // engine: two detuned saws and a sub-octave triangle through one
     // lowpass; pitch/volume follow speed. The detune beats against itself,
@@ -234,6 +297,25 @@ export class GameAudio {
     if (this.opponentCount) this.setOpponents(this.opponentCount);
   }
 
+  /**
+   * A room's tail, made rather than loaded: noise that fades out along a
+   * curve. Stereo, with the two sides built from different noise, which is
+   * what makes the tail sound wide instead of like one point of sound.
+   * `decay` is how sharply it dies — higher is a smaller room.
+   */
+  #impulse(seconds = 2.4, decay = 2.8) {
+    const c = this.ctx;
+    const n = Math.max(1, Math.floor(c.sampleRate * seconds));
+    const buf = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < n; i++) {
+        d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** decay;
+      }
+    }
+    return buf;
+  }
+
   #applyGains() {
     const t = this.ctx.currentTime;
     this.musicGain.gain.setTargetAtTime(this.music ? 0.12 : 0, t, 0.05);
@@ -376,16 +458,181 @@ export class GameAudio {
    */
   #sequence(seq, m, bus, t, running) {
     if (!running) return void (seq.nextT = 0);
+    const stepSec = 60 / m.bpm / 4; // a 16th note
     if (seq.nextT === 0) seq.nextT = t + 0.1;
     while (seq.nextT < t + 0.25) {
-      if (this.music) {
-        this.#note(m.notes[seq.step % m.notes.length], seq.nextT, bus, m);
-        if (m.bass && seq.step % 2 === 0) this.#bass(m.notes[(seq.step >> 3) % m.notes.length] - 12, seq.nextT);
-        if (m.pad && seq.step % 8 === 0) for (const p of m.pad) this.#note(p, seq.nextT, bus, { type: "sine", dur: 4.2, vol: 0.28 });
-      }
+      if (this.music) this.#step(m, seq.step, seq.nextT, stepSec, bus);
       seq.step++;
-      seq.nextT += m.stepSec;
+      seq.nextT += stepSec;
     }
+  }
+
+  /** One 16th note of a track: drums, bass, arpeggio and (on the bar) a pad. */
+  #step(m, step, when, stepSec, bus) {
+    const i = step % STEPS_PER_BAR;
+    // Eight bars before anything repeats: the progression twice, the
+    // second pass an octave up.
+    const bar = Math.floor(step / STEPS_PER_BAR) % (m.chords.length * 2);
+    const chord = m.chords[bar % m.chords.length];
+    const high = bar >= m.chords.length;
+
+    const d = m.drums;
+    if (d) {
+      if (d.kick[i]) this.#kick(when, bus);
+      if (d.clap[i]) this.#clap(when, bus);
+      if (d.hat[i]) this.#hat(when, bus, i === STEPS_PER_BAR - 1); // open on the last 16th
+      const b = d.bass[i];
+      if (b) this.#bassNote(chord.root + (b === 2 ? 12 : 0), when, stepSec * 1.7, bus);
+    } else if (i === 0) {
+      this.#bassNote(chord.root, when, stepSec * 10, bus, 0.3);
+    }
+
+    if (step % m.arpEvery === 0) {
+      const n = chord.notes[(step / m.arpEvery) % chord.notes.length];
+      this.#leadNote(n + (high ? 12 : 0), when, stepSec * m.arpEvery * 0.9, bus, {
+        vol: m.leadVol,
+        type: m.leadType,
+        pan: ((step / m.arpEvery) % 2 ? 1 : -1) * 0.35, // the figure alternates sides
+      });
+    }
+
+    if (i === 0) this.#padChord(chord.notes, when, stepSec * STEPS_PER_BAR, bus, m.padVol);
+  }
+
+  /** Kick: a sine dropped fast in pitch. The whole floor of the track. */
+  #kick(when, bus, vol = 0.9) {
+    const c = this.ctx;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(132, when);
+    o.frequency.exponentialRampToValueAtTime(45, when + 0.1);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.26);
+    o.connect(g).connect(bus);
+    o.start(when);
+    o.stop(when + 0.3);
+  }
+
+  /** Clap: a band of noise, short. The backbeat. */
+  #clap(when, bus, vol = 0.35) {
+    const c = this.ctx;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1700;
+    bp.Q.value = 1.1;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.17);
+    src.connect(bp).connect(g).connect(bus);
+    src.start(when, Math.random() * 0.8); // a different slice of noise each time
+    src.stop(when + 0.2);
+  }
+
+  /** Hat: a tick of high noise, off the beat. */
+  #hat(when, bus, open = false, vol = 0.14) {
+    const c = this.ctx;
+    const dur = open ? 0.16 : 0.035;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    const hp = c.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 7200;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    src.connect(hp).connect(g).connect(bus);
+    src.start(when, Math.random() * 0.8);
+    src.stop(when + dur + 0.02);
+  }
+
+  /**
+   * Bass: two saws pulled apart by a few cents through a resonant lowpass
+   * that closes as the note decays. The detuning is what gives it weight,
+   * and the closing filter is what makes it move instead of just sitting.
+   */
+  #bassNote(midi, when, dur, bus, vol = 0.42) {
+    const c = this.ctx;
+    const f = mtof(midi);
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.Q.value = 7;
+    lp.frequency.setValueAtTime(Math.min(f * 10, 2600), when);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(f * 2, 70), when + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    for (const cents of [-8, 8]) {
+      const o = c.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = f;
+      o.detune.value = cents;
+      o.connect(lp);
+      o.start(when);
+      o.stop(when + dur + 0.03);
+    }
+    lp.connect(g).connect(bus);
+  }
+
+  /** The arpeggio on top: detuned, filtered, and placed off to one side. */
+  #leadNote(midi, when, dur, bus, { vol = 0.2, type = "sawtooth", pan = 0 } = {}) {
+    const c = this.ctx;
+    const f = mtof(midi);
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.Q.value = 3;
+    lp.frequency.setValueAtTime(f * 7, when);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(f * 2, 200), when + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    const p = c.createStereoPanner();
+    p.pan.value = pan;
+    for (const cents of [-9, 9]) {
+      const o = c.createOscillator();
+      o.type = type;
+      o.frequency.value = f;
+      o.detune.value = cents;
+      o.connect(lp);
+      o.start(when);
+      o.stop(when + dur + 0.03);
+    }
+    lp.connect(g).connect(p).connect(bus);
+  }
+
+  /** The pad: the chord held under everything, wide and slow to arrive. */
+  #padChord(notes, when, dur, bus, vol = 0.1) {
+    if (vol <= 0) return;
+    const c = this.ctx;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(vol, when + dur * 0.45); // slow swell
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur * 1.25);
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 1500;
+    notes.forEach((midi, k) => {
+      const p = c.createStereoPanner();
+      p.pan.value = (k / Math.max(1, notes.length - 1)) * 1.2 - 0.6; // spread across the stereo field
+      for (const cents of [-11, 11]) {
+        const o = c.createOscillator();
+        o.type = "sawtooth";
+        o.frequency.value = mtof(midi);
+        o.detune.value = cents;
+        o.connect(p);
+        o.start(when);
+        o.stop(when + dur * 1.3);
+      }
+      p.connect(lp);
+    });
+    lp.connect(g).connect(bus);
   }
 
   /**
@@ -396,35 +643,6 @@ export class GameAudio {
     if (scene === this.scene) return;
     this.scene = scene;
     this.#log(`music scene: ${scene}`, scene === "game" ? "(cross-fading to race music)" : "(cross-fading to title theme)");
-  }
-
-  #note(midi, when, bus = this.raceBus, { type = "square", dur = 0.18, vol = 0.5 } = {}) {
-    const c = this.ctx;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.type = type;
-    o.frequency.value = mtof(midi);
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(vol, when + Math.min(0.01 + dur * 0.15, 0.3));
-    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
-    o.connect(g).connect(bus);
-    o.start(when);
-    o.stop(when + dur + 0.02);
-  }
-
-  /** A short low pulse under the night music. */
-  #bass(midi, when) {
-    const c = this.ctx;
-    const o = c.createOscillator();
-    const g = c.createGain();
-    o.type = "sawtooth";
-    o.frequency.value = mtof(midi);
-    g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(0.7, when + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.2);
-    o.connect(g).connect(this.raceBus);
-    o.start(when);
-    o.stop(when + 0.22);
   }
 
   /** Pointer moves onto a button: a tiny, quiet tick. */
@@ -485,21 +703,55 @@ export class GameAudio {
    * Gain ramps start and end at 0.0001 (an exponential ramp cannot touch
    * 0), and the start time is never earlier than "now".
    */
-  #blip({ type = "square", freq, to = freq, dur = 0.12, vol = 0.3, delay = 0 }) {
+  #blip({ type = "square", freq, to = freq, dur = 0.12, vol = 0.3, delay = 0, pan = null, detune = 7, sub = 0 }) {
     const c = this.ctx;
     const t = Math.max(c.currentTime, c.currentTime + delay) + 0.005;
     const peak = Math.max(vol, 0.0002);
-    const o = c.createOscillator();
+    // A little off true, differently each time. Identical repeats stop
+    // registering as a sound and start registering as a beep.
+    const wobble = 1 + (Math.random() - 0.5) * 0.016;
+    const f0 = freq * wobble;
+    const f1 = Math.max(to * wobble, 1);
+
     const g = c.createGain();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t);
-    if (to !== freq) o.frequency.exponentialRampToValueAtTime(Math.max(to, 1), t + dur);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(this.sfxGain);
-    o.start(t);
-    o.stop(t + dur + 0.05);
+    // The tone closes as the sound decays, the way a real one does. A
+    // fixed timbre for the whole of a sound's life is most of what made
+    // these read as flat.
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.Q.value = 1.2;
+    lp.frequency.setValueAtTime(Math.min(Math.max(f0, f1) * 6, 18000), t);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(Math.min(f0, f1) * 2, 180), t + dur);
+    const p = c.createStereoPanner();
+    p.pan.value = pan ?? (Math.random() - 0.5) * 0.3; // a touch of width
+
+    // Two voices a few cents apart, which is the whole difference between
+    // a tone and an instrument.
+    for (const cents of detune ? [-detune, detune] : [0]) {
+      const o = c.createOscillator();
+      o.type = type;
+      o.detune.value = cents;
+      o.frequency.setValueAtTime(f0, t);
+      if (to !== freq) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      o.connect(lp);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+    if (sub > 0) {
+      const o = c.createOscillator();
+      const sg = c.createGain();
+      sg.gain.value = sub;
+      o.type = "sine";
+      o.frequency.setValueAtTime(f0 / 2, t);
+      if (to !== freq) o.frequency.exponentialRampToValueAtTime(f1 / 2, t + dur);
+      o.connect(sg).connect(lp);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+    lp.connect(g).connect(p).connect(this.sfxGain);
   }
 
   /**
@@ -507,7 +759,7 @@ export class GameAudio {
    * rumble of a rock. The lowpass sweeps from `from` Hz down to `to` Hz
    * over `dur`, so a bigger, slower sound is also a duller one.
    */
-  #burst({ vol, from, to, dur, delay = 0 }) {
+  #burst({ vol, from, to, dur, delay = 0, pan = null }) {
     const c = this.ctx;
     const t = c.currentTime + delay + 0.005;
     const src = c.createBufferSource();
@@ -520,8 +772,10 @@ export class GameAudio {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(lp).connect(g).connect(this.sfxGain);
-    src.start(t);
+    const p = c.createStereoPanner();
+    p.pan.value = pan ?? (Math.random() - 0.5) * 0.4;
+    src.connect(lp).connect(g).connect(p).connect(this.sfxGain);
+    src.start(t, Math.random() * 0.8); // a different slice of the noise each time
     src.stop(t + dur + 0.05);
   }
 
@@ -560,13 +814,7 @@ export class GameAudio {
     this.#burst({ vol: 0.8, from: 5000, to: 300, dur: 0.35 });
   }
 
-  /** Checkpoint passed: a quick bright two-note ping, rising. */
-  checkpoint() {
-    this.#play("checkpoint", [
-      { type: "triangle", freq: mtof(81), dur: 0.09, vol: 0.5 },
-      { type: "triangle", freq: mtof(88), dur: 0.16, vol: 0.5, delay: 0.07 },
-    ]);
-  }
+  // (Passing a checkpoint makes no sound — see the note in main.js.)
 
   /** Checkpoint missed: a dull, falling buzz. */
   checkpointMissed() {
@@ -795,6 +1043,12 @@ export class GameAudio {
       old.gain.gain.setTargetAtTime(0, t, 0.35);
       setTimeout(() => old.stop(), 2500);
     }
+    // How much room each level sits in: the mountain is open air and a
+    // valley, the city is a street with walls close by, the circuit at
+    // night is wide and mostly empty.
+    const space = { city: 0.13, mountain: 0.3, grandprix: 0.2 }[name] ?? 0.16;
+    this.sfxVerb.gain.setTargetAtTime(space, t, 0.5);
+
     const build = { city: this.#cityAmbience, mountain: this.#mountainAmbience, grandprix: this.#nightAmbience }[name];
     this.amb = build ? build.call(this) : null;
     if (this.amb) this.amb.gain.gain.setTargetAtTime(1, t, 0.6);
