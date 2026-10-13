@@ -390,6 +390,21 @@ function applyAssists() {
 }
 
 const audio = new GameAudio();
+
+// Gameplay sounds. Module level, like the pickup listener above: `race` is
+// reassigned on every loadLevel, so the closures read whatever it is now.
+// Progress events do not name a car, so match them against the player's own.
+const fromPlayer = (e) => e.progress && e.progress === race?.cars[0]?.progress;
+gameplayEvents.on("checkpoint", (e) => { if (fromPlayer(e)) audio.checkpoint(); });
+gameplayEvents.on("checkpoint-missed", (e) => { if (fromPlayer(e)) audio.checkpointMissed(); });
+gameplayEvents.on("lap-complete", (e) => { if (fromPlayer(e)) audio.lapComplete(); });
+gameplayEvents.on("wrong-way", (e) => { if (fromPlayer(e)) audio.wrongWay(); });
+gameplayEvents.on("boost-started", (e) => { if (e.car?.isPlayer) audio.boostStarted(); });
+gameplayEvents.on("boost-stopped", (e) => { if (e.car?.isPlayer) audio.boostStopped(); });
+gameplayEvents.on("pickup-collected", (e) => { if (e.car?.isPlayer) audio.pickup(); });
+gameplayEvents.on("race-started", () => audio.raceStarted());
+gameplayEvents.on("race-won", () => audio.raceWon());
+gameplayEvents.on("race-lost", () => audio.raceLost());
 const menu = new Menu({
   onHome: () => showDashboard(),
   onQuality: applyQuality,
@@ -1060,7 +1075,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
+  audio, minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
