@@ -86,6 +86,8 @@ Full map:
 | `src/vehicle/car-rig.js` | The car's scene graph — hierarchy and why it is shaped that way |
 | `src/vehicle/camera-rig.js` | Chase / cockpit / wide cameras |
 | `src/core/input.js` | Keyboard → control struct (the vehicle never sees a key) |
+| `src/core/audio.js` | All sound, procedural: music, engine, effects, per-level ambience. See `docs/AUDIO.md` |
+| `src/core/gameplay-events.js` | Tiny event bus: systems `emit`, `main.js` listens (audio, HUD) |
 | `src/track/spline.js` | Arc-length centreline, frames, curvature, projection |
 | `src/track/track.js` | Road + runoff + barriers, checkpoints, **level-author API** |
 | `src/core/progress.js` | Laps, checkpoints, falling, off-track reset |
