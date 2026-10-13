@@ -337,7 +337,7 @@ const gameplayEvents = new GameplayEvents();
 const smoke = new Smoke(scene, MINIMAP_LAYER);
 const driftFx = new DriftFx(scene);
 const wheelGlow = new WheelGlow(scene); // neon on the ground behind the rear wheels (Grand Prix)
-gameplayHud.onTierUp = (tier) => driftFx.burst(carRig, tier);
+gameplayHud.onTierUp = (tier) => { driftFx.burst(carRig, tier); audio.tierUp(tier); };
 
 // A time-trial level's boost orbs (see Pickups' boostSeconds) push the
 // race clock back instead of filling the boost meter. One listener for
@@ -812,6 +812,7 @@ function frame(now) {
 
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open, {
     paused: menu.open,
+    boostFull: vehicle.state.boostCharge >= CAR.boostCapacity - 0.5,
     drift: vehicle.state.driftFactor,
     grounded: vehicle.state.grounded,
     slide: rearSlip(vehicle.state.wheels),

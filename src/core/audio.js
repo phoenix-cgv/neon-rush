@@ -24,6 +24,7 @@ export class GameAudio {
     this.scene = "title"; // title | game: which music is meant to be playing
     this.squealing = false; // for logging the on/off edge only
     this.levelName = null;
+    this.boostWasFull = false;
     this.drill = null; // a testDrift() preview in progress
     this.lastCrash = -1; // when the last crash sounded, and how hard
     this.lastCrashK = 0;
@@ -279,6 +280,11 @@ export class GameAudio {
       this.whooshing = drafting;
       if (this.sound) this.#log(drafting ? "slipstream whoosh start" : "slipstream whoosh stop");
     }
+
+    // Boost tank just reached full (a ding on the way up only).
+    const full = !!drive.boostFull;
+    if (full && !this.boostWasFull && active && !drive.paused) this.boostFull();
+    this.boostWasFull = full;
 
     // Ambience: quiet on the dashboard and pause menu, live otherwise.
     this.ambBus.gain.setTargetAtTime(active ? 1 : 0, t, 0.2);
@@ -580,6 +586,23 @@ export class GameAudio {
       o.start(t);
       o.stop(t + 1.35);
     }
+  }
+
+  /** Drift tier-up: a rising chime, one more note and a higher start for each tier. */
+  tierUp(tier = 0) {
+    const n = 3 + Math.min(Math.max(tier, 0), 3);
+    const root = 76 + tier * 2;
+    const scale = [0, 4, 7, 12, 16, 19]; // a major arpeggio, so it always sounds like a reward
+    this.#play(`drift-tier-up ${tier}`, Array.from({ length: n }, (_, i) =>
+      ({ type: "triangle", freq: mtof(root + scale[i]), dur: 0.22, vol: 0.3, delay: i * 0.06 })));
+  }
+
+  /** Boost tank just filled: a bright bell-like ding. */
+  boostFull() {
+    this.#play("boost-full", [
+      { type: "sine", freq: 1760, dur: 0.5, vol: 0.35 },
+      { type: "sine", freq: 2637, dur: 0.35, vol: 0.18 },
+    ]);
   }
 
   /** Win: a short triumphant fanfare ending on a held chord. */
