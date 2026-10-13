@@ -68,6 +68,7 @@ export class Traffic {
     this.world = world;
     this.scene = scene;
     this.track = track;
+    this.eventBus = opts.eventBus ?? null;
     const lane = opts.lane ?? 3.5;
     const [vMin, vMax] = opts.cruise ?? [11, 15];
     const clearStart = opts.clearStart ?? 45; // m kept empty around the grid
@@ -162,6 +163,7 @@ export class Traffic {
   step(dt, field = []) {
     const L = this.track.length;
     const roadHalf = this.track.width / 2;
+    const me = field[0]?.vehicle; // the player, for near-miss detection
     for (const c of this.cars) {
       // Corner speed: read the road far enough ahead to brake for it
       // gently at this speed, rather than a fixed 40 m that is too short
@@ -214,6 +216,7 @@ export class Traffic {
       c.speed = Math.max(0, c.speed + idmAccel(c.speed, target, gap, vObs) * dt);
       c.spin += (c.speed * dt) / (trafficWheels(c.kind)?.radius || 0.35);
       c.s = (((c.s + c.dir * c.speed * dt) % L) + L) % L;
+      if (me) this.#watchNearMiss(c, me, L);
 
       c.prev.p.copy(c.cur.p);
       c.prev.q.copy(c.cur.q);
@@ -226,6 +229,23 @@ export class Traffic {
     for (const f of field) {
       if (f.progress?.justRespawned) this.clearAround(f.vehicle.body.translation());
     }
+  }
+
+  /**
+   * Tell the bus when this car has just gone past the player close and fast:
+   * its signed gap along the road changed sign (it was ahead, now it is
+   * behind, or the reverse) while sitting in the next lane. Sound only.
+   */
+  #watchNearMiss(c, me, L) {
+    let gap = c.s - me.s;
+    if (gap > L / 2) gap -= L;
+    else if (gap < -L / 2) gap += L;
+    const prev = c.prevGap;
+    c.prevGap = gap;
+    if (prev === undefined || Math.abs(prev) > 12 || prev * gap > 0 || prev === gap) return;
+    const side = Math.abs(c.lat - me.lateralOffset);
+    const closing = c.dir > 0 ? Math.abs(me.speed - c.speed) : me.speed + c.speed;
+    if (side < 5.5 && closing > 12) this.eventBus?.emit("near-miss", { side, speed: closing });
   }
 
   /**

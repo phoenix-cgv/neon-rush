@@ -200,6 +200,33 @@ export class GameAudio {
     this.whooshSrc.start();
     this.whooshing = false;
 
+    // Tunnel echo: a send from the sfx bus into a filtered feedback delay,
+    // opened only inside the tunnel. Built once; only the send level moves.
+    this.echoSend = c.createGain();
+    this.echoSend.gain.value = 0;
+    const echo = c.createDelay(0.5);
+    echo.delayTime.value = 0.16;
+    const echoFb = c.createGain();
+    echoFb.gain.value = 0.5;
+    const echoTone = c.createBiquadFilter();
+    echoTone.type = "lowpass";
+    echoTone.frequency.value = 2400;
+    this.sfxGain.connect(this.echoSend);
+    this.echoSend.connect(echo);
+    echo.connect(echoTone).connect(echoFb).connect(echo);
+    echoTone.connect(this.master);
+    this.inTunnel = false;
+
+    // Grass / gravel rumble: low noise, chattering at about 16 Hz
+    this.rumble = this.#noiseVoice("lowpass", 200, 0.8, this.sfxGain);
+    const chatter = c.createOscillator();
+    const chatterDepth = c.createGain();
+    chatter.frequency.value = 16;
+    chatterDepth.gain.value = 0.35;
+    chatter.connect(chatterDepth).connect(this.rumble.gain.gain);
+    chatter.start();
+    this.rumbling = false;
+
     this.#applyGains();
     // setLevel() may have been called before there was a context to build in.
     if (this.levelName) this.setLevel(this.levelName);
@@ -304,6 +331,22 @@ export class GameAudio {
     const full = !!drive.boostFull;
     if (full && !this.boostWasFull && active && !drive.paused) this.boostFull();
     this.boostWasFull = full;
+
+    // Tunnel echo opens inside the tunnel; grass rumble follows how many
+    // tyres are off the asphalt and how fast.
+    const tunnel = !!drive.tunnel && live;
+    this.echoSend.gain.setTargetAtTime(tunnel ? 0.45 : 0, t, 0.15);
+    if (tunnel !== this.inTunnel) {
+      this.inTunnel = tunnel;
+      if (this.sound) this.#log(tunnel ? "tunnel echo on" : "tunnel echo off");
+    }
+    const grass = live ? clamp01(drive.grass ?? 0) * clamp01(speed / 30) : 0;
+    this.rumble.gain.gain.setTargetAtTime(grass * 0.45, t, 0.1);
+    this.rumble.filter.frequency.setTargetAtTime(120 + grass * 160, t, 0.2);
+    if ((grass > 0.08) !== this.rumbling) {
+      this.rumbling = grass > 0.08;
+      if (this.sound) this.#log(this.rumbling ? "grass rumble start" : "grass rumble stop");
+    }
 
     // Ambience: quiet on the dashboard and pause menu, live otherwise.
     this.ambBus.gain.setTargetAtTime(active ? 1 : 0, t, 0.2);
@@ -463,9 +506,9 @@ export class GameAudio {
    * rumble of a rock. The lowpass sweeps from `from` Hz down to `to` Hz
    * over `dur`, so a bigger, slower sound is also a duller one.
    */
-  #burst({ vol, from, to, dur }) {
+  #burst({ vol, from, to, dur, delay = 0 }) {
     const c = this.ctx;
-    const t = c.currentTime + 0.005;
+    const t = c.currentTime + delay + 0.005;
     const src = c.createBufferSource();
     src.buffer = this.noise;
     const lp = c.createBiquadFilter();
@@ -671,6 +714,27 @@ export class GameAudio {
     this.#log("respawn");
     this.#whoosh({ from: 250, to: 3200, dur: 0.6, vol: 0.55, q: 1.2, swell: 0.7 });
     this.#blip({ type: "sine", freq: mtof(76), to: mtof(88), dur: 0.4, vol: 0.18 });
+  }
+
+  /** A traffic car whipping past: a quick falling whoosh, louder the closer and faster. */
+  nearMiss(side = 3, speed = 20) {
+    if (!this.ctx || !this.sound) return;
+    const k = clamp01(1 - side / 5.5) * 0.6 + clamp01(speed / 50) * 0.4;
+    this.#log("near-miss", `side=${side.toFixed(1)}m closing=${Math.round(speed)}m/s`);
+    this.#whoosh({ from: 2200, to: 450, dur: 0.4, vol: 0.12 + k * 0.5, q: 0.9, swell: 0.3 });
+  }
+
+  /** Crowd at the finish: a swell of noise, claps and two whoops. Bigger for a win. */
+  cheer(position = 1) {
+    if (!this.ctx || !this.sound) return;
+    const k = position === 1 ? 1 : 0.55;
+    this.#log("crowd-cheer", `position=${position}`);
+    this.#whoosh({ from: 900, to: 1500, dur: 2.6, vol: 0.4 * k, q: 0.5, swell: 0.25 });
+    this.#whoosh({ from: 2600, to: 3200, dur: 2.2, vol: 0.12 * k, q: 0.7, swell: 0.3 });
+    // scattered claps, then two whoops
+    for (let i = 0; i < 10; i++) this.#burst({ vol: 0.16 * k, from: 4500, to: 1500, dur: 0.05, delay: 0.1 + Math.random() * 1.8 });
+    this.#blip({ type: "sine", freq: 520, to: 900, dur: 0.45, vol: 0.12 * k, delay: 0.3 });
+    this.#blip({ type: "sine", freq: 640, to: 1100, dur: 0.5, vol: 0.1 * k, delay: 0.8 });
   }
 
   /** Win: a short triumphant fanfare ending on a held chord. */

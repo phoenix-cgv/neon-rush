@@ -390,6 +390,13 @@ function applyAssists() {
 }
 
 const audio = new GameAudio();
+// Fraction of the tyres on grass or gravel (surfaceGrip below asphalt's 1),
+// for the Grand Prix's rumble. A plain loop: nothing allocated per frame.
+function offAsphalt(wheels = []) {
+  let n = 0;
+  for (const w of wheels) if ((w.surfaceGrip ?? 1) < 0.9 && w.grounded !== false) n++;
+  return wheels.length ? n / wheels.length : 0;
+}
 // Button sounds for the dashboard and the pause menu: click (or back, for
 // the buttons that close or return), and a hover tick from one listener.
 const BACK_ACTS = new Set(["back", "resume"]);
@@ -423,6 +430,8 @@ gameplayEvents.on("race-started", () => { audio.raceStarted(); audio.engineRev()
 gameplayEvents.on("rock-landed", (e) => audio.rockLanded(e.distance));
 gameplayEvents.on("rock-hit-car", () => audio.rockHit());
 gameplayEvents.on("respawn", (e) => { if (e.car?.isPlayer) audio.respawn(); });
+gameplayEvents.on("near-miss", (e) => audio.nearMiss(e.side, e.speed));
+gameplayEvents.on("car-finished", (e) => { if (e.car?.isPlayer && levelName === "grandprix") audio.cheer(e.position); });
 gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
@@ -611,7 +620,7 @@ async function buildLevel(name) {
     minimap.build(race.cars);
     outline.build(level.track);
     pickups = new Pickups(level.track, scene, level.pickups ?? {}, gameplayEvents);
-    if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
+    if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, { ...level.traffic, eventBus: gameplayEvents });
     if (level.rockfall) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
@@ -813,6 +822,8 @@ function frame(now) {
 
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open, {
     paused: menu.open,
+    tunnel: level?.tunnel ? vehicle.s >= level.tunnel[0] && vehicle.s <= level.tunnel[1] : false,
+    grass: levelName === "grandprix" ? offAsphalt(vehicle.state.wheels) : 0,
     damage: vehicle.state.damage,
     boostFull: vehicle.state.boostCharge >= CAR.boostCapacity - 0.5,
     drift: vehicle.state.driftFactor,
