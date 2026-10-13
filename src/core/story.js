@@ -25,7 +25,7 @@ export const INTRO = {
   act: "Neon Rush",
   title: "The Last Invoice",
   lines: [
-    "Lefophana & Daughter has fixed this street's cars for thirty years.",
+    "Phoenix Repair Shop has fixed this street's cars for thirty years.",
     "Now the lift is broken, the parts are owed for, and the bill is R12 000.",
     "Dad says he'll sell the place. You have a faster idea.",
     "Three races. One purse big enough to end this. Start at home.",
@@ -88,7 +88,7 @@ export const ENDING = {
     "R12 000. Exactly, to the rand.",
     "The lift works. The invoice is stamped. The roller door goes up at seven.",
     "Dad hands you a coffee and a clipboard, and pretends he never doubted it.",
-    "Lefophana & Daughter is still open.",
+    "Phoenix Repair Shop is still open.",
   ],
 };
 

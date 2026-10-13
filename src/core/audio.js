@@ -46,6 +46,11 @@ const MUSIC = {
   title: { bpm: 84, chords: [Am, F, C, G], drums: null, arpEvery: 4, padVol: 0.16, leadVol: 0.1, leadType: "triangle" },
 };
 const STEPS_PER_BAR = 16;
+// Spoken, so words rather than "1st" — a synthesiser reads those unevenly.
+const PLACES = {
+  1: "first", 2: "second", 3: "third", 4: "fourth",
+  5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth",
+};
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
 const clamp01 = (x) => clamp(x, 0, 1);
@@ -984,6 +989,58 @@ export class GameAudio {
     for (let i = 0; i < 10; i++) this.#burst({ vol: 0.16 * k, from: 4500, to: 1500, dur: 0.05, delay: 0.1 + Math.random() * 1.8 });
     this.#blip({ type: "sine", freq: 520, to: 900, dur: 0.45, vol: 0.12 * k, delay: 0.3 });
     this.#blip({ type: "sine", freq: 640, to: 1100, dur: 0.5, vol: 0.1 * k, delay: 0.8 });
+  }
+
+  /**
+   * A spoken line, through the browser's own speech synthesis.
+   *
+   * Not Web Audio at all, so it does not pass through the buses, the
+   * reverb, the pause muffle or the limiter — which also means the Sound
+   * toggle has to be honoured here by hand. There is no audio file and no
+   * voice shipped with the game, so there is still nothing to credit.
+   *
+   * A browser with no voices installed simply says nothing: every line
+   * spoken is also on screen, so silence costs the player no information.
+   */
+  say(text, { rate = 0.95, pitch = 0.85, delay = 0 } = {}) {
+    if (!this.sound) return void this.#log("announce", "(skipped: Sound is off)");
+    const synth = typeof window !== "undefined" && window.speechSynthesis;
+    if (!synth) return void this.#log("announce", "(skipped: no speech synthesis here)");
+    const speak = () => {
+      try {
+        synth.cancel(); // one announcement at a time; a new one replaces the last
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = rate;
+        u.pitch = pitch;
+        u.volume = 0.95;
+        // An English voice if there is one, otherwise whatever is default.
+        const voice = synth.getVoices?.().find((v) => /^en([-_]|$)/i.test(v.lang));
+        if (voice) u.voice = voice;
+        synth.speak(u);
+        this.#log("announce", `"${text}"`);
+      } catch (err) {
+        this.#log("announce", `(failed: ${err.message})`);
+      }
+    };
+    if (delay > 0) setTimeout(speak, delay * 1000);
+    else speak();
+  }
+
+  /**
+   * The result of the Grand Prix, spoken over the line. A podium is the
+   * mission: the prize money for the top three is what the garage needed.
+   * @param {number} position  1 for the winner
+   */
+  announceFinish(position) {
+    const place = PLACES[position] ?? `in position ${position}`;
+    const podium = position >= 1 && position <= 3;
+    // After the crowd, not over it.
+    this.say(podium ? `You finished ${place}. Mission accomplished.` : `You finished ${place}.`, { delay: 1.2 });
+  }
+
+  /** The Grand Prix ended without the player finishing: no place to read out. */
+  announceFailed() {
+    this.say("You did not finish. Mission failed.", { delay: 0.8 });
   }
 
   /** A new personal best lap: a bright two-step fanfare with a sparkle on top. */

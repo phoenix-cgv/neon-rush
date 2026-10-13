@@ -437,11 +437,22 @@ gameplayEvents.on("rock-landed", (e) => audio.rockLanded(e.distance));
 gameplayEvents.on("rock-hit-car", () => audio.rockHit());
 gameplayEvents.on("respawn", (e) => { if (e.car?.isPlayer) audio.respawn(); });
 gameplayEvents.on("near-miss", (e) => audio.nearMiss(e.side, e.speed));
-gameplayEvents.on("car-finished", (e) => { if (e.car?.isPlayer && levelName === "grandprix") audio.cheer(e.position); });
+// Crossing the line at the Grand Prix: the crowd, then a voice reading the
+// result back. Only there — it is the one level with a field to place in.
+gameplayEvents.on("car-finished", (e) => {
+  if (!e.car?.isPlayer || levelName !== "grandprix") return;
+  audio.cheer(e.position);
+  audio.announceFinish(e.position);
+  finishedPlace = e.position;
+});
 gameplayEvents.on("new-best-lap", () => audio.newBest());
 gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
-gameplayEvents.on("race-lost", () => audio.raceLost());
+gameplayEvents.on("race-lost", () => {
+  audio.raceLost();
+  // Out of time or wrecked, with no place to read out.
+  if (levelName === "grandprix" && finishedPlace === null) audio.announceFailed();
+});
 const menu = new Menu({
   onClick: buttonSound,
   onHome: () => showDashboard(),
@@ -476,6 +487,7 @@ const ORDER = ["city", "mountain", "grandprix"];
 let level = null;
 let finishedFor = 0; // s the results screen has been up
 let leaving = false; // a return to the title page is under way
+let finishedPlace = null; // where the player placed this race, once they cross the line
 let levelFresh = false; // true from a level loading until its lights go out
 // The car a track-less level owns, so the next loadLevel can take it back.
 let pickups = null;
@@ -546,6 +558,7 @@ async function loadLevel(name) {
 
 async function buildLevel(name) {
   warmToken++; // stop any warm-up still polling the level this one replaces
+  finishedPlace = null; // a fresh race has no result to read out yet
   adaptive.pause(2); // a load is one long frame, not a slow GPU
   let asset;
   if (LEVELS[name].preload) {

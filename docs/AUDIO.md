@@ -96,6 +96,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Slipstream whoosh | every frame, from the slipstream value | Noise that swells and brightens as you tuck in behind a car |
 | Rock landing | `rock-landed` | Deep rumble and thud, louder the closer it lands |
 | Rock hit | `rock-hit-car` | Sharp stony crack on top of the normal crash |
+| Result announcement | `car-finished`, you, Grand Prix only | A **spoken** line reading your finishing place back, and "mission accomplished" on the podium |
 
 Passing a checkpoint makes no sound on purpose: it fires 19 times a lap on the
 Grand Prix, and a ping that often nags rather than informs. Missing one still
@@ -137,6 +138,19 @@ Every instrument is built from layers rather than one oscillator:
 
 To change a track, edit `MUSIC` at the top of `audio.js`: the chords, the
 tempo, and the one-bar drum rows are all plain arrays.
+
+## The announcer
+
+The result of the Grand Prix is read out loud by the browser's own speech
+synthesis (`audio.say`), not by Web Audio. That means it does not pass
+through the buses, the reverb, the pause muffle or the limiter, so the
+Sound toggle is honoured by hand in `say()`. No voice ships with the
+game and there is no audio file, so there is nothing to credit.
+
+A browser with no voices installed simply stays quiet. Every line spoken
+is also on the results board, so silence costs the player nothing. Voices
+load asynchronously, which is why `getVoices()` can be empty for the
+first second of a page's life — by the time a race finishes it is not.
 
 ## The drift squeal
 
