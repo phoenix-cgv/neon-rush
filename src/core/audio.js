@@ -549,6 +549,39 @@ export class GameAudio {
     ]);
   }
 
+  /**
+   * Engine rev as the lights go out: the motor winds up hard and settles
+   * back. Two detuned saws through a lowpass that opens as the revs rise.
+   */
+  engineRev() {
+    if (!this.ctx || !this.sound) return void (this.ctx && this.#log("engine-rev (skipped: Sound is off)"));
+    this.#log("engine-rev");
+    const c = this.ctx;
+    const t = c.currentTime + 0.005;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(300, t);
+    lp.frequency.exponentialRampToValueAtTime(2200, t + 0.5);
+    lp.frequency.exponentialRampToValueAtTime(700, t + 1.2);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.08);
+    g.gain.setValueAtTime(0.5, t + 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
+    lp.connect(g).connect(this.sfxGain);
+    for (const detune of [0, 20]) {
+      const o = c.createOscillator();
+      o.type = "sawtooth";
+      o.detune.value = detune;
+      o.frequency.setValueAtTime(55, t);
+      o.frequency.exponentialRampToValueAtTime(230, t + 0.5);
+      o.frequency.exponentialRampToValueAtTime(95, t + 1.2);
+      o.connect(lp);
+      o.start(t);
+      o.stop(t + 1.35);
+    }
+  }
+
   /** Win: a short triumphant fanfare ending on a held chord. */
   raceWon() {
     this.#play("race-won", [
