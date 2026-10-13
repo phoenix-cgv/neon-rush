@@ -59,7 +59,14 @@ export class GameAudio {
     this.limiter.ratio.value = 8;
     this.limiter.attack.value = 0.003;
     this.limiter.release.value = 0.2;
-    this.master.connect(this.limiter).connect(c.destination);
+    // While paused everything runs through this lowpass: the game goes
+    // "underwater" instead of going silent.
+    this.muffle = c.createBiquadFilter();
+    this.muffle.type = "lowpass";
+    this.muffle.frequency.value = 20000;
+    this.muffle.Q.value = 0.7;
+    this.master.connect(this.muffle).connect(this.limiter).connect(c.destination);
+    this.muffled = false;
     this.musicGain = c.createGain();
     this.musicGain.connect(this.master);
     // Two music buses under the music gain, so the title theme and the race
@@ -224,7 +231,7 @@ export class GameAudio {
     let drift = drive.drift ?? 0;
     let squealSpeed = speed;
     let pan = clamp(drive.slide ?? 0, -1, 1) * 1.4;
-    let squealOk = active && (drive.grounded ?? true);
+    let squealOk = active && !drive.paused && (drive.grounded ?? true);
     if (this.drill) {
       const u = (t - this.drill.from) / this.drill.dur;
       if (u >= 1) {
@@ -264,7 +271,7 @@ export class GameAudio {
     }
 
     // Slipstream: a whoosh that swells with the tow and with speed.
-    const slip = active ? clamp01(drive.slip ?? 0) * clamp01(speed / 30) : 0;
+    const slip = active && !drive.paused ? clamp01(drive.slip ?? 0) * clamp01(speed / 30) : 0;
     this.whooshGain.gain.setTargetAtTime(slip * 0.3, t, 0.12);
     this.whooshFilter.frequency.setTargetAtTime(500 + slip * 1400, t, 0.12);
     const drafting = slip > 0.05;
@@ -275,7 +282,15 @@ export class GameAudio {
 
     // Ambience: quiet on the dashboard and pause menu, live otherwise.
     this.ambBus.gain.setTargetAtTime(active ? 1 : 0, t, 0.2);
-    this.amb?.update?.(t, active, speed, drive);
+    this.amb?.update?.(t, active && !drive.paused, speed, drive);
+
+    // Pause: muffle everything rather than cut it.
+    const paused = !!drive.paused && active;
+    this.muffle.frequency.setTargetAtTime(paused ? 380 : 20000, t, paused ? 0.1 : 0.06);
+    if (paused !== this.muffled) {
+      this.muffled = paused;
+      if (this.sound || this.music) this.#log(paused ? "pause muffle on" : "pause muffle off");
+    }
 
     // Music: the title theme and the race music cross-fade (about 1.5 s).
     const game = this.scene === "game";

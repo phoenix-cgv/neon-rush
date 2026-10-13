@@ -810,7 +810,8 @@ function frame(now) {
   last = now;
   fps += (1 / Math.max(frameDt, 1e-4) - fps) * 0.08;
 
-  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open, {
+  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open, {
+    paused: menu.open,
     drift: vehicle.state.driftFactor,
     grounded: vehicle.state.grounded,
     slide: rearSlip(vehicle.state.wheels),
