@@ -6,8 +6,10 @@
 // Arpeggios, MIDI. "day" is the original; "night" (Grand Prix) is lower,
 // faster and minor, with a driving bass pulse under it.
 const MUSIC = {
-  day: { notes: [57, 60, 64, 67, 55, 59, 62, 65], stepSec: 0.2, bass: false },
-  night: { notes: [45, 57, 48, 57, 43, 55, 46, 55], stepSec: 0.14, bass: true },
+  day: { notes: [57, 60, 64, 67, 55, 59, 62, 65], stepSec: 0.2, bass: false, type: "square", dur: 0.18, vol: 0.5 },
+  night: { notes: [45, 57, 48, 57, 43, 55, 46, 55], stepSec: 0.14, bass: true, type: "square", dur: 0.18, vol: 0.5 },
+  // Title screen: slow, soft and calm, with a low pad under it.
+  title: { notes: [57, 64, 69, 72, 67, 64, 60, 64], stepSec: 0.55, bass: false, type: "triangle", dur: 0.95, vol: 0.5, pad: [45, 52, 57] },
 };
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
@@ -18,8 +20,8 @@ export class GameAudio {
     this.ctx = null;
     this.music = true;
     this.sound = true;
-    this.step = 0;
-    this.nextT = 0;
+    this.seq = { title: { step: 0, nextT: 0 }, race: { step: 0, nextT: 0 } }; // one sequencer per music bus
+    this.scene = "title"; // title | game: which music is meant to be playing
     this.squealing = false; // for logging the on/off edge only
     this.levelName = null;
     this.drill = null; // a testDrift() preview in progress
@@ -60,6 +62,13 @@ export class GameAudio {
     this.master.connect(this.limiter).connect(c.destination);
     this.musicGain = c.createGain();
     this.musicGain.connect(this.master);
+    // Two music buses under the music gain, so the title theme and the race
+    // music can cross-fade instead of cutting.
+    this.titleBus = c.createGain();
+    this.titleBus.connect(this.musicGain);
+    this.raceBus = c.createGain();
+    this.raceBus.gain.value = 0;
+    this.raceBus.connect(this.musicGain);
     this.sfxGain = c.createGain();
     this.sfxGain.connect(this.master);
 
@@ -180,7 +189,6 @@ export class GameAudio {
     this.whooshSrc.start();
     this.whooshing = false;
 
-    this.nextT = c.currentTime + 0.1;
     this.#applyGains();
     // setLevel() may have been called before there was a context to build in.
     if (this.levelName) this.setLevel(this.levelName);
@@ -269,30 +277,55 @@ export class GameAudio {
     this.ambBus.gain.setTargetAtTime(active ? 1 : 0, t, 0.2);
     this.amb?.update?.(t, active, speed, drive);
 
-    // schedule the arpeggio a little ahead of the clock
-    const m = MUSIC[this.musicStyle];
-    while (this.nextT < t + 0.25) {
+    // Music: the title theme and the race music cross-fade (about 1.5 s).
+    const game = this.scene === "game";
+    this.titleBus.gain.setTargetAtTime(game ? 0 : 1, t, 0.5);
+    this.raceBus.gain.setTargetAtTime(game ? 1 : 0, t, 0.5);
+    this.#sequence(this.seq.title, MUSIC.title, this.titleBus, t, !game || this.titleBus.gain.value > 0.02);
+    this.#sequence(this.seq.race, MUSIC[this.musicStyle], this.raceBus, t, game || this.raceBus.gain.value > 0.02);
+  }
+
+  /**
+   * Schedule one music bus's notes a little ahead of the clock. A bus that
+   * is faded out is left alone (and re-syncs to "now" when it returns), so
+   * the idle one costs nothing.
+   */
+  #sequence(seq, m, bus, t, running) {
+    if (!running) return void (seq.nextT = 0);
+    if (seq.nextT === 0) seq.nextT = t + 0.1;
+    while (seq.nextT < t + 0.25) {
       if (this.music) {
-        this.#note(m.notes[this.step % m.notes.length], this.nextT);
-        if (m.bass && this.step % 2 === 0) this.#bass(m.notes[(this.step >> 3) % m.notes.length] - 12, this.nextT);
+        this.#note(m.notes[seq.step % m.notes.length], seq.nextT, bus, m);
+        if (m.bass && seq.step % 2 === 0) this.#bass(m.notes[(seq.step >> 3) % m.notes.length] - 12, seq.nextT);
+        if (m.pad && seq.step % 8 === 0) for (const p of m.pad) this.#note(p, seq.nextT, bus, { type: "sine", dur: 4.2, vol: 0.28 });
       }
-      this.step++;
-      this.nextT += m.stepSec;
+      seq.step++;
+      seq.nextT += m.stepSec;
     }
   }
 
-  #note(midi, when) {
+  /**
+   * Which music should be playing: "title" (calm, the home screen) or
+   * "game" (the level's race music). They cross-fade.
+   */
+  setScene(scene) {
+    if (scene === this.scene) return;
+    this.scene = scene;
+    this.#log(`music scene: ${scene}`, scene === "game" ? "(cross-fading to race music)" : "(cross-fading to title theme)");
+  }
+
+  #note(midi, when, bus = this.raceBus, { type = "square", dur = 0.18, vol = 0.5 } = {}) {
     const c = this.ctx;
     const o = c.createOscillator();
     const g = c.createGain();
-    o.type = "square";
+    o.type = type;
     o.frequency.value = mtof(midi);
     g.gain.setValueAtTime(0.0001, when);
-    g.gain.exponentialRampToValueAtTime(0.5, when + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.18);
-    o.connect(g).connect(this.musicGain);
+    g.gain.exponentialRampToValueAtTime(vol, when + Math.min(0.01 + dur * 0.15, 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g).connect(bus);
     o.start(when);
-    o.stop(when + 0.2);
+    o.stop(when + dur + 0.02);
   }
 
   /** A short low pulse under the night music. */
@@ -305,7 +338,7 @@ export class GameAudio {
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(0.7, when + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, when + 0.2);
-    o.connect(g).connect(this.musicGain);
+    o.connect(g).connect(this.raceBus);
     o.start(when);
     o.stop(when + 0.22);
   }
@@ -525,7 +558,7 @@ export class GameAudio {
   setLevel(name) {
     this.levelName = name;
     this.musicStyle = name === "grandprix" ? "night" : "day";
-    this.step = 0;
+    this.seq.race.step = 0;
     this.setOpponents(0); // main.js re-adds them once the new race exists
     if (!this.ctx) return;
     const t = this.ctx.currentTime;

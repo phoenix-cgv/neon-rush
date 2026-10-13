@@ -751,6 +751,7 @@ const dashboard = new Dashboard({
   onPlay: (i) => {
     document.body.classList.remove("dash-open");
     audio.unlock();
+    audio.setScene("game");
     // The level behind the title page is already loaded and untouched
     // (after a win it is the next level): just start it.
     if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]);
@@ -759,6 +760,7 @@ const dashboard = new Dashboard({
 function showDashboard() {
   menu.close();
   const i = Math.max(0, ORDER.indexOf(levelName));
+  audio.setScene("title");
   document.body.classList.add("dash-open");
   dashboard.show(i);
 }
