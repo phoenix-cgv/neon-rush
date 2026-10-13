@@ -81,6 +81,13 @@ export class Crosswind {
     return this.zones.some((z) => this.#strengthAt(z, s) > 0.05);
   }
 
+  /** Strongest gust at s across every zone, 0..1 (ramps included). For the wind sound. */
+  intensityAt(s) {
+    let k = 0;
+    for (const z of this.zones) k = Math.max(k, this.#strengthAt(z, s));
+    return k;
+  }
+
   #forceAt(z, ctx) {
     const k = this.#strengthAt(z, ctx.s);
     if (k <= 0) return null;

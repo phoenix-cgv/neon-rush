@@ -348,6 +348,7 @@ export class Rockfall {
           r.phase = "bounce";
           r.t = 0;
           r.dustT = 0;
+          this.#announce("rock-landed", r, field);
         }
         break;
       }
@@ -398,6 +399,13 @@ export class Rockfall {
         // Sink once the player is well past it, or after a while anyway.
         const lead = field[0]?.vehicle;
         const L = this.track.length;
+        // Tell the sound once when the player's car reaches a settled rock.
+        // The crash itself is the vehicle's ordinary wall impact; this is
+        // only the rock's own thud on top of it.
+        if (!r.hitCar && lead && this.#distanceTo(r, lead) < r.radius + 1.8) {
+          r.hitCar = true;
+          this.#announce("rock-hit-car", r, field);
+        }
         let past = lead ? lead.s - r.s : 0;
         past = ((past % L) + L) % L;
         if ((past > 60 && past < L / 2) || r.t > 25) this.#sink(r);
@@ -412,6 +420,18 @@ export class Rockfall {
       }
     }
     if (r.dustT >= 0) r.dustT += dt;
+  }
+
+  /** Straight-line distance, m, from the rock's resting place to a car. */
+  #distanceTo(r, vehicle) {
+    const p = vehicle.body.translation();
+    return Math.hypot(p.x - r.rest.x, p.y - r.rest.y, p.z - r.rest.z);
+  }
+
+  /** Emit a rock event with how far the player is from it, for the sound. */
+  #announce(type, r, field) {
+    const lead = field[0]?.vehicle;
+    this.eventBus?.emit(type, { distance: lead ? this.#distanceTo(r, lead) : Infinity, size: r.radius });
   }
 
   #sink(r) {

@@ -3,8 +3,14 @@
 // refuse to start an AudioContext before a user gesture, so everything
 // is created lazily by unlock(), which the dashboard calls from a click.
 
-const NOTES = [57, 60, 64, 67, 55, 59, 62, 65]; // Am – G-ish, MIDI
+// Arpeggios, MIDI. "day" is the original; "night" (Grand Prix) is lower,
+// faster and minor, with a driving bass pulse under it.
+const MUSIC = {
+  day: { notes: [57, 60, 64, 67, 55, 59, 62, 65], stepSec: 0.2, bass: false },
+  night: { notes: [45, 57, 48, 57, 43, 55, 46, 55], stepSec: 0.14, bass: true },
+};
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
+const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
 
 export class GameAudio {
   constructor() {
@@ -14,6 +20,12 @@ export class GameAudio {
     this.step = 0;
     this.nextT = 0;
     this.squealing = false; // for logging the on/off edge only
+    this.levelName = null;
+    this.lastCrash = -1; // when the last crash sounded, and how hard
+    this.lastCrashK = 0;
+    this.musicStyle = "day";
+    this.amb = null; // the current level's ambience: { name, gain, stop, update }
+    this.opponents = []; // Grand Prix: one engine voice per AI car
   }
 
   configure({ music, sound }) {
@@ -82,8 +94,31 @@ export class GameAudio {
     this.squealSrc.connect(this.squealFilter).connect(this.squealGain).connect(this.sfxGain);
     this.squealSrc.start();
 
+    // Level ambience sits on its own bus under the sfx bus, so the Sound
+    // toggle silences it and the pause menu can fade it on its own.
+    this.ambBus = c.createGain();
+    this.ambBus.gain.value = 0;
+    this.ambBus.connect(this.sfxGain);
+
+    // slipstream whoosh: noise through a bandpass that opens with the tow
+    this.whooshSrc = c.createBufferSource();
+    this.whooshSrc.buffer = this.noise;
+    this.whooshSrc.loop = true;
+    this.whooshFilter = c.createBiquadFilter();
+    this.whooshFilter.type = "bandpass";
+    this.whooshFilter.frequency.value = 700;
+    this.whooshFilter.Q.value = 1.2;
+    this.whooshGain = c.createGain();
+    this.whooshGain.gain.value = 0;
+    this.whooshSrc.connect(this.whooshFilter).connect(this.whooshGain).connect(this.sfxGain);
+    this.whooshSrc.start();
+    this.whooshing = false;
+
     this.nextT = c.currentTime + 0.1;
     this.#applyGains();
+    // setLevel() may have been called before there was a context to build in.
+    if (this.levelName) this.setLevel(this.levelName);
+    if (this.opponentCount) this.setOpponents(this.opponentCount);
   }
 
   #applyGains() {
@@ -122,11 +157,29 @@ export class GameAudio {
       if (this.sound) this.#log(on ? "tyre-squeal start" : "tyre-squeal stop");
     }
 
+    // Slipstream: a whoosh that swells with the tow and with speed.
+    const slip = active ? clamp01(drive.slip ?? 0) * clamp01(speed / 30) : 0;
+    this.whooshGain.gain.setTargetAtTime(slip * 0.3, t, 0.12);
+    this.whooshFilter.frequency.setTargetAtTime(500 + slip * 1400, t, 0.12);
+    const drafting = slip > 0.05;
+    if (drafting !== this.whooshing) {
+      this.whooshing = drafting;
+      if (this.sound) this.#log(drafting ? "slipstream whoosh start" : "slipstream whoosh stop");
+    }
+
+    // Ambience: quiet on the dashboard and pause menu, live otherwise.
+    this.ambBus.gain.setTargetAtTime(active ? 1 : 0, t, 0.2);
+    this.amb?.update?.(t, active, speed, drive);
+
     // schedule the arpeggio a little ahead of the clock
+    const m = MUSIC[this.musicStyle];
     while (this.nextT < t + 0.25) {
-      if (this.music) this.#note(NOTES[this.step % NOTES.length], this.nextT);
+      if (this.music) {
+        this.#note(m.notes[this.step % m.notes.length], this.nextT);
+        if (m.bass && this.step % 2 === 0) this.#bass(m.notes[(this.step >> 3) % m.notes.length] - 12, this.nextT);
+      }
       this.step++;
-      this.nextT += 0.2;
+      this.nextT += m.stepSec;
     }
   }
 
@@ -142,6 +195,21 @@ export class GameAudio {
     o.connect(g).connect(this.musicGain);
     o.start(when);
     o.stop(when + 0.2);
+  }
+
+  /** A short low pulse under the night music. */
+  #bass(midi, when) {
+    const c = this.ctx;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.type = "sawtooth";
+    o.frequency.value = mtof(midi);
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(0.7, when + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.2);
+    o.connect(g).connect(this.musicGain);
+    o.start(when);
+    o.stop(when + 0.22);
   }
 
   click() {
@@ -207,31 +275,61 @@ export class GameAudio {
   }
 
   /**
-   * A crash, sized 0..1 by how hard the hit was: a filtered noise burst
-   * (the crunch, duller and longer the harder it is) over a low sine
-   * thud. A graze is a tick; a head-on is a boom.
+   * A filtered noise burst on the sfx bus: the crunch of a crash, the
+   * rumble of a rock. The lowpass sweeps from `from` Hz down to `to` Hz
+   * over `dur`, so a bigger, slower sound is also a duller one.
    */
-  crash(severity = 0.5) {
-    const k = Math.min(Math.max(severity, 0), 1);
-    if (!this.ctx || !this.sound) return;
-    this.#log("crash", `severity=${k.toFixed(2)}`);
+  #burst({ vol, from, to, dur }) {
     const c = this.ctx;
     const t = c.currentTime + 0.005;
-    const dur = 0.15 + k * 0.5;
     const src = c.createBufferSource();
     src.buffer = this.noise;
     const lp = c.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.setValueAtTime(3500 - k * 2200, t);
-    lp.frequency.exponentialRampToValueAtTime(200, t + dur);
+    lp.frequency.setValueAtTime(from, t);
+    lp.frequency.exponentialRampToValueAtTime(to, t + dur);
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.25 + k * 0.6, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(lp).connect(g).connect(this.sfxGain);
     src.start(t);
     src.stop(t + dur + 0.05);
-    this.#blip({ type: "sine", freq: 130 - k * 50, to: 40, dur: 0.2 + k * 0.3, vol: 0.3 + k * 0.5 });
+  }
+
+  /**
+   * A crash, sized 0..1 by how hard the hit was: a noise burst (the
+   * crunch, duller and longer the harder it is) over a low sine thud. A
+   * graze is a tick; a head-on is a boom.
+   */
+  crash(severity = 0.5) {
+    const k = clamp01(severity);
+    if (!this.ctx || !this.sound) return;
+    // A scrape along a wall reports a string of tiny hits; sound only the
+    // ones that matter, and never more than a few a second.
+    const now = this.ctx.currentTime;
+    if (k < 0.06 || (now - this.lastCrash < 0.25 && k < this.lastCrashK + 0.2)) return;
+    this.lastCrash = now;
+    this.lastCrashK = k;
+    this.#log("crash", `severity=${k.toFixed(2)}`);
+    this.#burst({ vol: 0.4 + k * 0.6, from: 3500 - k * 2200, to: 200, dur: 0.15 + k * 0.5 });
+    this.#blip({ type: "sine", freq: 130 - k * 50, to: 40, dur: 0.2 + k * 0.3, vol: 0.4 + k * 0.5 });
+  }
+
+  /** A boulder landing somewhere: a deep rumble, louder the closer it is. */
+  rockLanded(distance = 60) {
+    if (!this.ctx || !this.sound) return;
+    const near = clamp01(1 - distance / 160);
+    this.#log("rock-landed", `distance=${Math.round(distance)}m`);
+    this.#burst({ vol: 0.15 + near * 0.7, from: 600, to: 50, dur: 1.1 });
+    this.#blip({ type: "sine", freq: 70, to: 30, dur: 0.6, vol: 0.2 + near * 0.6 });
+  }
+
+  /** The player's car meeting a settled rock: a sharp stony crack over the crash. */
+  rockHit() {
+    if (!this.ctx || !this.sound) return;
+    this.#log("rock-hit-car");
+    this.#burst({ vol: 0.8, from: 5000, to: 300, dur: 0.35 });
   }
 
   /** Checkpoint passed: a quick bright two-note ping, rising. */
@@ -304,5 +402,187 @@ export class GameAudio {
   raceLost() {
     this.#play("race-lost", [67, 63, 60, 55].map((m, i) =>
       ({ type: "triangle", freq: mtof(m), dur: 0.24, vol: 0.4, delay: i * 0.16 })));
+  }
+
+  // ---------------------------------------------------------------------
+  // Per-level ambience. Each level builds its nodes ONCE in setLevel() and
+  // then only nudges gains in update(); nothing is created per frame. A
+  // level change fades the old bed out and the new one in, then frees the
+  // old nodes.
+  // ---------------------------------------------------------------------
+
+  /** Call from loadLevel. Names: city | mountain | grandprix (anything else: no ambience). */
+  setLevel(name) {
+    this.levelName = name;
+    this.musicStyle = name === "grandprix" ? "night" : "day";
+    this.step = 0;
+    this.setOpponents(0); // main.js re-adds them once the new race exists
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const old = this.amb;
+    if (old) {
+      old.gain.gain.setTargetAtTime(0, t, 0.35);
+      setTimeout(() => old.stop(), 2500);
+    }
+    const build = { city: this.#cityAmbience, mountain: this.#mountainAmbience, grandprix: this.#nightAmbience }[name];
+    this.amb = build ? build.call(this) : null;
+    if (this.amb) this.amb.gain.gain.setTargetAtTime(1, t, 0.6);
+    this.#log(`level ambience: ${name}`, `(music: ${this.musicStyle})`);
+  }
+
+  /** A looping noise voice: source -> filter -> gain. Returns the pieces. */
+  #noiseVoice(type, freq, q, dest) {
+    const c = this.ctx;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const filter = c.createBiquadFilter();
+    filter.type = type;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const gain = c.createGain();
+    gain.gain.value = 0;
+    src.connect(filter).connect(gain).connect(dest);
+    src.start();
+    return { src, filter, gain };
+  }
+
+  /** Common wrapper: a fade-able gain into the ambience bus, and a stop() that frees its nodes. */
+  #ambience() {
+    const gain = this.ctx.createGain();
+    gain.gain.value = 0;
+    gain.connect(this.ambBus);
+    return {
+      gain,
+      sources: [], // every started source node, so stop() can end them
+      update: null,
+      stop() {
+        for (const s of this.sources) { try { s.stop(); } catch { /* already stopped */ } }
+        gain.disconnect();
+      },
+    };
+  }
+
+  /** City: a soft traffic hum, a little air, and a bird now and then. */
+  #cityAmbience() {
+    const amb = this.#ambience();
+    const hum = this.#noiseVoice("lowpass", 380, 0.7, amb.gain);
+    const air = this.#noiseVoice("bandpass", 2600, 0.6, amb.gain);
+    hum.gain.gain.value = 0.22;
+    air.gain.gain.value = 0.03;
+    amb.sources.push(hum.src, air.src);
+    let nextBird = 0;
+    amb.update = (t, active) => {
+      if (!active || t < nextBird) return;
+      nextBird = t + 3 + Math.random() * 6;
+      const hi = 3000 + Math.random() * 1500;
+      this.#play("city-bird", [
+        { type: "sine", freq: hi, to: hi * 1.4, dur: 0.07, vol: 0.18 },
+        { type: "sine", freq: hi * 1.2, to: hi * 1.6, dur: 0.09, vol: 0.18, delay: 0.1 },
+      ]);
+    };
+    return amb;
+  }
+
+  /** Mountain: wind that swells with the crosswind gust and with speed. */
+  #mountainAmbience() {
+    const amb = this.#ambience();
+    const wind = this.#noiseVoice("bandpass", 500, 0.7, amb.gain);
+    const body = this.#noiseVoice("lowpass", 140, 0.7, amb.gain);
+    amb.sources.push(wind.src, body.src);
+    let gusting = false;
+    amb.update = (t, active, speed, drive) => {
+      const gust = clamp01(drive.wind ?? 0);
+      const v = clamp01(speed / 50);
+      wind.gain.gain.setTargetAtTime(0.06 + gust * 0.5 + v * 0.12, t, 0.15);
+      wind.filter.frequency.setTargetAtTime(350 + gust * 900 + v * 250, t, 0.2);
+      body.gain.gain.setTargetAtTime(0.1 + gust * 0.5, t, 0.2);
+      const strong = active && gust > 0.5;
+      if (strong !== gusting) {
+        gusting = strong;
+        if (this.sound) this.#log(strong ? "mountain wind: gust" : "mountain wind: calm");
+      }
+    };
+    return amb;
+  }
+
+  /** Grand Prix: a low pulsing drone and a distant crowd swell under faster night music. */
+  #nightAmbience() {
+    const c = this.ctx;
+    const amb = this.#ambience();
+    const drone = c.createGain();
+    drone.gain.value = 0.16;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 240;
+    const o1 = c.createOscillator();
+    const o2 = c.createOscillator();
+    o1.type = o2.type = "sawtooth";
+    o1.frequency.value = 55;
+    o2.frequency.value = 55.4; // beats slowly against the first
+    o1.connect(lp);
+    o2.connect(lp);
+    lp.connect(drone).connect(amb.gain);
+    // slow tremolo so the drone breathes
+    const lfo = c.createOscillator();
+    const depth = c.createGain();
+    lfo.frequency.value = 0.35;
+    depth.gain.value = 0.07;
+    lfo.connect(depth).connect(drone.gain);
+    const crowd = this.#noiseVoice("bandpass", 900, 0.5, amb.gain);
+    crowd.gain.gain.value = 0.05;
+    const swell = c.createGain();
+    swell.gain.value = 0.03;
+    lfo.connect(swell).connect(crowd.gain.gain);
+    for (const o of [o1, o2, lfo]) o.start();
+    amb.sources.push(o1, o2, lfo, crowd.src);
+    return amb;
+  }
+
+  /**
+   * Grand Prix: one engine voice per AI car, built once. Call with the
+   * number of opponents after the race is created (0 on solo levels).
+   */
+  setOpponents(n) {
+    this.opponentCount = n;
+    if (!this.ctx) return;
+    const c = this.ctx;
+    for (const v of this.opponents) {
+      try { v.o.stop(); v.o2.stop(); } catch { /* already stopped */ }
+      v.gain.disconnect();
+    }
+    this.opponents = [];
+    for (let i = 0; i < n; i++) {
+      const o = c.createOscillator();
+      const o2 = c.createOscillator();
+      o.type = o2.type = "sawtooth";
+      o2.detune.value = 22;
+      const lp = c.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 500;
+      const gain = c.createGain();
+      gain.gain.value = 0;
+      o.connect(lp);
+      o2.connect(lp);
+      lp.connect(gain).connect(this.ambBus);
+      o.start();
+      o2.start();
+      this.opponents.push({ o, o2, lp, gain, pitch: 1 + i * 0.045 });
+    }
+    if (n) this.#log(`opponent engines: ${n}`);
+  }
+
+  /** Per frame, per AI car: distance to the player (m) and its speed (m/s). */
+  updateOpponent(i, distance, speed) {
+    const v = this.opponents[i];
+    if (!v) return;
+    const t = this.ctx.currentTime;
+    const near = (1 - clamp01(distance / 70)) ** 2;
+    const k = clamp01(speed / 60);
+    const f = (45 + k * 120) * v.pitch;
+    v.o.frequency.setTargetAtTime(f, t, 0.1);
+    v.o2.frequency.setTargetAtTime(f, t, 0.1);
+    v.lp.frequency.setTargetAtTime(250 + k * 700, t, 0.1);
+    v.gain.gain.setTargetAtTime(near * (0.1 + k * 0.14), t, 0.1);
   }
 }

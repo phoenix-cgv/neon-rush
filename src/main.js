@@ -404,6 +404,8 @@ gameplayEvents.on("boost-stopped", (e) => { if (e.car?.isPlayer) audio.boostStop
 gameplayEvents.on("pickup-collected", (e) => { if (e.car?.isPlayer) audio.pickup(); });
 gameplayEvents.on("start-light", (e) => audio.startLight(e.lamp));
 gameplayEvents.on("race-started", () => audio.raceStarted());
+gameplayEvents.on("rock-landed", (e) => audio.rockLanded(e.distance));
+gameplayEvents.on("rock-hit-car", () => audio.rockHit());
 gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
@@ -536,6 +538,7 @@ async function buildLevel(name) {
     }
   }
   levelName = name;
+  audio.setLevel(name);
   level = LEVELS[name](RAPIER, world, scene, asset);
 
   applyLighting(level.lit ?? {}, level.track ?? null);
@@ -595,6 +598,7 @@ async function buildLevel(name) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    audio.setOpponents(race.cars.length - 1);
     gates = new CheckpointGates(level.track, scene, {
       color: level.lit?.glow,
       scenery: asset?.scene ?? null, // the map's own objects, for placement
@@ -790,7 +794,21 @@ function frame(now) {
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open, {
     drift: vehicle.state.driftFactor,
     grounded: vehicle.state.grounded,
+    wind: crosswind ? crosswind.intensityAt(vehicle.s) : 0,
+    slip: race ? race.player.slipstream : 0,
   });
+  // Grand Prix: each AI car's engine gets louder the closer it is. Distance
+  // is measured in track space (gap along the lap plus sideways offset),
+  // which is cheap and needs no allocation.
+  if (race && audio.opponents.length) {
+    const L = level.track.length;
+    for (let i = 1; i < race.cars.length; i++) {
+      const o = race.cars[i].vehicle;
+      let gap = Math.abs(o.s - vehicle.s) % L;
+      if (gap > L / 2) gap = L - gap;
+      audio.updateOpponent(i - 1, Math.hypot(gap, o.lateralOffset - vehicle.lateralOffset), o.speed);
+    }
+  }
 
   // Home screen: the world sits still and the camera frames the car from
   // behind and to the left, so it sits low and to the right of the title.
