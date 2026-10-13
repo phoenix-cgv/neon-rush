@@ -10,7 +10,8 @@ const MUSIC = {
   night: { notes: [45, 57, 48, 57, 43, 55, 46, 55], stepSec: 0.14, bass: true },
 };
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
-const clamp01 = (x) => Math.min(Math.max(x, 0), 1);
+const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
+const clamp01 = (x) => clamp(x, 0, 1);
 
 export class GameAudio {
   constructor() {
@@ -21,6 +22,7 @@ export class GameAudio {
     this.nextT = 0;
     this.squealing = false; // for logging the on/off edge only
     this.levelName = null;
+    this.drill = null; // a testDrift() preview in progress
     this.lastCrash = -1; // when the last crash sounded, and how hard
     this.lastCrashK = 0;
     this.musicStyle = "day";
@@ -91,18 +93,72 @@ export class GameAudio {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
 
-    // tyre squeal: looping noise through a bandpass, silent until drifting
-    this.squealSrc = c.createBufferSource();
-    this.squealSrc.buffer = this.noise;
-    this.squealSrc.loop = true;
-    this.squealFilter = c.createBiquadFilter();
-    this.squealFilter.type = "bandpass";
-    this.squealFilter.frequency.value = 1800;
-    this.squealFilter.Q.value = 7;
-    this.squealGain = c.createGain();
+    // Tyre squeal, in layers, all built once and running forever (a voice
+    // that is never started or stopped cannot click; only its gain moves):
+    //  - tonal: three detuned saws around 760-1100 Hz through a bandpass,
+    //    the actual "screech";
+    //  - wobble: two LFOs (5-12 Hz, re-aimed at random every quarter
+    //    second) bend the pitch and the volume, so it sounds like rubber
+    //    gripping and slipping rather than a steady beep;
+    //  - texture: quiet bandpassed noise underneath, for grit;
+    //  - a panner, so a slide to the left is heard on the left.
+    this.squealOsc = [1, 1.12, 1.27].map((ratio, i) => {
+      const o = c.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.value = 700 * ratio;
+      o.detune.value = (i - 1) * 14;
+      o.start();
+      return { o, ratio };
+    });
+    const tonalSum = c.createGain();
+    tonalSum.gain.value = 0.34;
+    this.squealBand = c.createBiquadFilter();
+    this.squealBand.type = "bandpass";
+    this.squealBand.frequency.value = 1000;
+    this.squealBand.Q.value = 4;
+    this.squealTone = c.createGain(); // the wobble's volume target
+    this.squealTone.gain.value = 0.75;
+    for (const v of this.squealOsc) v.o.connect(tonalSum);
+    tonalSum.connect(this.squealBand).connect(this.squealTone);
+
+    this.wobbleA = c.createOscillator();
+    this.wobbleB = c.createOscillator();
+    this.wobbleA.type = "sine";
+    this.wobbleB.type = "triangle";
+    this.wobbleA.frequency.value = 6.5;
+    this.wobbleB.frequency.value = 10.3;
+    const pitchDepth = c.createGain();
+    pitchDepth.gain.value = 45; // cents
+    const ampDepth = c.createGain();
+    ampDepth.gain.value = 0.22;
+    this.wobbleA.connect(pitchDepth);
+    this.wobbleB.connect(pitchDepth);
+    this.wobbleA.connect(ampDepth);
+    this.wobbleB.connect(ampDepth);
+    for (const v of this.squealOsc) pitchDepth.connect(v.o.detune);
+    ampDepth.connect(this.squealTone.gain);
+    this.wobbleA.start();
+    this.wobbleB.start();
+    this.nextWobble = 0;
+
+    const grit = c.createBufferSource();
+    grit.buffer = this.noise;
+    grit.loop = true;
+    const gritBand = c.createBiquadFilter();
+    gritBand.type = "bandpass";
+    gritBand.frequency.value = 1900;
+    gritBand.Q.value = 1.2;
+    const gritGain = c.createGain();
+    gritGain.gain.value = 0.28;
+    grit.connect(gritBand).connect(gritGain);
+    grit.start();
+
+    this.squealGain = c.createGain(); // the envelope: the only thing update() drives
     this.squealGain.gain.value = 0;
-    this.squealSrc.connect(this.squealFilter).connect(this.squealGain).connect(this.sfxGain);
-    this.squealSrc.start();
+    this.squealPan = c.createStereoPanner();
+    this.squealTone.connect(this.squealGain);
+    gritGain.connect(this.squealGain);
+    this.squealGain.connect(this.squealPan).connect(this.sfxGain);
 
     // Level ambience sits on its own bus under the sfx bus, so the Sound
     // toggle silences it and the pause menu can fade it on its own.
@@ -155,16 +211,48 @@ export class GameAudio {
     this.engineGain.gain.setTargetAtTime(active ? 0.06 + k * 0.12 : 0, t, 0.1);
 
     // Squeal: needs a real slide AND real speed, so a parked car turning
-    // the wheel or a crawl round a hairpin stays quiet. The pitch rises
-    // with speed, and the log only marks the start and end of a squeal.
-    const slide = active && (drive.grounded ?? true) ? Math.max(0, (drive.drift ?? 0) - 0.12) : 0;
-    const level = Math.min(slide * 1.6, 1) * Math.min(speed / 25, 1);
-    this.squealGain.gain.setTargetAtTime(level * 0.35, t, 0.05);
-    this.squealFilter.frequency.setTargetAtTime(1500 + k * 1500, t, 0.1);
+    // the wheel or a crawl round a hairpin stays quiet. testDrift() takes
+    // over these inputs for a few seconds so it can be previewed.
+    let drift = drive.drift ?? 0;
+    let squealSpeed = speed;
+    let pan = clamp(drive.slide ?? 0, -1, 1) * 1.4;
+    let squealOk = active && (drive.grounded ?? true);
+    if (this.drill) {
+      const u = (t - this.drill.from) / this.drill.dur;
+      if (u >= 1) {
+        this.drill = null;
+        this.#log("testDrift finished");
+      } else {
+        drift = this.drill.k;
+        squealSpeed = Math.max(speed, 40);
+        pan = Math.sin(u * Math.PI * 2) * 0.7; // slide left, then right
+        squealOk = true;
+      }
+    }
+    const slide = squealOk ? Math.max(0, drift - 0.12) : 0;
+    const level = Math.min(slide * 1.6, 1) * Math.min(squealSpeed / 25, 1);
+    // Faster to come in than to leave, and always a smooth ramp.
+    const rising = level * 0.5 > this.squealGain.gain.value;
+    this.squealGain.gain.setTargetAtTime(level * 0.5, t, rising ? 0.025 : 0.14);
+    // The more sideways, the higher it screams; a little more with speed.
+    const base = 640 + clamp01(drift) * 260 + clamp01(squealSpeed / 60) * 60;
+    for (const v of this.squealOsc) v.o.frequency.setTargetAtTime(base * v.ratio, t, 0.06);
+    this.squealBand.frequency.setTargetAtTime(base * 1.25, t, 0.08);
+    this.squealPan.pan.setTargetAtTime(clamp(pan, -0.8, 0.8), t, 0.1);
+    if (t > this.nextWobble) {
+      // Re-aim the two wobbles at random rates so the rhythm never settles.
+      this.wobbleA.frequency.setTargetAtTime(5 + Math.random() * 7, t, 0.08);
+      this.wobbleB.frequency.setTargetAtTime(5 + Math.random() * 7, t, 0.08);
+      this.nextWobble = t + 0.15 + Math.random() * 0.2;
+    }
     const on = level > 0.08;
     if (on !== this.squealing) {
       this.squealing = on;
-      if (this.sound) this.#log(on ? "tyre-squeal start" : "tyre-squeal stop");
+      if (this.sound) {
+        this.#log(on ? "tyre-squeal start" : "tyre-squeal stop");
+        // A short bark as the tyres let go.
+        if (on) this.#play("tyre-chirp", [{ type: "sawtooth", freq: 1000 + drift * 400, to: 2300, dur: 0.07, vol: 0.2 }]);
+      }
     }
 
     // Slipstream: a whoosh that swells with the tow and with speed.
@@ -412,6 +500,18 @@ export class GameAudio {
   raceLost() {
     this.#play("race-lost", [67, 63, 60, 55].map((m, i) =>
       ({ type: "triangle", freq: mtof(m), dur: 0.24, vol: 0.4, delay: i * 0.16 })));
+  }
+
+  /**
+   * Preview the drift squeal from the console without driving:
+   * `__dbg.audio.testDrift(0.7)`. intensity 0..1 is the driftFactor; it
+   * holds for `seconds` while sliding left then right across the stereo field.
+   */
+  testDrift(intensity = 0.7, seconds = 3) {
+    if (!this.ctx) return void this.#log("testDrift (skipped: audio not unlocked, click the page first)");
+    if (!this.sound) return void this.#log("testDrift (skipped: Sound is off)");
+    this.drill = { k: clamp01(intensity), from: this.ctx.currentTime, dur: Math.max(seconds, 0.5) };
+    this.#log("testDrift", `intensity=${this.drill.k.toFixed(2)} for ${seconds}s`);
   }
 
   // ---------------------------------------------------------------------

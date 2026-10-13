@@ -390,6 +390,13 @@ function applyAssists() {
 }
 
 const audio = new GameAudio();
+// Which way the rear tyres are sliding, signed (+ = to the car's right), for
+// panning the squeal. A plain loop so the frame allocates nothing.
+function rearSlip(wheels = []) {
+  let sum = 0, n = 0;
+  for (const w of wheels) if (!w.front) { sum += w.slipAngle ?? 0; n++; }
+  return n ? sum / n : 0;
+}
 
 // Gameplay sounds. Module level, like the pickup listener above: `race` is
 // reassigned on every loadLevel, so the closures read whatever it is now.
@@ -794,6 +801,7 @@ function frame(now) {
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open, {
     drift: vehicle.state.driftFactor,
     grounded: vehicle.state.grounded,
+    slide: rearSlip(vehicle.state.wheels),
     wind: crosswind ? crosswind.intensityAt(vehicle.s) : 0,
     slip: race ? race.player.slipstream : 0,
   });
