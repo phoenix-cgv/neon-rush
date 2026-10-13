@@ -13,6 +13,7 @@ export class GameAudio {
     this.sound = true;
     this.step = 0;
     this.nextT = 0;
+    this.squealing = false; // for logging the on/off edge only
   }
 
   configure({ music, sound }) {
@@ -38,16 +39,48 @@ export class GameAudio {
     this.sfxGain = c.createGain();
     this.sfxGain.connect(this.master);
 
-    // engine: detuned saw through a lowpass, pitch/volume driven by speed
+    // engine: two detuned saws and a sub-octave triangle through one
+    // lowpass; pitch/volume follow speed. The detune beats against itself,
+    // which is most of what makes it sound like a motor and not a tone.
     this.engine = c.createOscillator();
     this.engine.type = "sawtooth";
+    this.engine2 = c.createOscillator();
+    this.engine2.type = "sawtooth";
+    this.engine2.detune.value = 18; // cents
+    this.engineSub = c.createOscillator();
+    this.engineSub.type = "triangle";
+    const subGain = c.createGain();
+    subGain.gain.value = 0.7;
     this.engineFilter = c.createBiquadFilter();
     this.engineFilter.type = "lowpass";
     this.engineFilter.frequency.value = 400;
     this.engineGain = c.createGain();
     this.engineGain.gain.value = 0;
-    this.engine.connect(this.engineFilter).connect(this.engineGain).connect(this.sfxGain);
+    this.engine.connect(this.engineFilter);
+    this.engine2.connect(this.engineFilter);
+    this.engineSub.connect(subGain).connect(this.engineFilter);
+    this.engineFilter.connect(this.engineGain).connect(this.sfxGain);
     this.engine.start();
+    this.engine2.start();
+    this.engineSub.start();
+
+    // One second of white noise, looped by every noise sound. Built once.
+    this.noise = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const d = this.noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+
+    // tyre squeal: looping noise through a bandpass, silent until drifting
+    this.squealSrc = c.createBufferSource();
+    this.squealSrc.buffer = this.noise;
+    this.squealSrc.loop = true;
+    this.squealFilter = c.createBiquadFilter();
+    this.squealFilter.type = "bandpass";
+    this.squealFilter.frequency.value = 1800;
+    this.squealFilter.Q.value = 7;
+    this.squealGain = c.createGain();
+    this.squealGain.gain.value = 0;
+    this.squealSrc.connect(this.squealFilter).connect(this.squealGain).connect(this.sfxGain);
+    this.squealSrc.start();
 
     this.nextT = c.currentTime + 0.1;
     this.#applyGains();
@@ -59,15 +92,35 @@ export class GameAudio {
     this.sfxGain.gain.setTargetAtTime(this.sound ? 0.5 : 0, t, 0.05);
   }
 
-  /** Call every frame. speed in m/s; engine silent when paused/menu. */
-  update(speed, active) {
+  /**
+   * Call every frame. speed in m/s; engine silent when paused/menu.
+   * `drive.drift` is vehicle.state.driftFactor (0..1) and `drive.grounded`
+   * whether the wheels are down; both only matter to the tyre squeal.
+   */
+  update(speed, active, drive = {}) {
     if (!this.ctx) return;
     const c = this.ctx;
     const t = c.currentTime;
     const k = Math.min(speed / 60, 1);
-    this.engine.frequency.setTargetAtTime(42 + k * 110, t, 0.08);
+    const f = 42 + k * 110;
+    this.engine.frequency.setTargetAtTime(f, t, 0.08);
+    this.engine2.frequency.setTargetAtTime(f, t, 0.08);
+    this.engineSub.frequency.setTargetAtTime(f * 0.5, t, 0.08);
     this.engineFilter.frequency.setTargetAtTime(300 + k * 900, t, 0.08);
-    this.engineGain.gain.setTargetAtTime(active ? 0.05 + k * 0.1 : 0, t, 0.1);
+    this.engineGain.gain.setTargetAtTime(active ? 0.06 + k * 0.12 : 0, t, 0.1);
+
+    // Squeal: needs a real slide AND real speed, so a parked car turning
+    // the wheel or a crawl round a hairpin stays quiet. The pitch rises
+    // with speed, and the log only marks the start and end of a squeal.
+    const slide = active && (drive.grounded ?? true) ? Math.max(0, (drive.drift ?? 0) - 0.12) : 0;
+    const level = Math.min(slide * 1.6, 1) * Math.min(speed / 25, 1);
+    this.squealGain.gain.setTargetAtTime(level * 0.35, t, 0.05);
+    this.squealFilter.frequency.setTargetAtTime(1500 + k * 1500, t, 0.1);
+    const on = level > 0.08;
+    if (on !== this.squealing) {
+      this.squealing = on;
+      if (this.sound) this.#log(on ? "tyre-squeal start" : "tyre-squeal stop");
+    }
 
     // schedule the arpeggio a little ahead of the clock
     while (this.nextT < t + 0.25) {
@@ -151,6 +204,34 @@ export class GameAudio {
     o.connect(g).connect(this.sfxGain);
     o.start(t);
     o.stop(t + dur + 0.05);
+  }
+
+  /**
+   * A crash, sized 0..1 by how hard the hit was: a filtered noise burst
+   * (the crunch, duller and longer the harder it is) over a low sine
+   * thud. A graze is a tick; a head-on is a boom.
+   */
+  crash(severity = 0.5) {
+    const k = Math.min(Math.max(severity, 0), 1);
+    if (!this.ctx || !this.sound) return;
+    this.#log("crash", `severity=${k.toFixed(2)}`);
+    const c = this.ctx;
+    const t = c.currentTime + 0.005;
+    const dur = 0.15 + k * 0.5;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(3500 - k * 2200, t);
+    lp.frequency.exponentialRampToValueAtTime(200, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.25 + k * 0.6, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(lp).connect(g).connect(this.sfxGain);
+    src.start(t);
+    src.stop(t + dur + 0.05);
+    this.#blip({ type: "sine", freq: 130 - k * 50, to: 40, dur: 0.2 + k * 0.3, vol: 0.3 + k * 0.5 });
   }
 
   /** Checkpoint passed: a quick bright two-note ping, rising. */

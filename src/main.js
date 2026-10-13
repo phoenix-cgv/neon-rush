@@ -404,6 +404,7 @@ gameplayEvents.on("boost-stopped", (e) => { if (e.car?.isPlayer) audio.boostStop
 gameplayEvents.on("pickup-collected", (e) => { if (e.car?.isPlayer) audio.pickup(); });
 gameplayEvents.on("start-light", (e) => audio.startLight(e.lamp));
 gameplayEvents.on("race-started", () => audio.raceStarted());
+gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
 const menu = new Menu({
@@ -786,7 +787,10 @@ function frame(now) {
   last = now;
   fps += (1 / Math.max(frameDt, 1e-4) - fps) * 0.08;
 
-  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open);
+  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open, {
+    drift: vehicle.state.driftFactor,
+    grounded: vehicle.state.grounded,
+  });
 
   // Home screen: the world sits still and the camera frames the car from
   // behind and to the left, so it sits low and to the right of the title.
