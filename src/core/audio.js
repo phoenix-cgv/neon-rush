@@ -25,6 +25,9 @@ export class GameAudio {
     this.squealing = false; // for logging the on/off edge only
     this.levelName = null;
     this.boostWasFull = false;
+    this.lastT = 0; // previous update's clock, for airtime
+    this.airT = 0;
+    this.nextWarn = 0;
     this.drill = null; // a testDrift() preview in progress
     this.lastCrash = -1; // when the last crash sounded, and how hard
     this.lastCrashK = 0;
@@ -225,6 +228,22 @@ export class GameAudio {
     this.engineSub.frequency.setTargetAtTime(f * 0.5, t, 0.08);
     this.engineFilter.frequency.setTargetAtTime(300 + k * 900, t, 0.08);
     this.engineGain.gain.setTargetAtTime(active ? 0.06 + k * 0.12 : 0, t, 0.1);
+
+    // Airtime -> landing thud; heavy damage -> a repeating warning beep.
+    const dt = Math.min(t - this.lastT, 0.1);
+    this.lastT = t;
+    const live = active && !drive.paused;
+    if (!live) this.airT = 0;
+    else if (!(drive.grounded ?? true)) this.airT += dt;
+    else {
+      if (this.airT > 0.3) this.landing(this.airT);
+      this.airT = 0;
+    }
+    const damage = drive.damage ?? 0;
+    if (live && damage >= 0.7 && t >= this.nextWarn) {
+      this.warningBeep();
+      this.nextWarn = t + 1.5 - 0.9 * clamp01((damage - 0.7) / 0.3); // faster as it gets worse
+    }
 
     // Squeal: needs a real slide AND real speed, so a parked car turning
     // the wheel or a crawl round a hairpin stays quiet. testDrift() takes
@@ -603,6 +622,55 @@ export class GameAudio {
       { type: "sine", freq: 1760, dur: 0.5, vol: 0.35 },
       { type: "sine", freq: 2637, dur: 0.35, vol: 0.18 },
     ]);
+  }
+
+  /**
+   * A swept band of noise on the sfx bus: the generic "whoosh". The band's
+   * centre glides from `from` to `to` Hz while the volume swells and falls
+   * (swell = how far through `dur` the peak lands, 0..1).
+   */
+  #whoosh({ from, to, dur, vol, q = 1.5, swell = 0.4, delay = 0 }) {
+    const c = this.ctx;
+    const t = c.currentTime + delay + 0.005;
+    const src = c.createBufferSource();
+    src.buffer = this.noise;
+    const bp = c.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.Q.value = q;
+    bp.frequency.setValueAtTime(from, t);
+    bp.frequency.exponentialRampToValueAtTime(to, t + dur);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t + dur * swell);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(bp).connect(g).connect(this.sfxGain);
+    src.start(t);
+    src.stop(t + dur + 0.05);
+  }
+
+  /** Touchdown after being airborne: a low thud, heavier the longer you were up. */
+  landing(airTime = 0.5) {
+    if (!this.ctx || !this.sound) return;
+    const k = clamp01((airTime - 0.25) / 1.5);
+    this.#log("landing", `air=${airTime.toFixed(2)}s`);
+    this.#burst({ vol: 0.2 + k * 0.5, from: 900, to: 80, dur: 0.18 + k * 0.2 });
+    this.#blip({ type: "sine", freq: 110 - k * 40, to: 38, dur: 0.18 + k * 0.25, vol: 0.4 + k * 0.5 });
+  }
+
+  /** Low-health warning: a short, urgent double beep. */
+  warningBeep() {
+    this.#play("low-health-beep", [
+      { type: "square", freq: 880, dur: 0.08, vol: 0.28 },
+      { type: "square", freq: 880, dur: 0.08, vol: 0.28, delay: 0.12 },
+    ]);
+  }
+
+  /** Respawn: a rising whoosh with a soft shimmer, the car being put back. */
+  respawn() {
+    if (!this.ctx || !this.sound) return;
+    this.#log("respawn");
+    this.#whoosh({ from: 250, to: 3200, dur: 0.6, vol: 0.55, q: 1.2, swell: 0.7 });
+    this.#blip({ type: "sine", freq: mtof(76), to: mtof(88), dur: 0.4, vol: 0.18 });
   }
 
   /** Win: a short triumphant fanfare ending on a held chord. */

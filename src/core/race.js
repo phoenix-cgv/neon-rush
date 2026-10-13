@@ -172,6 +172,7 @@ export class Race {
         );
         c.vehicle.setTrack(this.track, c.vehicle.s);
         c.progress.markProgressFrom(c.vehicle.s);
+        this.eventBus?.emit("respawn", { car: c, vehicle: c.vehicle });
       }
     }
     this.#updateStandings();

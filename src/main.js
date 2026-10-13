@@ -422,6 +422,7 @@ gameplayEvents.on("start-light", (e) => audio.startLight(e.lamp));
 gameplayEvents.on("race-started", () => { audio.raceStarted(); audio.engineRev(); });
 gameplayEvents.on("rock-landed", (e) => audio.rockLanded(e.distance));
 gameplayEvents.on("rock-hit-car", () => audio.rockHit());
+gameplayEvents.on("respawn", (e) => { if (e.car?.isPlayer) audio.respawn(); });
 gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
@@ -812,6 +813,7 @@ function frame(now) {
 
   audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open, {
     paused: menu.open,
+    damage: vehicle.state.damage,
     boostFull: vehicle.state.boostCharge >= CAR.boostCapacity - 0.5,
     drift: vehicle.state.driftFactor,
     grounded: vehicle.state.grounded,
