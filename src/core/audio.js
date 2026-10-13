@@ -44,8 +44,18 @@ export class GameAudio {
       return;
     }
     const c = this.ctx;
+    // Everything meets at master, then a compressor that acts as a limiter:
+    // loud moments (a crash over a fanfare over the engine) are pulled down
+    // together instead of clipping.
     this.master = c.createGain();
-    this.master.connect(c.destination);
+    this.master.gain.value = 0.8;
+    this.limiter = c.createDynamicsCompressor();
+    this.limiter.threshold.value = -12;
+    this.limiter.knee.value = 8;
+    this.limiter.ratio.value = 8;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.2;
+    this.master.connect(this.limiter).connect(c.destination);
     this.musicGain = c.createGain();
     this.musicGain.connect(this.master);
     this.sfxGain = c.createGain();
@@ -124,7 +134,7 @@ export class GameAudio {
   #applyGains() {
     const t = this.ctx.currentTime;
     this.musicGain.gain.setTargetAtTime(this.music ? 0.12 : 0, t, 0.05);
-    this.sfxGain.gain.setTargetAtTime(this.sound ? 0.5 : 0, t, 0.05);
+    this.sfxGain.gain.setTargetAtTime(this.sound ? 0.65 : 0, t, 0.05);
   }
 
   /**
