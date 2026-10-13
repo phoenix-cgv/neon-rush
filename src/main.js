@@ -402,6 +402,7 @@ gameplayEvents.on("wrong-way", (e) => { if (fromPlayer(e)) audio.wrongWay(); });
 gameplayEvents.on("boost-started", (e) => { if (e.car?.isPlayer) audio.boostStarted(); });
 gameplayEvents.on("boost-stopped", (e) => { if (e.car?.isPlayer) audio.boostStopped(); });
 gameplayEvents.on("pickup-collected", (e) => { if (e.car?.isPlayer) audio.pickup(); });
+gameplayEvents.on("start-light", (e) => audio.startLight(e.lamp));
 gameplayEvents.on("race-started", () => audio.raceStarted());
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());

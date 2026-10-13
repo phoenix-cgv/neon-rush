@@ -176,7 +176,9 @@ export class RaceDirector {
   }
 
   #paintLamps(n) {
+    const turnedOn = n > this.lampsLit;
     this.lampsLit = n;
+    if (turnedOn) this.#emit("start-light", { lamp: n, total: this.lamps.length });
     this.lamps.forEach((m, i) => {
       const look = i < n ? LIT : DARK;
       m.material.color.setHex(look.color);

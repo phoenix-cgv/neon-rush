@@ -198,11 +198,16 @@ export class GameAudio {
     ]);
   }
 
-  /** Lights out: one punchy, high "go" hit. */
+  /** One start lamp lit: a short, flat F1-style beep, the same pitch each time. */
+  startLight(lamp = 1) {
+    this.#play(`start-light ${lamp}`, [{ type: "square", freq: mtof(81), dur: 0.16, vol: 0.4 }]);
+  }
+
+  /** Lights out: a higher, longer "GO" tone, with a fifth above it for bite. */
   raceStarted() {
     this.#play("race-started", [
-      { type: "square", freq: mtof(84), dur: 0.5, vol: 0.45 },
-      { type: "sawtooth", freq: mtof(72), dur: 0.5, vol: 0.3 },
+      { type: "square", freq: mtof(93), dur: 0.7, vol: 0.45 },
+      { type: "sawtooth", freq: mtof(100), dur: 0.7, vol: 0.2 },
     ]);
   }
 
