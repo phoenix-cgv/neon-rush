@@ -539,6 +539,7 @@ async function loadLevel(name) {
 }
 
 async function buildLevel(name) {
+  warmToken++; // stop any warm-up still polling the level this one replaces
   adaptive.pause(2); // a load is one long frame, not a slow GPU
   let asset;
   if (LEVELS[name].preload) {
@@ -701,7 +702,23 @@ async function buildLevel(name) {
  */
 const WARM_LIMIT = 4000; // ms
 
+// Bumped when a level starts loading, so a warm-up still polling from the
+// previous one gives up rather than reaching into materials that are
+// about to be freed.
+let warmToken = 0;
+
+/**
+ * three's own `compileAsync` is deliberately not used here. It polls every
+ * material every 10 ms until the driver reports it ready, and that loop
+ * cannot be stopped: giving up on the promise (a timeout, a level change)
+ * leaves it running, and it throws the moment one of those materials is
+ * disposed, because `properties.get(material).currentProgram` is gone by
+ * then — an uncaught error from inside a timer, which no try/catch here
+ * can reach. The same wait is done below instead, where it can be given
+ * up and where a material that has lost its program is simply dropped.
+ */
 async function warmShaders() {
+  const token = warmToken;
   const hidden = [];
   scene.traverse((o) => {
     if (!o.visible) {
@@ -710,10 +727,22 @@ async function warmShaders() {
     }
   });
   try {
-    // Never longer than WARM_LIMIT: a program that stalls must not trap
-    // the loading screen. Whatever is left compiles on first draw, as it
+    // The expensive half, and the one that matters: building and linking
+    // every program. Synchronous, so it is all done by the time this
+    // returns even if the wait below is cut short.
+    const pending = renderer.compile(scene, camera);
+    // The cheap half: waiting for drivers that link in parallel. Never
+    // longer than WARM_LIMIT — a program that stalls must not trap the
+    // loading screen; whatever is left compiles on first draw, as it
     // always used to.
-    await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, WARM_LIMIT))]);
+    const deadline = performance.now() + WARM_LIMIT;
+    while (pending.size && warmToken === token && performance.now() < deadline) {
+      for (const m of pending) {
+        const program = renderer.properties.get(m)?.currentProgram;
+        if (!program || program.isReady()) pending.delete(m); // ready, or gone
+      }
+      if (pending.size) await new Promise((r) => setTimeout(r, 10));
+    }
   } catch (err) {
     console.warn("[warmShaders]", err); // a frame will compile them instead
   } finally {
