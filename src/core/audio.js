@@ -343,6 +343,19 @@ export class GameAudio {
     o.stop(when + 0.22);
   }
 
+  /** Pointer moves onto a button: a tiny, quiet tick. */
+  hover() {
+    this.#play("button-hover", [{ type: "triangle", freq: 1250, dur: 0.04, vol: 0.12 }]);
+  }
+
+  /** Back / resume / close: two falling notes, the opposite of the rising click feel. */
+  back() {
+    this.#play("button-back", [
+      { type: "triangle", freq: 560, dur: 0.07, vol: 0.3 },
+      { type: "triangle", freq: 400, dur: 0.1, vol: 0.3, delay: 0.06 },
+    ]);
+  }
+
   click() {
     if (!this.ctx || !this.sound) return;
     this.#log("click");

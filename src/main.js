@@ -390,6 +390,15 @@ function applyAssists() {
 }
 
 const audio = new GameAudio();
+// Button sounds for the dashboard and the pause menu: click (or back, for
+// the buttons that close or return), and a hover tick from one listener.
+const BACK_ACTS = new Set(["back", "resume"]);
+const buttonSound = (act) => (BACK_ACTS.has(act) ? audio.back() : audio.click());
+document.addEventListener("pointerover", (e) => {
+  const b = e.target.closest?.("button[data-act]");
+  if (!b || b.disabled || b.contains(e.relatedTarget)) return;
+  audio.hover();
+});
 // Which way the rear tyres are sliding, signed (+ = to the car's right), for
 // panning the squeal. A plain loop so the frame allocates nothing.
 function rearSlip(wheels = []) {
@@ -417,6 +426,7 @@ gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity)
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
 const menu = new Menu({
+  onClick: buttonSound,
   onHome: () => showDashboard(),
   onQuality: applyQuality,
   onAssist: applyAssists,
@@ -746,7 +756,7 @@ const TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Gra
 const dashboard = new Dashboard({
   gameName: "Neon Rush",
   levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
-  onClick: () => audio.click(),
+  onClick: buttonSound,
   onChange: () => applyAssists(),
   onPlay: (i) => {
     document.body.classList.remove("dash-open");
