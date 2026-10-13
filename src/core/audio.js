@@ -737,6 +737,17 @@ export class GameAudio {
     this.#blip({ type: "sine", freq: 640, to: 1100, dur: 0.5, vol: 0.1 * k, delay: 0.8 });
   }
 
+  /** A new personal best lap: a bright two-step fanfare with a sparkle on top. */
+  newBest() {
+    // Starts 0.45 s late so it lands after the lap-complete arpeggio.
+    this.#play("new-best-lap", [
+      { type: "square", freq: mtof(79), dur: 0.12, vol: 0.3, delay: 0.45 },
+      { type: "square", freq: mtof(84), dur: 0.12, vol: 0.3, delay: 0.55 },
+      { type: "triangle", freq: mtof(91), dur: 0.5, vol: 0.35, delay: 0.65 },
+      { type: "sine", freq: mtof(103), dur: 0.45, vol: 0.16, delay: 0.71 },
+    ]);
+  }
+
   /** Win: a short triumphant fanfare ending on a held chord. */
   raceWon() {
     this.#play("race-won", [

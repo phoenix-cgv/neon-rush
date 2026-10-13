@@ -432,6 +432,7 @@ gameplayEvents.on("rock-hit-car", () => audio.rockHit());
 gameplayEvents.on("respawn", (e) => { if (e.car?.isPlayer) audio.respawn(); });
 gameplayEvents.on("near-miss", (e) => audio.nearMiss(e.side, e.speed));
 gameplayEvents.on("car-finished", (e) => { if (e.car?.isPlayer && levelName === "grandprix") audio.cheer(e.position); });
+gameplayEvents.on("new-best-lap", () => audio.newBest());
 gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
 gameplayEvents.on("race-won", () => audio.raceWon());
 gameplayEvents.on("race-lost", () => audio.raceLost());
@@ -1007,7 +1008,9 @@ function frame(now) {
       // best, the recording just finished becomes next visit's ghost.
       if (progress?.justCompletedLap) {
         const rec = recorder?.recording ? recorder.end(vehicle) : null;
-        Save.submitLap(levelName, progress.lastLapTime, rec);
+        if (Save.submitLap(levelName, progress.lastLapTime, rec)) {
+          gameplayEvents.emit("new-best-lap", { time: progress.lastLapTime });
+        }
       }
     } else {
       vehicle.applySoftWall();
