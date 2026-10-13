@@ -122,20 +122,21 @@ export class GameAudio {
     //    gripping and slipping rather than a steady beep;
     //  - texture: quiet bandpassed noise underneath, for grit;
     //  - a panner, so a slide to the left is heard on the left.
-    this.squealOsc = [1, 1.12, 1.27].map((ratio, i) => {
+    // The last voice is a triangle an octave down: it gives the body.
+    this.squealOsc = [1, 1.12, 1.27, 0.5].map((ratio, i) => {
       const o = c.createOscillator();
-      o.type = "sawtooth";
-      o.frequency.value = 700 * ratio;
+      o.type = i === 3 ? "triangle" : "sawtooth";
+      o.frequency.value = 490 * ratio;
       o.detune.value = (i - 1) * 14;
       o.start();
       return { o, ratio };
     });
     const tonalSum = c.createGain();
-    tonalSum.gain.value = 0.34;
+    tonalSum.gain.value = 0.3;
     this.squealBand = c.createBiquadFilter();
     this.squealBand.type = "bandpass";
-    this.squealBand.frequency.value = 1000;
-    this.squealBand.Q.value = 4;
+    this.squealBand.frequency.value = 700;
+    this.squealBand.Q.value = 1.8; // wide, so it is full rather than a thin whistle
     this.squealTone = c.createGain(); // the wobble's volume target
     this.squealTone.gain.value = 0.75;
     for (const v of this.squealOsc) v.o.connect(tonalSum);
@@ -166,8 +167,8 @@ export class GameAudio {
     grit.loop = true;
     const gritBand = c.createBiquadFilter();
     gritBand.type = "bandpass";
-    gritBand.frequency.value = 1900;
-    gritBand.Q.value = 1.2;
+    gritBand.frequency.value = 1300;
+    gritBand.Q.value = 0.8;
     const gritGain = c.createGain();
     gritGain.gain.value = 0.28;
     grit.connect(gritBand).connect(gritGain);
@@ -297,9 +298,9 @@ export class GameAudio {
     const rising = level * 0.5 > this.squealGain.gain.value;
     this.squealGain.gain.setTargetAtTime(level * 0.5, t, rising ? 0.025 : 0.14);
     // The more sideways, the higher it screams; a little more with speed.
-    const base = 640 + clamp01(drift) * 260 + clamp01(squealSpeed / 60) * 60;
+    const base = 450 + clamp01(drift) * 180 + clamp01(squealSpeed / 60) * 40;
     for (const v of this.squealOsc) v.o.frequency.setTargetAtTime(base * v.ratio, t, 0.06);
-    this.squealBand.frequency.setTargetAtTime(base * 1.25, t, 0.08);
+    this.squealBand.frequency.setTargetAtTime(base * 1.1, t, 0.08);
     this.squealPan.pan.setTargetAtTime(clamp(pan, -0.8, 0.8), t, 0.1);
     if (t > this.nextWobble) {
       // Re-aim the two wobbles at random rates so the rhythm never settles.
@@ -313,7 +314,7 @@ export class GameAudio {
       if (this.sound) {
         this.#log(on ? "tyre-squeal start" : "tyre-squeal stop");
         // A short bark as the tyres let go.
-        if (on) this.#play("tyre-chirp", [{ type: "sawtooth", freq: 1000 + drift * 400, to: 2300, dur: 0.07, vol: 0.2 }]);
+        if (on) this.#play("tyre-chirp", [{ type: "sawtooth", freq: 700 + drift * 280, to: 1600, dur: 0.07, vol: 0.2 }]);
       }
     }
 

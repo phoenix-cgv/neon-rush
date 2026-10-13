@@ -100,7 +100,7 @@ crashes are limited to a few per second.
 The squeal is built from four layers, so it sounds like rubber and not like a
 hiss:
 
-1. **Tonal screech.** Three detuned sawtooth oscillators around 700 to 1100 Hz
+1. **Tonal screech.** Three detuned sawtooth oscillators around 450 to 900 Hz plus a triangle an octave down for body
    through a bandpass filter. This is the sound you recognise as a squeal.
 2. **Wobble.** Two slow oscillators (5 to 12 Hz, re-aimed at random rates every
    fraction of a second) bend the pitch and the volume, so it sounds like the
