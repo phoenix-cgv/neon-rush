@@ -29,7 +29,7 @@ const LABELS = {
 };
 
 export class Menu {
-  constructor({ onHome, onQuality, onAssist, onRestart, levelName } = {}) {
+  constructor({ onHome, onQuality, onAssist, onRestart, onClick, levelName } = {}) {
     this.open = false;
     this.page = "pause";
     this.awaitingBind = null;
@@ -37,6 +37,7 @@ export class Menu {
     this.onQuality = onQuality;
     this.onAssist = onAssist;
     this.onRestart = onRestart;
+    this.onClick = onClick; // (act) => void, for button sounds
     // A getter, not a value: the menu outlives every level change.
     this.levelName = levelName ?? (() => null);
 
@@ -190,7 +191,10 @@ export class Menu {
           this.render();
         });
       } else {
-        el.addEventListener("click", () => this.#act(act));
+        el.addEventListener("click", () => {
+          this.onClick?.(act);
+          this.#act(act);
+        });
       }
     });
   }

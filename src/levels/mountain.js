@@ -182,6 +182,7 @@ export function buildMountain(RAPIER, world, scene, gltf) {
 
   const gate = track.spawnAt(0);
   return {
+    tunnel: [683, 821], // s range of the closed tunnel (the sound adds an echo here)
     // Falling rocks where there is a real slope above the road (measured:
     // the ground 25 m to one side is 25-50 m above it). Not in the tunnel
     // (683-821 m), not on the viaduct (1,018-1,160 m), not on the downhill

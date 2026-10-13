@@ -44,14 +44,14 @@ export class Dashboard {
     window.addEventListener("keydown", (e) => {
       if (e.key !== "Enter" || e.repeat || !this.open || this.panelOpen) return;
       e.preventDefault();
-      this.onClick?.();
+      this.onClick?.("play");
       this.#act("play");
     });
 
     this.root.addEventListener("click", (e) => {
       const el = e.target.closest("[data-act]");
       if (!el || el.disabled) return;
-      this.onClick?.();
+      this.onClick?.(el.dataset.act);
       this.#act(el.dataset.act);
     });
   }

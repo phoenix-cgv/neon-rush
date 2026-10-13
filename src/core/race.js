@@ -159,6 +159,7 @@ export class Race {
   postStep(dt) {
     for (const c of this.cars) {
       c.vehicle.applySoftWall();
+      this.#announceImpact(c);
       if (this.frozen) continue;
       const pc = this.playerControls;
       const trying = !c.isPlayer || !pc || pc.throttle > 0.05 || pc.brake > 0.05;
@@ -171,9 +172,23 @@ export class Race {
         );
         c.vehicle.setTrack(this.track, c.vehicle.s);
         c.progress.markProgressFrom(c.vehicle.s);
+        this.eventBus?.emit("respawn", { car: c, vehicle: c.vehicle });
       }
     }
     this.#updateStandings();
+  }
+
+  /**
+   * Tell the event bus when a car has just taken a hit. The vehicle
+   * already publishes each impact as `impactSeq` (a counter) and
+   * `impactForce` (0..1, how hard), which is what the dents read too, so
+   * this only watches the counter. It changes nothing in the simulation.
+   */
+  #announceImpact(c) {
+    const v = c.vehicle;
+    const last = c.lastImpactSeq ?? v.impactSeq;
+    c.lastImpactSeq = v.impactSeq;
+    if (v.impactSeq > last) this.eventBus?.emit("crash", { car: c, vehicle: v, severity: v.impactForce });
   }
 
   /** Pose every car's scene graph. alpha blends the last two physics steps. */

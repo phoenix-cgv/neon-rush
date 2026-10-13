@@ -337,7 +337,7 @@ const gameplayEvents = new GameplayEvents();
 const smoke = new Smoke(scene, MINIMAP_LAYER);
 const driftFx = new DriftFx(scene);
 const wheelGlow = new WheelGlow(scene); // neon on the ground behind the rear wheels (Grand Prix)
-gameplayHud.onTierUp = (tier) => driftFx.burst(carRig, tier);
+gameplayHud.onTierUp = (tier) => { driftFx.burst(carRig, tier); audio.tierUp(tier); };
 
 // A time-trial level's boost orbs (see Pickups' boostSeconds) push the
 // race clock back instead of filling the boost meter. One listener for
@@ -390,7 +390,54 @@ function applyAssists() {
 }
 
 const audio = new GameAudio();
+// Fraction of the tyres on grass or gravel (surfaceGrip below asphalt's 1),
+// for the Grand Prix's rumble. A plain loop: nothing allocated per frame.
+function offAsphalt(wheels = []) {
+  let n = 0;
+  for (const w of wheels) if ((w.surfaceGrip ?? 1) < 0.9 && w.grounded !== false) n++;
+  return wheels.length ? n / wheels.length : 0;
+}
+// Button sounds for the dashboard and the pause menu: click (or back, for
+// the buttons that close or return), and a hover tick from one listener.
+const BACK_ACTS = new Set(["back", "resume"]);
+const buttonSound = (act) => (BACK_ACTS.has(act) ? audio.back() : audio.click());
+document.addEventListener("pointerover", (e) => {
+  const b = e.target.closest?.("button[data-act]");
+  if (!b || b.disabled || b.contains(e.relatedTarget)) return;
+  audio.hover();
+});
+// Which way the rear tyres are sliding, signed (+ = to the car's right), for
+// panning the squeal. A plain loop so the frame allocates nothing.
+function rearSlip(wheels = []) {
+  let sum = 0, n = 0;
+  for (const w of wheels) if (!w.front) { sum += w.slipAngle ?? 0; n++; }
+  return n ? sum / n : 0;
+}
+
+// Gameplay sounds. Module level, like the pickup listener above: `race` is
+// reassigned on every loadLevel, so the closures read whatever it is now.
+// Progress events do not name a car, so match them against the player's own.
+const fromPlayer = (e) => e.progress && e.progress === race?.cars[0]?.progress;
+gameplayEvents.on("checkpoint", (e) => { if (fromPlayer(e)) audio.checkpoint(); });
+gameplayEvents.on("checkpoint-missed", (e) => { if (fromPlayer(e)) audio.checkpointMissed(); });
+gameplayEvents.on("lap-complete", (e) => { if (fromPlayer(e)) audio.lapComplete(); });
+gameplayEvents.on("wrong-way", (e) => { if (fromPlayer(e)) audio.wrongWay(); });
+gameplayEvents.on("boost-started", (e) => { if (e.car?.isPlayer) audio.boostStarted(); });
+gameplayEvents.on("boost-stopped", (e) => { if (e.car?.isPlayer) audio.boostStopped(); });
+gameplayEvents.on("pickup-collected", (e) => { if (e.car?.isPlayer) audio.pickup(); });
+gameplayEvents.on("start-light", (e) => audio.startLight(e.lamp));
+gameplayEvents.on("race-started", () => { audio.raceStarted(); audio.engineRev(); });
+gameplayEvents.on("rock-landed", (e) => audio.rockLanded(e.distance));
+gameplayEvents.on("rock-hit-car", () => audio.rockHit());
+gameplayEvents.on("respawn", (e) => { if (e.car?.isPlayer) audio.respawn(); });
+gameplayEvents.on("near-miss", (e) => audio.nearMiss(e.side, e.speed));
+gameplayEvents.on("car-finished", (e) => { if (e.car?.isPlayer && levelName === "grandprix") audio.cheer(e.position); });
+gameplayEvents.on("new-best-lap", () => audio.newBest());
+gameplayEvents.on("crash", (e) => { if (e.car?.isPlayer) audio.crash(e.severity); });
+gameplayEvents.on("race-won", () => audio.raceWon());
+gameplayEvents.on("race-lost", () => audio.raceLost());
 const menu = new Menu({
+  onClick: buttonSound,
   onHome: () => showDashboard(),
   onQuality: applyQuality,
   onAssist: applyAssists,
@@ -519,6 +566,7 @@ async function buildLevel(name) {
     }
   }
   levelName = name;
+  audio.setLevel(name);
   level = LEVELS[name](RAPIER, world, scene, asset);
 
   applyLighting(level.lit ?? {}, level.track ?? null);
@@ -573,11 +621,12 @@ async function buildLevel(name) {
     minimap.build(race.cars);
     outline.build(level.track);
     pickups = new Pickups(level.track, scene, level.pickups ?? {}, gameplayEvents);
-    if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, level.traffic);
+    if (level.traffic) traffic = new Traffic(RAPIER, world, scene, level.track, { ...level.traffic, eventBus: gameplayEvents });
     if (level.rockfall) {
       rockfall = new Rockfall(RAPIER, world, scene, level.track, level.rockfall, gameplayEvents);
     }
     if (level.crosswind) crosswind = new Crosswind(level.track, scene, level.crosswind);
+    audio.setOpponents(race.cars.length - 1);
     gates = new CheckpointGates(level.track, scene, {
       color: level.lit?.glow,
       scenery: asset?.scene ?? null, // the map's own objects, for placement
@@ -718,11 +767,12 @@ const TITLES = { city: "City Track", mountain: "Mountain Track", grandprix: "Gra
 const dashboard = new Dashboard({
   gameName: "Neon Rush",
   levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
-  onClick: () => audio.click(),
+  onClick: buttonSound,
   onChange: () => applyAssists(),
   onPlay: (i) => {
     document.body.classList.remove("dash-open");
     audio.unlock();
+    audio.setScene("game");
     // The level behind the title page is already loaded and untouched
     // (after a win it is the next level): just start it.
     if (!(ORDER[i] === levelName && levelFresh)) loadLevel(ORDER[i]);
@@ -731,6 +781,7 @@ const dashboard = new Dashboard({
 function showDashboard() {
   menu.close();
   const i = Math.max(0, ORDER.indexOf(levelName));
+  audio.setScene("title");
   document.body.classList.add("dash-open");
   dashboard.show(i);
 }
@@ -770,7 +821,30 @@ function frame(now) {
   last = now;
   fps += (1 / Math.max(frameDt, 1e-4) - fps) * 0.08;
 
-  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open && !menu.open);
+  audio.update(dashboard.open ? 0 : vehicle.state.speed ?? 0, !dashboard.open, {
+    paused: menu.open,
+    tunnel: level?.tunnel ? vehicle.s >= level.tunnel[0] && vehicle.s <= level.tunnel[1] : false,
+    grass: levelName === "grandprix" ? offAsphalt(vehicle.state.wheels) : 0,
+    damage: vehicle.state.damage,
+    boostFull: vehicle.state.boostCharge >= CAR.boostCapacity - 0.5,
+    drift: vehicle.state.driftFactor,
+    grounded: vehicle.state.grounded,
+    slide: rearSlip(vehicle.state.wheels),
+    wind: crosswind ? crosswind.intensityAt(vehicle.s) : 0,
+    slip: race ? race.player.slipstream : 0,
+  });
+  // Grand Prix: each AI car's engine gets louder the closer it is. Distance
+  // is measured in track space (gap along the lap plus sideways offset),
+  // which is cheap and needs no allocation.
+  if (race && audio.opponents.length) {
+    const L = level.track.length;
+    for (let i = 1; i < race.cars.length; i++) {
+      const o = race.cars[i].vehicle;
+      let gap = Math.abs(o.s - vehicle.s) % L;
+      if (gap > L / 2) gap = L - gap;
+      audio.updateOpponent(i - 1, Math.hypot(gap, o.lateralOffset - vehicle.lateralOffset), o.speed);
+    }
+  }
 
   // Home screen: the world sits still and the camera frames the car from
   // behind and to the left, so it sits low and to the right of the title.
@@ -934,7 +1008,9 @@ function frame(now) {
       // best, the recording just finished becomes next visit's ghost.
       if (progress?.justCompletedLap) {
         const rec = recorder?.recording ? recorder.end(vehicle) : null;
-        Save.submitLap(levelName, progress.lastLapTime, rec);
+        if (Save.submitLap(levelName, progress.lastLapTime, rec)) {
+          gameplayEvents.emit("new-best-lap", { time: progress.lastLapTime });
+        }
       }
     } else {
       vehicle.applySoftWall();
@@ -1060,7 +1136,7 @@ window.__dbg = {
   get level() { return level; },
   get progress() { return progress; },
   get race() { return race; },
-  minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
+  audio, minimap, menu, Save, input, renderer, health, smoke, gameplayEvents, gameplayHud, driftFx, wheelGlow,
   get pickups() { return pickups; },
   get traffic() { return traffic; },
   get rockfall() { return rockfall; },
