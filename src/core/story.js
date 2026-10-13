@@ -1,81 +1,84 @@
 // ---------------------------------------------------------------------
 // The story, and every word of it.
 //
-// One driver, one family garage, and a repair bill they cannot pay. Each
-// level is an act: the streets outside the garage, the mountain road that
-// is the only way to the circuit, and the Grand Prix whose purse is the
-// only prize big enough to settle the debt.
+// A street-racing story in the genre's own shape: a driver nobody rates,
+// three nights to make a name, and one rival at the top of the board to
+// take it from. It is ORIGINAL — the beats are genre conventions (prove
+// yourself, earn respect, beat the best), not any existing game's plot,
+// characters or script. Keep it that way: this is marked work, and
+// anything lifted from a published game would have to be credited and
+// would read as copied.
 //
 // EDITING THIS FILE IS THE WHOLE JOB. Every line the player reads lives
 // here. Nothing below is parsed or formatted cleverly: a card is a title
-// and some lines, and the lines are shown one under another. Rewrite them
-// freely — the game reads whatever is here.
+// and some lines, shown one under another. Rewrite them freely — the
+// game reads whatever is here.
 //
-// The three purses add up to exactly BILL, so winning all three acts
-// settles the debt and nothing else has to. Payouts land ONCE, the first
-// time a level is won (see Save "earned"), so replaying a level cannot
-// grind the bill down and the number on the title screen always means
-// "how far through the story you are".
+// The three rewards add up to exactly TARGET, so winning all three acts
+// tops the board and nothing else has to. Reputation lands ONCE, the
+// first time a level is won (see Save "earned"), so replaying cannot
+// farm it and the number on the title screen always means "how far
+// through the story you are".
 // ---------------------------------------------------------------------
 
-/** The repair bill, in rand. The three purses below add up to it. */
-export const BILL = 12000;
+/** Reputation needed to top the board. The three rewards add up to it. */
+export const TARGET = 100;
 
 export const INTRO = {
   act: "Neon Rush",
-  title: "The Last Invoice",
+  title: "Nobody Knows Your Name",
   lines: [
-    "Phoenix Repair Shop has fixed this street's cars for thirty years.",
-    "Now the lift is broken, the parts are owed for, and the bill is R12 000.",
-    "Dad says he'll sell the place. You have a faster idea.",
-    "Three races. One purse big enough to end this. Start at home.",
+    "This city races after midnight, and every driver out there has a name.",
+    "You have a car off the back lot at Phoenix and nothing anyone remembers.",
+    "At the top of the board is Sable, who has never once had to learn yours.",
+    "Three nights. That is how long you have to make them.",
   ],
 };
 
 export const CHAPTERS = {
   city: {
     act: "Act I",
-    title: "Home Ground",
-    purse: 1200,
+    title: "First Name",
+    reward: 15,
     // Shown once, before the first run of this level.
     brief: [
-      "The streets outside the garage, the ones you learned on.",
-      "There's a purse for a clean lap through evening traffic.",
-      "It won't pay the bill. It pays the entry to something that will.",
+      "Nobody gives a nobody a real race, so you get these streets and the traffic on them.",
+      "Beat the clock and the board has to write something down.",
+      "It will not be much. It will be yours.",
       "Keep off the bumpers and take every orb you see.",
     ],
     // Shown once, the first time this level is won.
     win: [
-      "R1 200. Dad counts it twice and says nothing.",
-      "The qualifier's across the mountain, and it runs at dusk tomorrow.",
-      "One road goes there. It isn't a kind one.",
+      "A time nobody expected, on a road everybody uses.",
+      "They still do not know your name. They know there is one.",
+      "Word is the old guard run the mountain pass to see who is real.",
     ],
   },
   mountain: {
     act: "Act II",
-    title: "The Only Road",
-    purse: 1800,
+    title: "The Old Road",
+    reward: 25,
     brief: [
-      "No rivals up here. Just the pass, the weather and the clock.",
-      "Make the summit before the window closes and the grid is yours.",
-      "Rock comes off the slopes. Wind takes the viaduct. Fog sits near the top.",
+      "No rivals up here. The pass has always been raced alone — you against it.",
+      "Rock comes off the slopes, wind takes the viaduct, fog sits near the top.",
+      "Everyone at the top of that board has a time on this road.",
       "Read the signs. They are the only warning you get.",
     ],
     win: [
-      "R1 800 for the delivery, and a grid slot with your name spelled wrong.",
-      "Below you the circuit is already lit — all that magenta against the dark.",
-      "Everything the garage owes comes down to two laps.",
+      "You come off the pass with a time that belongs near the top of the list.",
+      "Now they know your name. Sable sends theirs back, and a place on the grid.",
+      "Two laps, under the lights, in front of everybody.",
     ],
   },
   grandprix: {
     act: "Act III",
-    title: "The Whole Bill",
-    purse: 9000,
+    title: "The One At The Top",
+    reward: 60,
     brief: [
-      "Six cars. Two laps. R9 000 to the winner and nothing to the rest.",
+      "Six cars. Two laps. Sable on the grid beside you and the scene watching.",
       "Hold a slide and the boost builds; spend it down the straights.",
       "If the car is hurt, the pit lane will mend it. The clock keeps running.",
-      "Win it and the garage opens on Monday.",
+      "Finish on the podium and the board is yours to rewrite.",
     ],
     win: [], // the ending below is shown instead
   },
@@ -83,22 +86,22 @@ export const CHAPTERS = {
 
 export const ENDING = {
   act: "Finish",
-  title: "Monday Morning",
+  title: "Top Of The Board",
   lines: [
-    "R12 000. Exactly, to the rand.",
-    "The lift works. The invoice is stamped. The roller door goes up at seven.",
-    "Dad hands you a coffee and a clipboard, and pretends he never doubted it.",
-    "Phoenix Repair Shop is still open.",
+    "Sable finds you in the pit lane, pulls off a glove, and offers a hand.",
+    "\"Say it again,\" they tell you. \"Properly this time.\"",
+    "So you do, and the whole lane hears it.",
+    "Three nights ago nobody knew your name. They all do now.",
   ],
 };
 
 /** Shown when a level is lost: a nudge, not a new chapter. */
 export const RETRY = {
-  act: "Not this time",
+  act: "Not tonight",
   title: "Run It Again",
   lines: [
-    "No purse. The bill hasn't moved.",
-    "Nothing is lost but the afternoon — take it again.",
+    "No time worth writing down. The board has not moved.",
+    "Nothing is lost but the night — take it again.",
   ],
 };
 
@@ -128,17 +131,17 @@ export const TUTORIALS = {
   },
 };
 
-/** The purse for a level, or 0 if it has none. */
-export function purseFor(level) {
-  return CHAPTERS[level]?.purse ?? 0;
+/** The reputation a level is worth, or 0 if it has none. */
+export function rewardFor(level) {
+  return CHAPTERS[level]?.reward ?? 0;
 }
 
-/** Everything banked so far, from Save's `earned` map. */
+/** Everything earned so far, from Save's `earned` map. */
 export function totalEarned(earned = {}) {
   return Object.values(earned).reduce((a, b) => a + (b || 0), 0);
 }
 
-/** "R1 200" — the one place money is formatted. */
-export function money(n) {
-  return `R${Math.round(n).toLocaleString("en-ZA").replace(/,/g, " ")}`;
+/** "45" — the one place reputation is formatted. */
+export function points(n) {
+  return String(Math.round(n));
 }

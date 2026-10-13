@@ -17,7 +17,7 @@ import { Speedo } from "./ui/speedo.js";
 import { TrackOutline } from "./ui/track-outline.js";
 import { Dashboard } from "./ui/dashboard.js";
 import { StoryCard } from "./ui/story-card.js";
-import { BILL, CHAPTERS, INTRO, ENDING, RETRY, TUTORIALS, purseFor, totalEarned, money } from "./core/story.js";
+import { TARGET, CHAPTERS, INTRO, ENDING, RETRY, TUTORIALS, rewardFor, totalEarned, points } from "./core/story.js";
 import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
@@ -741,15 +741,15 @@ function teach(state) {
 function closingCard(name, won) {
   if (!CHAPTERS[name]) return null;
   if (!won) return RETRY;
-  const paid = Save.bank(name, purseFor(name));
-  const owing = BILL - totalEarned(Save.get("earned"));
-  if (name === "grandprix" && owing <= 0 && Save.firstTime("ending")) return ENDING;
-  if (!paid || !Save.firstTime(`${name}-win`)) return null; // already told
+  const gained = Save.bank(name, rewardFor(name));
+  const short = TARGET - totalEarned(Save.get("earned"));
+  if (name === "grandprix" && short <= 0 && Save.firstTime("ending")) return ENDING;
+  if (!gained || !Save.firstTime(`${name}-win`)) return null; // already told
   return {
     act: CHAPTERS[name].act,
-    title: "Paid",
+    title: "Name Made",
     lines: CHAPTERS[name].win,
-    note: `${money(paid)} banked  ·  ${money(Math.max(0, owing))} still owing`,
+    note: `+${points(gained)} reputation  ·  ${points(Math.max(0, short))} off the top`,
   };
 }
 
@@ -771,7 +771,7 @@ function showBriefing(name) {
       act: chapter.act,
       title: chapter.title,
       lines: chapter.brief,
-      note: `Purse ${money(chapter.purse)}  ·  bill ${money(BILL - totalEarned(Save.get("earned")))} still owing`,
+      note: `Worth ${points(chapter.reward)} reputation  ·  ${points(Math.max(0, TARGET - totalEarned(Save.get("earned"))))} off the top`,
     });
   };
   // On a new save the intro comes first, then the act card behind it.
@@ -1046,9 +1046,9 @@ function frame(now) {
     if (finishedFor >= RESULTS_DELAY && !leaving) {
       leaving = true;
       const next = won ? ORDER[(ORDER.indexOf(levelName) + 1) % ORDER.length] : levelName;
-      // The act's closing card, then the title page. The purse is banked
-      // here, once (Save.bank), so the money on the title screen only ever
-      // counts levels actually won.
+      // The act's closing card, then the title page. Reputation is banked
+      // here, once (Save.bank), so the number on the title screen only
+      // ever counts levels actually won.
       const card = closingCard(levelName, won);
       if (card) storyCard.show(card, () => returnToTitle(next));
       else returnToTitle(next);

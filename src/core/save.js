@@ -26,8 +26,8 @@ export const DEFAULTS = {
   // furthest level reached, 1-based (City = 1)
   maxLevel: 1,
   // --- the story (src/core/story.js) --------------------------------
-  // Purses banked, keyed by level. A level pays ONCE, the first time it
-  // is won, so replaying cannot grind the repair bill down.
+  // Reputation banked, keyed by level. A level pays ONCE, the first time
+  // it is won, so replaying cannot farm it.
   earned: {},
   // Story cards already shown, keyed by "intro", a level name, or
   // "<level>-win" / "ending", so no card is ever shown twice.
@@ -127,8 +127,8 @@ export const Save = {
   },
 
   /**
-   * Bank a level's purse, once. Returns the amount actually added, so the
-   * caller knows whether this was the win that paid.
+   * Bank what a level is worth, once. Returns the amount actually added,
+   * so the caller knows whether this was the win that paid.
    */
   bank(level, amount) {
     this.data.earned = this.data.earned ?? {};

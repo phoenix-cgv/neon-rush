@@ -160,7 +160,7 @@ export function buildGrandPrix(RAPIER, world, scene, gltf) {
     // scales with laps (was 8 min for three) rather than being a fixed
     // ceiling, so it stays exactly as generous relative to a real race
     // distance as it always was.
-    // A podium pays. Second and third take the purse too, which is what
+    // A podium pays. Second and third earn the reputation too, which is what
     // the announcer means by "mission accomplished" (src/core/audio.js)
     // and what keeps the voice, the results board and the story agreeing.
     race: { laps: 2, timeLimit: (8 * 60 * 2) / 3, podium: 3 },

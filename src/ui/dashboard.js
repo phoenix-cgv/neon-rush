@@ -1,6 +1,6 @@
 import { Save } from "../core/save.js";
 import { TEAM, CREDITS_INTRO, CREDITS_FOOTER } from "./credits.js";
-import { BILL, totalEarned, money } from "../core/story.js";
+import { TARGET, totalEarned, points } from "../core/story.js";
 
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -126,17 +126,17 @@ export class Dashboard {
         <div style="height:3px;width:min(26rem,72vw);background:${ORANGE};margin:22px 0 14px"></div>
         <div style="${label};color:${CREAM};opacity:.85">Own the streets.</div>
         ${(() => {
-          // The story's running total: what the garage still owes, and a
-          // bar that fills as each act is won. See src/core/story.js.
-          const raised = totalEarned(Save.get("earned"));
-          const pct = Math.min(100, (raised / BILL) * 100);
-          const done = raised >= BILL;
+          // The story's running total: the name you have made so far, and
+          // a bar that fills as each act is won. See src/core/story.js.
+          const earned = totalEarned(Save.get("earned"));
+          const pct = Math.min(100, (earned / TARGET) * 100);
+          const done = earned >= TARGET;
           return `<div style="margin-top:22px;max-width:min(26rem,72vw)">
             <div style="${label};color:${CREAM};opacity:.7">
-              ${done ? "Repair bill settled" : "Repair bill"}</div>
+              ${done ? "Top of the board" : "Reputation"}</div>
             <div style="display:flex;align-items:baseline;gap:.6rem;margin-top:6px">
-              <span style="font:400 1.5rem/1 ${DISPLAY};color:${done ? AMBER : CREAM}">${esc(money(raised))}</span>
-              <span style="${label};color:${CREAM};opacity:.6">of ${esc(money(BILL))} raised</span>
+              <span style="font:400 1.5rem/1 ${DISPLAY};color:${done ? AMBER : CREAM}">${esc(points(earned))}</span>
+              <span style="${label};color:${CREAM};opacity:.6">of ${esc(points(TARGET))}</span>
             </div>
             <div style="height:3px;width:100%;background:rgba(255,255,255,.14);margin-top:8px">
               <div style="height:100%;width:${pct}%;background:${done ? AMBER : ORANGE}"></div>
