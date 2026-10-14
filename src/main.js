@@ -883,6 +883,12 @@ const dashboard = new Dashboard({
   levels: ORDER.map((id) => ({ id, title: TITLES[id] })),
   onClick: buttonSound,
   onChange: () => applyAssists(),
+  // "Play" in Settings: makes a sound and says what actually happened, so
+  // a silent game can be diagnosed without opening a console.
+  onTestSound: () => {
+    audio.testSound().then((r) => dashboard.report(r));
+    return { ok: true, text: "Listening…" };
+  },
   // Arrowing to another track loads it, so the backdrop behind the title
   // page is the track you are looking at. Settled first: holding the
   // arrow through three levels should load the one you stop on, not all

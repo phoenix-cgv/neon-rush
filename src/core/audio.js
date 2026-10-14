@@ -1054,6 +1054,63 @@ export class GameAudio {
   }
 
   /**
+   * Play a test sound and report, in words, what actually happened.
+   *
+   * Someone who cannot hear the game needs to know which of three things
+   * is wrong — the game, the browser, or their speakers — and the console
+   * is not where most people look. This plays a clear two-note chime and
+   * MEASURES the signal leaving the final stage, so "the game is making
+   * sound" is a reading rather than a hope. If sound is coming out of the
+   * graph and still cannot be heard, the fault is past the browser: the
+   * tab is muted, the app is turned down in the system mixer, or the
+   * output is going somewhere else.
+   *
+   * @returns {{ok: boolean, text: string}}
+   */
+  async testSound() {
+    this.unlock();
+    if (!this.ctx) return { ok: false, text: "This browser has no Web Audio at all." };
+    if (!this.sound) return { ok: false, text: "Sound is switched off here — turn it on above." };
+    if (this.ctx.state !== "running") {
+      try {
+        await this.ctx.resume();
+      } catch { /* the browser said no */ }
+      if (this.ctx.state !== "running") {
+        return { ok: false, text: `The browser is holding audio ${this.ctx.state}. Click the page, then try again.` };
+      }
+    }
+    // Listen to our own output while the chime plays.
+    const an = this.ctx.createAnalyser();
+    an.fftSize = 2048;
+    this.limiter.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const level = () => {
+      an.getFloatTimeDomainData(buf);
+      let s = 0;
+      for (const v of buf) s += v * v;
+      return Math.sqrt(s / buf.length);
+    };
+    this.#log("sound-test");
+    for (const [m, d] of [[76, 0], [83, 0.14]]) {
+      this.#blip({ type: "triangle", freq: mtof(m), dur: 0.3, vol: 0.5, delay: d, detune: 8 });
+    }
+    let peak = 0;
+    for (let i = 0; i < 14; i++) {
+      await new Promise((r) => setTimeout(r, 40));
+      peak = Math.max(peak, level());
+    }
+    this.limiter.disconnect(an);
+    this.#log("sound-test", `peak=${peak.toFixed(4)}`);
+    if (peak < 0.002) {
+      return { ok: false, text: "The game made no sound at all — that is a bug here, not your speakers." };
+    }
+    return {
+      ok: true,
+      text: `Sound is leaving the game (level ${peak.toFixed(2)}). If you heard nothing, it is past the browser: check the tab is not muted, and Chrome's own volume in the Windows volume mixer.`,
+    };
+  }
+
+  /**
    * A spoken line, through the browser's own speech synthesis.
    *
    * Not Web Audio at all, so it does not pass through the buses, the
@@ -1210,11 +1267,24 @@ export class GameAudio {
   /** City: a soft traffic hum, a little air, and a bird now and then. */
   #cityAmbience() {
     const amb = this.#ambience();
-    const hum = this.#noiseVoice("lowpass", 380, 0.7, amb.gain);
-    const air = this.#noiseVoice("bandpass", 2600, 0.6, amb.gain);
-    hum.gain.gain.value = 0.22;
-    air.gain.gain.value = 0.03;
-    amb.sources.push(hum.src, air.src);
+    // Traffic, heard from inside it: low, and breathing rather than flat.
+    //
+    // There used to be a second layer of noise bandpassed at 2.6 kHz with
+    // a Q of 0.6 — which is hardly a filter at all, so what came through
+    // was a wide band of constant high hiss. Steady broadband noise in
+    // that register is the sound of RAIN, and that is what it was heard
+    // as. A city does not hiss; it rumbles and it swells. So the hiss is
+    // gone and what is left is low, with a slow rise and fall under it
+    // like traffic coming and going.
+    const hum = this.#noiseVoice("lowpass", 340, 0.7, amb.gain);
+    hum.gain.gain.value = 0.2;
+    const swell = this.ctx.createOscillator();
+    const depth = this.ctx.createGain();
+    swell.frequency.value = 0.08; // a breath every 12 s or so
+    depth.gain.value = 0.07;
+    swell.connect(depth).connect(hum.gain.gain);
+    swell.start();
+    amb.sources.push(hum.src, swell);
     let nextBird = 0;
     amb.update = (t, active) => {
       if (!active || t < nextBird) return;

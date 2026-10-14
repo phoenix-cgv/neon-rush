@@ -25,11 +25,14 @@ const DISPLAY = "Anton,Impact,'Arial Narrow Bold',Haettenschweiler,sans-serif";
 const GLASS = "background:rgba(14,18,24,.88);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)";
 
 export class Dashboard {
-  constructor({ gameName, levels, onPlay, onChange, onSelect, onClick } = {}) {
+  constructor({ gameName, levels, onPlay, onChange, onSelect, onTestSound, onClick } = {}) {
     this.gameName = gameName;
     this.levels = levels; // [{ id, title }] in play order
     this.onPlay = onPlay;
     this.onSelect = onSelect; // the arrows moved to another track
+    this.onTestSound = onTestSound;
+    this.soundReport = ""; // what the last sound test found
+    this.soundOk = false;
     this.onChange = onChange;
     this.onClick = onClick;
     this.open = false;
@@ -166,6 +169,14 @@ export class Dashboard {
         ${this.#toggle("Music", "music", Save.get("music") !== false)}
         ${this.#toggle("Sound", "sound", Save.get("sound") !== false)}
         ${this.#row(
+          "Test sound",
+          `<button data-act="testsound" style="${chip(false)}">Play</button>` +
+            (this.soundReport
+              ? `<div style="${label};margin-top:7px;line-height:1.5;white-space:normal;
+                   color:${this.soundOk ? "#58e08f" : "#ff6a4a"}">${esc(this.soundReport)}</div>`
+              : "")
+        )}
+        ${this.#row(
           "Controls",
           SCHEMES.map(
             ([v, t]) => `<button data-act="scheme:${v}" style="${chip(scheme === v)};margin-left:.25rem">${t}</button>`
@@ -209,7 +220,15 @@ export class Dashboard {
       return this.onPlay?.(this.selected);
     }
     // Anywhere that is not a control, while a panel is open: close it.
-    if (act === "dismiss") this.panelOpen = null;
+    // A sound you can ask for, and an answer either way. Someone who
+    // cannot hear the game needs to know whether it is the game, the
+    // browser or their speakers, and the console is not where most people
+    // will look.
+    if (act === "testsound") {
+      const r = this.onTestSound?.();
+      this.soundOk = !!r?.ok;
+      this.soundReport = r?.text ?? "No audio system.";
+    } else if (act === "dismiss") this.panelOpen = null;
     else if (act === "settings" || act === "credits") this.panelOpen = this.panelOpen === act ? null : act;
     else if (act === "prev" && this.selected > 0) moved = this.#moveTo(this.selected - 1);
     else if (act === "next" && this.selected < this.#max() - 1) moved = this.#moveTo(this.selected + 1);
@@ -222,6 +241,13 @@ export class Dashboard {
     this.onChange?.(this.selected);
     if (moved) this.onSelect?.(this.selected);
     this.render();
+  }
+
+  /** The result of a sound test, once it has finished listening. */
+  report({ ok, text }) {
+    this.soundOk = ok;
+    this.soundReport = text;
+    if (this.panelOpen === "settings") this.render();
   }
 
   /** Move the selection, and say whether it actually went anywhere. */
