@@ -1,8 +1,15 @@
 # Neon Rush audio — how it works
 
-Everything you hear is **made in code** with the browser's Web Audio API.
-There are no sound files, so nothing here needs an entry in
-`assets/credits.json`. The code is `src/core/audio.js` (the `GameAudio`
+Almost everything you hear is **made in code** with the browser's Web Audio
+API. The exceptions are seven recordings — the engine (three loops at
+different revs), the tyre squeal, a crash, a boulder landing and the pickup
+chime — which are generated audio files in `assets/audio/`, loaded by
+`src/core/sfx.js`. **Those are the only thing in the audio that needs a
+credits entry**, and they have one.
+
+Every recording is optional. If a file fails to load, the synthesised
+version of that sound plays instead, exactly as it did before — a missing
+file can never be the reason the game is silent. The code is `src/core/audio.js` (the `GameAudio`
 class) plus a block of listeners in `src/main.js`.
 
 ## The big picture
