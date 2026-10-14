@@ -46,6 +46,28 @@ const MUSIC = {
   title: { bpm: 84, chords: [Am, F, C, G], drums: null, arpEvery: 4, padVol: 0.16, leadVol: 0.1, leadType: "triangle" },
 };
 const STEPS_PER_BAR = 16;
+// Speeds (m/s) at which each cosmetic gear tops out — the same ladder the
+// tachometer uses (src/ui/speedo.js), so what is heard and what the dial
+// shows are the same car.
+const GEARS = [0, 11, 22, 34, 46, 58, 72];
+
+/**
+ * Where the engine is, from road speed alone: which gear, and how far up
+ * that gear's rev range (0..1).
+ *
+ * This is what was missing. The pitch used to be a straight line from
+ * road speed, so the engine climbed for ever like a siren and never did
+ * the one thing an engine audibly does — run up to the top of a gear and
+ * drop back down into the next. The car has no real gearbox, so the
+ * ladder is borrowed from the dial rather than invented twice.
+ */
+function revsAt(speed) {
+  const v = Math.abs(speed);
+  let g = 1;
+  while (g < 6 && v > GEARS[g]) g++;
+  const span = GEARS[g] - GEARS[g - 1];
+  return { gear: g, rpm: clamp01(0.12 + ((v - GEARS[g - 1]) / span) * 0.88) };
+}
 // Spoken, so words rather than "1st" — a synthesiser reads those unevenly.
 const PLACES = {
   1: "first", 2: "second", 3: "third", 4: "fourth",
@@ -175,11 +197,16 @@ export class GameAudio {
     this.engine.start();
     this.engine2.start();
     this.engineSub.start();
+    // Exhaust rasp: narrow, low noise that rides the revs. Built after the
+    // noise buffer exists (below), so it is wired up there.
 
     // One second of white noise, looped by every noise sound. Built once.
     this.noise = c.createBuffer(1, c.sampleRate, c.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+
+    // Exhaust: the rough edge under the tone, low and narrow.
+    this.exhaust = this.#noiseVoice("bandpass", 120, 1.6, this.sfxGain);
 
     // Tyre squeal, in layers, all built once and running forever (a voice
     // that is never started or stopped cannot click; only its gain moves):
@@ -337,12 +364,28 @@ export class GameAudio {
     const c = this.ctx;
     const t = c.currentTime;
     const k = Math.min(speed / 60, 1);
-    const f = 42 + k * 110;
-    this.engine.frequency.setTargetAtTime(f, t, 0.08);
-    this.engine2.frequency.setTargetAtTime(f, t, 0.08);
-    this.engineSub.frequency.setTargetAtTime(f * 0.5, t, 0.08);
-    this.engineFilter.frequency.setTargetAtTime(300 + k * 900, t, 0.08);
-    this.engineGain.gain.setTargetAtTime(active ? 0.06 + k * 0.12 : 0, t, 0.1);
+    // The engine: rev range within a gear, not a line from road speed.
+    // Crossing a gear drops the note the way a real shift does.
+    const { rpm } = revsAt(speed);
+    const throttle = clamp01(drive.throttle ?? 1);
+    const f = 32 + rpm * 150; // firing frequency, roughly idle to redline
+    // Quick, but not instant: a shift should land, not teleport.
+    this.engine.frequency.setTargetAtTime(f, t, 0.05);
+    this.engine2.frequency.setTargetAtTime(f, t, 0.05);
+    this.engineSub.frequency.setTargetAtTime(f * 0.5, t, 0.05);
+    // Under load it opens up and hardens; off the throttle it closes to a
+    // softer overrun, which is most of what makes an engine sound driven
+    // rather than played.
+    const open = 240 + rpm * 1500 + throttle * 420;
+    this.engineFilter.frequency.setTargetAtTime(open, t, 0.07);
+    const drive_ = 0.55 + throttle * 0.45;
+    this.engineGain.gain.setTargetAtTime(active ? (0.05 + rpm * 0.16) * drive_ : 0, t, 0.1);
+    // Exhaust: a low, rough edge that comes up with the revs and the
+    // throttle. Kept well under 400 Hz — this is rumble, not hiss.
+    if (this.exhaust) {
+      this.exhaust.gain.gain.setTargetAtTime(active ? (0.03 + rpm * 0.1) * throttle : 0, t, 0.1);
+      this.exhaust.filter.frequency.setTargetAtTime(90 + rpm * 230, t, 0.08);
+    }
 
     // Airtime -> landing thud; heavy damage -> a repeating warning beep.
     const dt = Math.min(t - this.lastT, 0.1);
@@ -845,15 +888,38 @@ export class GameAudio {
     if (!this.canPlay("rock-landed")) return;
     const near = clamp01(1 - distance / 160);
     this.#log("rock-landed", `distance=${Math.round(distance)}m`);
-    this.#burst({ vol: 0.15 + near * 0.7, from: 600, to: 50, dur: 1.1 });
-    this.#blip({ type: "sine", freq: 70, to: 30, dur: 0.6, vol: 0.2 + near * 0.6 });
+    // This used to be a 600->50 Hz sweep over a 70->30 Hz sine, which is
+    // almost entirely below what a laptop or a phone can reproduce — a
+    // boulder could land beside you and be inaudible. The weight is still
+    // down there for anyone with the speakers for it, but the sound now
+    // has a body in the mids, where it can actually be heard.
+    //
+    // the strike: stone meeting road
+    this.#burst({ vol: 0.5 + near * 0.5, from: 1800, to: 400, dur: 0.12 });
+    // the mass of it, in the register every speaker reaches
+    this.#blip({ type: "triangle", freq: 190, to: 72, dur: 0.45, vol: 0.4 + near * 0.5, detune: 9, sub: 0.5 });
+    // the weight underneath
+    this.#blip({ type: "sine", freq: 80, to: 34, dur: 0.75, vol: 0.22 + near * 0.5, detune: 0 });
+    // scree: the stones still coming down after it
+    const bits = 3 + Math.round(near * 5);
+    for (let i = 0; i < bits; i++) {
+      this.#burst({
+        vol: 0.1 + near * 0.2,
+        from: 1400 + Math.random() * 900,
+        to: 400,
+        dur: 0.04 + Math.random() * 0.06,
+        delay: 0.09 + Math.random() * 0.7,
+      });
+    }
+    // and the roll of it away down the slope
+    this.#whoosh({ from: 320, to: 120, dur: 1.2, vol: 0.18 + near * 0.3, q: 0.8, swell: 0.3, delay: 0.06 });
   }
 
   /** The player's car meeting a settled rock: a sharp stony crack over the crash. */
   rockHit() {
     if (!this.canPlay("rock-hit-car")) return;
     this.#log("rock-hit-car");
-    this.#burst({ vol: 0.8, from: 5000, to: 300, dur: 0.35 });
+    this.#burst({ vol: 0.85, from: 3200, to: 300, dur: 0.35 });
   }
 
   // (Passing a checkpoint makes no sound — see the note in main.js.)

@@ -78,7 +78,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Win | `race-won` | Short fanfare ending on a held chord |
 | Lose | `race-lost` | Slow descending minor figure |
 | Crash | `crash`, sized by how hard the hit was | Noise crunch plus a low thud. Harder hit means longer, duller, louder |
-| Engine | every frame, from speed | Two detuned saws plus a sub-octave triangle through a lowpass; pitch and brightness rise with speed |
+| Engine | every frame, from speed and throttle | Two detuned saws plus a sub-octave triangle and a low exhaust rasp. Pitch follows the **rev range of a gear**, so it climbs and drops at each shift; the throttle opens the filter and lifts it, and lifting off softens it to an overrun |
 | Tyre squeal | every frame, from `driftFactor`, speed and slide direction | Layered, see "The drift squeal" below |
 | Squeal chirp | The moment a drift starts | A short sawtooth bark that jumps upward |
 | Engine rev | `race-started` (lights out) | The motor winds up hard and settles back, 1.3 s |
@@ -93,7 +93,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | New best lap | `new-best-lap` (a lap beats your saved best) | A bright two-step fanfare with a sparkle, just after the lap-complete arpeggio |
 | Title theme | The home screen | Calm, slow triangle arpeggio over a low pad. Cross-fades into the race music on PULL OFF |
 | Slipstream whoosh | every frame, from the slipstream value | Noise that swells and brightens as you tuck in behind a car |
-| Rock landing | `rock-landed` | Deep rumble and thud, louder the closer it lands |
+| Rock landing | `rock-landed` | A stone strike, a mid thump, scree still coming down, and the low roll of it away — louder the closer it lands |
 | Rock hit | `rock-hit-car` | Sharp stony crack on top of the normal crash |
 | Result announcement | `car-finished`, you, Grand Prix only | A **spoken** line reading your finishing place back, and "mission accomplished" on the podium |
 

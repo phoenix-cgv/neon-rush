@@ -984,6 +984,10 @@ function frame(now) {
     slide: rearSlip(vehicle.state.wheels),
     wind: crosswind ? crosswind.intensityAt(vehicle.s) : 0,
     slip: race ? race.player.slipstream : 0,
+    // What the driver is asking of the engine, for its load and overrun.
+    // input.controls, not the frame's `controls` — that is declared
+    // further down and would still be in its dead zone here.
+    throttle: input.controls?.throttle ?? 0,
   });
   // Grand Prix: each AI car's engine gets louder the closer it is. Distance
   // is measured in track space (gap along the lap plus sideways offset),
