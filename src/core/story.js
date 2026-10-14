@@ -24,6 +24,35 @@
 /** Reputation needed to top the board. The three rewards add up to it. */
 export const TARGET = 100;
 
+/**
+ * The first thing anyone sees: what this is, what they are meant to do,
+ * and which keys do it. Shown once on a new save, and reachable from the
+ * title screen afterwards under "How to play" — someone who comes back a
+ * week later should not have to guess at the controls.
+ *
+ * `controls` is [what it does, which keys], rendered as a grid.
+ */
+export const WELCOME = {
+  act: "How to play",
+  title: "Neon Rush",
+  lines: [
+    "A street-racing game in three parts: a city, a mountain pass, and a floodlit Grand Prix.",
+    "You are a driver nobody rates yet. Win a track to unlock the next one and to build the reputation that gets you onto the grid.",
+    "Every track is beaten against a clock, so take the orbs you pass — green repairs the car, blue buys you speed or time.",
+  ],
+  controls: [
+    ["Steer", "A D  or  ← →"],
+    ["Accelerate / brake", "W S  or  ↑ ↓"],
+    ["Boost", "Shift"],
+    ["Handbrake, for a drift", "Space"],
+    ["Look around", "Move the mouse"],
+    ["Change camera", "C"],
+    ["Back to the last checkpoint", "R"],
+    ["Pause", "Esc"],
+  ],
+  note: "Everything here is in Settings too, where the keys can be changed.",
+};
+
 export const INTRO = {
   act: "Neon Rush",
   title: "Nobody Knows Your Name",

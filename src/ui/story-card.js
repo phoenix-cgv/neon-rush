@@ -24,7 +24,10 @@ export class StoryCard {
     this.open = false;
     this.onDone = null;
     this.root = document.createElement("div");
-    this.root.style.cssText = `position:fixed;inset:0;z-index:40;display:none;
+    // Above the pause menu (50) and the title page (60), below the
+    // loading screen (200): a card is read instead of whatever it is
+    // over, and the welcome one comes up on the title page itself.
+    this.root.style.cssText = `position:fixed;inset:0;z-index:70;display:none;
       background:linear-gradient(180deg,rgba(6,9,14,.93) 0%,rgba(6,9,14,.88) 60%,rgba(6,9,14,.95) 100%);
       color:${CREAM};font-family:${MONO}`;
     document.body.appendChild(this.root);
@@ -34,7 +37,11 @@ export class StoryCard {
       if (!this.open) return;
       if (e.key === "Enter" || e.key === " " || e.code === "Space") {
         e.preventDefault();
-        e.stopPropagation();
+        // Immediate: stopPropagation alone does not stop other listeners
+        // on the SAME element, and the title page's "Enter starts the
+        // round" is also on window — so dismissing the welcome card
+        // started the race in the same keystroke.
+        e.stopImmediatePropagation();
         this.dismiss();
       }
     };
@@ -45,9 +52,11 @@ export class StoryCard {
 
   /**
    * Put a card up. `done` is called once, when the player moves on.
-   * @param {{act: string, title: string, lines: string[], note?: string}} card
+   * @param {object} card  { act, title, lines, note, controls }
+   *   `controls` is [what it does, which keys][] — the welcome card uses
+   *   it for the key list; story beats leave it out.
    */
-  show({ act, title, lines = [], note = "" }, done = null) {
+  show({ act, title, lines = [], note = "", controls = null }, done = null) {
     this.open = true;
     this.onDone = done;
     this.root.style.display = "block";
@@ -65,6 +74,18 @@ export class StoryCard {
               color:${CREAM};opacity:.9;margin-bottom:.55rem">${esc(l)}</div>`
           )
           .join("")}
+        ${controls
+          ? `<div style="display:grid;grid-template-columns:auto auto;gap:.5rem 1.6rem;
+               margin:22px 0 4px;justify-content:start;align-items:baseline">
+              ${controls
+                .map(
+                  ([what, keys]) => `
+                  <div style="font:400 clamp(.85rem,1.9vh,1rem)/1.5 ${MONO};color:${CREAM};opacity:.75">${esc(what)}</div>
+                  <div style="font:700 clamp(.85rem,1.9vh,1rem)/1.5 ${MONO};color:${ORANGE};white-space:nowrap">${esc(keys)}</div>`
+                )
+                .join("")}
+            </div>`
+          : ""}
         ${note ? `<div style="${LABEL};color:${ORANGE};margin-top:20px">${esc(note)}</div>` : ""}
         <div style="${LABEL};color:${CREAM};opacity:.55;margin-top:28px">Press Enter to continue</div>
       </div>`;

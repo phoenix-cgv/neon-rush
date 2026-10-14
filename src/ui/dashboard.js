@@ -25,12 +25,13 @@ const DISPLAY = "Anton,Impact,'Arial Narrow Bold',Haettenschweiler,sans-serif";
 const GLASS = "background:rgba(14,18,24,.88);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px)";
 
 export class Dashboard {
-  constructor({ gameName, levels, onPlay, onChange, onSelect, onTestSound, onClick } = {}) {
+  constructor({ gameName, levels, onPlay, onChange, onSelect, onTestSound, onHelp, onClick } = {}) {
     this.gameName = gameName;
     this.levels = levels; // [{ id, title }] in play order
     this.onPlay = onPlay;
     this.onSelect = onSelect; // the arrows moved to another track
     this.onTestSound = onTestSound;
+    this.onHelp = onHelp;
     this.soundReport = ""; // what the last sound test found
     this.soundOk = false;
     this.onChange = onChange;
@@ -158,7 +159,7 @@ export class Dashboard {
       </div>
 
       <div style="position:absolute;left:44px;bottom:calc(6vh + 24px);display:flex;gap:2.4rem">
-        ${link("settings", "Settings")}${link("credits", "Credits")}
+        ${link("help", "How to play")}${link("settings", "Settings")}${link("credits", "Credits")}
       </div>
       <div style="position:absolute;left:44px;bottom:22px;${label};font-size:8px;opacity:.5">NR / Street Division</div>
 
@@ -224,7 +225,8 @@ export class Dashboard {
     // cannot hear the game needs to know whether it is the game, the
     // browser or their speakers, and the console is not where most people
     // will look.
-    if (act === "testsound") {
+    if (act === "help") this.onHelp?.();
+    else if (act === "testsound") {
       const r = this.onTestSound?.();
       this.soundOk = !!r?.ok;
       this.soundReport = r?.text ?? "No audio system.";

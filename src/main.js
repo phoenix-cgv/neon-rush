@@ -17,7 +17,7 @@ import { Speedo } from "./ui/speedo.js";
 import { TrackOutline } from "./ui/track-outline.js";
 import { Dashboard } from "./ui/dashboard.js";
 import { StoryCard } from "./ui/story-card.js";
-import { TARGET, CHAPTERS, INTRO, ENDING, RETRY, TUTORIALS, rewardFor, totalEarned, points } from "./core/story.js";
+import { TARGET, WELCOME, CHAPTERS, INTRO, ENDING, RETRY, TUTORIALS, rewardFor, totalEarned, points } from "./core/story.js";
 import { GameAudio } from "./core/audio.js";
 import { Save, QUALITY } from "./core/save.js";
 import { HealthBar } from "./ui/health.js";
@@ -885,6 +885,7 @@ const dashboard = new Dashboard({
   onChange: () => applyAssists(),
   // "Play" in Settings: makes a sound and says what actually happened, so
   // a silent game can be diagnosed without opening a console.
+  onHelp: () => storyCard.show(WELCOME),
   onTestSound: () => {
     audio.testSound().then((r) => dashboard.report(r));
     return { ok: true, text: "Listening…" };
@@ -944,6 +945,11 @@ let orbit = 0;
 showDashboard();
 bootDone = true;
 loadingScreen.hide();
+// A new player lands on the title page knowing nothing: not what this is,
+// not what winning looks like, not which key steers. Say so once, here,
+// before anything is asked of them. It stays reachable afterwards from
+// "How to play" on the title page.
+if (Save.firstTime("welcome")) storyCard.show(WELCOME);
 
 let last = performance.now();
 let accumulator = 0;
