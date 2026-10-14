@@ -1,8 +1,7 @@
 # Neon Rush audio — how it works
 
 Almost everything you hear is **made in code** with the browser's Web Audio
-API. The exceptions are seven recordings — the engine (three loops at
-different revs), the tyre squeal, a crash, a boulder landing, the pickup
+API. The exceptions are four recordings — a crash, a boulder landing, the pickup
 chime and the podium voice line — which are generated audio files in `assets/audio/`, loaded by
 `src/core/sfx.js`. **Those are the only thing in the audio that needs a
 credits entry**, and they have one.
@@ -85,7 +84,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Win | `race-won` | Short fanfare ending on a held chord |
 | Lose | `race-lost` | Slow descending minor figure |
 | Crash | `crash`, sized by how hard the hit was | Noise crunch plus a low thud. Harder hit means longer, duller, louder |
-| Engine | every frame, from speed and throttle | Two detuned saws plus a sub-octave triangle and a low exhaust rasp. Pitch follows the **rev range of a gear**, so it climbs and drops at each shift; the throttle opens the filter and lifts it, and lifting off softens it to an overrun |
+| Engine | every frame, from speed and throttle (**generated, not recorded** — see below) | Two detuned saws plus a sub-octave triangle and a low exhaust rasp. Pitch follows the **rev range of a gear**, so it climbs and drops at each shift; the throttle opens the filter and lifts it, and lifting off softens it to an overrun |
 | Tyre squeal | every frame, from `driftFactor`, speed and slide direction | Layered, see "The drift squeal" below |
 | Squeal chirp | The moment a drift starts | A short sawtooth bark that jumps upward |
 | Engine rev | `race-started` (lights out) | The motor winds up hard and settles back, 1.3 s |
@@ -162,6 +161,17 @@ A browser with no voices installed simply stays quiet. Every line spoken
 is also on the results board, so silence costs the player nothing. Voices
 load asynchronously, which is why `getVoices()` can be empty for the
 first second of a page's life — by the time a race finishes it is not.
+
+## Why the engine and the squeal are not recordings
+
+Both were, briefly. Both came back out.
+
+A recording is a fixed moment of sound, and those two have to track the car
+continuously — the engine through its whole rev range and every gear change,
+the squeal with how far sideways the car is. Stretching one short loop across
+all of that does not line up with what the car is doing. A synthesiser driven
+straight from the car's own state does, which is why these two are the sounds
+the code keeps for itself.
 
 ## The drift squeal
 

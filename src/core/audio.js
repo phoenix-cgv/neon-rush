@@ -76,19 +76,8 @@ const PLACES = {
 import { Sfx } from "./sfx.js";
 
 const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
-// The three recorded engine loops, and where each one sits in the rev
-// range. A real engine does not sound like one tone sped up, so the
-// sound crossfades between recordings taken at different revs and only
-// stretches each a little either side of its own rpm — past about a
-// third either way a stretched recording starts to sound like a tape.
-const ENGINE_LAYERS = [
-  { name: "engineLow", at: 0.12 },
-  { name: "engineMid", at: 0.5 },
-  { name: "engineHigh", at: 1.0 },
-];
 const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
 const clamp01 = (x) => clamp(x, 0, 1);
-
 export class GameAudio {
   constructor() {
     this.ctx = null;
@@ -339,10 +328,7 @@ export class GameAudio {
     // arrive a moment after the first click; until then, and for ever if
     // they fail, the synthesised versions play (see src/core/sfx.js).
     this.sfx = new Sfx();
-    this.sfx.load(c).then(() => {
-      this.useRecordedEngine(this.sfx);
-      this.useRecordedSqueal(this.sfx);
-    });
+    this.sfx.load(c);
 
     this.#applyGains();
     // setLevel() may have been called before there was a context to build in.
@@ -367,89 +353,6 @@ export class GameAudio {
       }
     }
     return buf;
-  }
-
-  /**
-   * Swap the synthesised engine for the recorded one, once the files are
-   * in. Three loops running all the time, each with its own gain: the
-   * revs decide which is heard, and each is pitched a little either side
-   * of the rpm it was recorded at, so the crossfade lands on a matching
-   * note rather than a step.
-   *
-   * The synthesised engine is not thrown away — it is faded out and left
-   * running, so if this is never called nothing changes, and the fallback
-   * costs three oscillators that were already there.
-   */
-  useRecordedEngine(sfx) {
-    if (!this.ctx || this.engineLayers) return false;
-    const layers = ENGINE_LAYERS.filter((l) => sfx.have(l.name));
-    if (!layers.length) return false;
-    const c = this.ctx;
-    this.recordedEngine = c.createGain();
-    this.recordedEngine.gain.value = 1;
-    this.engineTone = c.createBiquadFilter();
-    this.engineTone.type = "lowpass";
-    this.engineTone.frequency.value = 18000;
-    this.recordedEngine.connect(this.engineTone).connect(this.engineGain);
-    this.engineLayers = layers.map((l) => {
-      const src = c.createBufferSource();
-      src.buffer = sfx.get(l.name);
-      src.loop = true;
-      const gain = c.createGain();
-      gain.gain.value = 0;
-      src.connect(gain).connect(this.recordedEngine);
-      src.start();
-      return { ...l, src, gain };
-    });
-    // The oscillators stay, silent, as the fallback they always were.
-    this.engineFilter.disconnect();
-    this.#log("engine", `recorded, ${this.engineLayers.length} layer(s)`);
-    return true;
-  }
-
-  /**
-   * Swap the synthesised squeal's tonal layers for a recording of rubber.
-   * The wobble, the grit and the panning all still apply — this only
-   * replaces what the layers are MADE of, so a slide still rises in pitch
-   * and still comes from the side the car is sliding toward.
-   */
-  useRecordedSqueal(sfx) {
-    if (!this.ctx || this.squealSample || !sfx.have("squeal")) return false;
-    const c = this.ctx;
-    const src = c.createBufferSource();
-    src.buffer = sfx.get("squeal");
-    src.loop = true;
-    const gain = c.createGain();
-    gain.gain.value = 1;
-    src.connect(gain).connect(this.squealBand);
-    src.start();
-    this.squealSample = { src, gain };
-    // Silence the oscillator layers; the recording carries the tone now.
-    for (const v of this.squealOsc) v.o.disconnect();
-    this.#log("tyre-squeal", "recorded");
-    return true;
-  }
-
-  /** Point the recorded engine at a rev level (0..1) and a load (0..1). */
-  #driveRecordedEngine(rpm, throttle, t) {
-    let total = 0;
-    const weights = this.engineLayers.map((l) => {
-      // How near this recording is to the revs being asked for. Nothing
-      // beyond a third of the range away is heard at all.
-      const w = Math.max(0, 1 - Math.abs(rpm - l.at) / 0.38) ** 2;
-      total += w;
-      return w;
-    });
-    this.engineLayers.forEach((l, i) => {
-      const share = total > 0 ? weights[i] / total : i === 0 ? 1 : 0;
-      l.gain.gain.setTargetAtTime(share, t, 0.07);
-      // Stretch this layer toward the rpm actually wanted, but only a
-      // little: a recording pushed far from its own pitch sounds wound.
-      const rate = clamp(1 + (rpm - l.at) * 0.85, 0.72, 1.5);
-      l.src.playbackRate.setTargetAtTime(rate, t, 0.07);
-    });
-    // Off the throttle it closes down, the same overrun the synth has.
-    this.engineTone.frequency.setTargetAtTime(900 + rpm * 6000 + throttle * 4000, t, 0.08);
   }
 
   /**
@@ -495,7 +398,6 @@ export class GameAudio {
     // Crossing a gear drops the note the way a real shift does.
     const { rpm } = revsAt(speed);
     const throttle = clamp01(drive.throttle ?? 1);
-    if (this.engineLayers) this.#driveRecordedEngine(rpm, throttle, t);
     const f = 32 + rpm * 150; // firing frequency, roughly idle to redline
     // Quick, but not instant: a shift should land, not teleport.
     this.engine.frequency.setTargetAtTime(f, t, 0.05);
@@ -557,9 +459,6 @@ export class GameAudio {
     // The more sideways, the higher it screams; a little more with speed.
     const base = 450 + clamp01(drift) * 180 + clamp01(squealSpeed / 60) * 40;
     for (const v of this.squealOsc) v.o.frequency.setTargetAtTime(base * v.ratio, t, 0.06);
-    // The recording is pitched the same way the oscillators were: the
-    // more sideways the car, the higher it screams.
-    if (this.squealSample) this.squealSample.src.playbackRate.setTargetAtTime(0.8 + (base - 450) / 500, t, 0.08);
     this.squealBand.frequency.setTargetAtTime(base * 1.1, t, 0.08);
     this.squealPan.pan.setTargetAtTime(clamp(pan, -0.8, 0.8), t, 0.1);
     if (t > this.nextWobble) {

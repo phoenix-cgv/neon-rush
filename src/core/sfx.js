@@ -12,32 +12,31 @@
 // missing or broken sound file must never be the reason the game has no
 // sound.
 //
-// SEAMLESS LOOPS. Generated clips almost always fade at one or both
-// ends — measured on these: some sat at 0.58 of their own middle by the
-// last 80 ms. Looping that gives a pulse once a second, which is worse
-// than no sample at all. `#seamless` fixes it by folding the tail back
-// over the head: the last `fade` seconds are crossfaded into the first,
-// and the buffer is shortened by that much, so the join lands on
-// matching material at matching level.
+// SEAMLESS LOOPS. Nothing here loops today, but `#seamless` is kept for
+// when something does: generated clips almost always fade at one or both
+// ends — measured on the engine takes, some sat at 0.58 of their own
+// middle by the last 80 ms — and looping that gives a pulse once a
+// second. It folds the tail back over the head with an equal-power
+// crossfade and shortens the buffer to match.
 // ---------------------------------------------------------------------
 
-import engineLowUrl from "../../assets/audio/engine-low.mp3?url";
-import engineMidUrl from "../../assets/audio/engine-mid.mp3?url";
-import engineHighUrl from "../../assets/audio/engine-high.mp3?url";
 import rockUrl from "../../assets/audio/rock-landing.mp3?url";
 import crashUrl from "../../assets/audio/crash.mp3?url";
-import squealUrl from "../../assets/audio/tyre-squeal.mp3?url";
 import pickupUrl from "../../assets/audio/pickup.mp3?url";
 import voicePodiumUrl from "../../assets/audio/voice-podium.mp3?url";
 
-// `loop` marks the ones that are held rather than struck, so only those
-// pay for the crossfade. Engine clips are short, so they take a shorter
-// fade — a long one would eat most of the clip.
+// One-shots only: things that HAPPEN, not things that are held.
+//
+// The engine and the tyre squeal were recordings too, briefly, and both
+// came back out. A recording is a fixed moment of sound, and those two
+// have to track the car continuously — the engine through its rev range
+// and every gear change, the squeal with how far sideways the car is.
+// Stretching one short loop across all of that does not line up with
+// what the car is doing, and a synthesiser driven straight from the
+// car's own state does. So those two stay generated in code
+// (src/core/audio.js); what is left here is sound that is struck once
+// and then over, where a recording is simply better.
 const FILES = {
-  engineLow: { url: engineLowUrl, loop: true, fade: 0.12 },
-  engineMid: { url: engineMidUrl, loop: true, fade: 0.16 },
-  engineHigh: { url: engineHighUrl, loop: true, fade: 0.16 },
-  squeal: { url: squealUrl, loop: true, fade: 0.25 },
   rock: { url: rockUrl },
   crash: { url: crashUrl },
   pickup: { url: pickupUrl },
