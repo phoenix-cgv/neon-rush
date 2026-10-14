@@ -67,7 +67,6 @@ export class GameAudio {
     this.boostWasFull = false;
     this.lastT = 0; // previous update's clock, for airtime
     this.airT = 0;
-    this.nextWarn = 0;
     this.drill = null; // a testDrift() preview in progress
     this.lastCrash = -1; // when the last crash sounded, and how hard
     this.lastCrashK = 0;
@@ -354,11 +353,10 @@ export class GameAudio {
       if (this.airT > 0.3) this.landing(this.airT);
       this.airT = 0;
     }
-    const damage = drive.damage ?? 0;
-    if (live && damage >= 0.7 && t >= this.nextWarn) {
-      this.warningBeep();
-      this.nextWarn = t + 1.5 - 0.9 * clamp01((damage - 0.7) / 0.3); // faster as it gets worse
-    }
+    // (No low-health beep. A repeating alarm over the last third of the
+    // condition bar nagged for as long as the damage lasted, which is
+    // most of a bad race. The bar itself, the smoke and the dented
+    // panels already say the car is hurt.)
 
     // Squeal: needs a real slide AND real speed, so a parked car turning
     // the wheel or a crawl round a hairpin stays quiet. testDrift() takes
@@ -1016,14 +1014,6 @@ export class GameAudio {
     this.#blip({ type: "sine", freq: 110 - k * 40, to: 38, dur: 0.18 + k * 0.25, vol: 0.4 + k * 0.5 });
   }
 
-  /** Low-health warning: a short, urgent double beep. */
-  warningBeep() {
-    this.#play("low-health-beep", [
-      { type: "square", freq: 880, dur: 0.08, vol: 0.28 },
-      { type: "square", freq: 880, dur: 0.08, vol: 0.28, delay: 0.12 },
-    ]);
-  }
-
   /** Respawn: a rising whoosh with a soft shimmer, the car being put back. */
   respawn() {
     if (!this.canPlay("respawn")) return;
@@ -1301,7 +1291,16 @@ export class GameAudio {
   /** Mountain: wind that swells with the crosswind gust and with speed. */
   #mountainAmbience() {
     const amb = this.#ambience();
-    const wind = this.#noiseVoice("bandpass", 500, 0.7, amb.gain);
+    // Wind with no hiss in it.
+    //
+    // This used to be a wide band of noise around 500 Hz opening to 1.5
+    // kHz in a gust, which is the same steady broadband hiss the City had
+    // and read the same way. The gust still has to be HEARD — it is a
+    // hazard, and the sound is the warning — so it is still noise, but
+    // kept low and narrow: a moan that rises and falls rather than a
+    // sheet of static. Nothing above a few hundred hertz survives the
+    // lowpass, which is where the hiss lived.
+    const wind = this.#noiseVoice("lowpass", 220, 0.9, amb.gain);
     const body = this.#noiseVoice("lowpass", 140, 0.7, amb.gain);
     amb.sources.push(wind.src, body.src);
     let gusting = false;
@@ -1309,7 +1308,8 @@ export class GameAudio {
       const gust = clamp01(drive.wind ?? 0);
       const v = clamp01(speed / 50);
       wind.gain.gain.setTargetAtTime(0.06 + gust * 0.5 + v * 0.12, t, 0.15);
-      wind.filter.frequency.setTargetAtTime(350 + gust * 900 + v * 250, t, 0.2);
+      // opens only into the low mids, never into the hiss register
+      wind.filter.frequency.setTargetAtTime(150 + gust * 260 + v * 70, t, 0.2);
       body.gain.gain.setTargetAtTime(0.1 + gust * 0.5, t, 0.2);
       const strong = active && gust > 0.5;
       if (strong !== gusting) {
@@ -1320,7 +1320,7 @@ export class GameAudio {
     return amb;
   }
 
-  /** Grand Prix: a low pulsing drone and a distant crowd swell under faster night music. */
+  /** Grand Prix: a low pulsing drone under the faster night music. */
   #nightAmbience() {
     const c = this.ctx;
     const amb = this.#ambience();
@@ -1343,13 +1343,12 @@ export class GameAudio {
     lfo.frequency.value = 0.35;
     depth.gain.value = 0.07;
     lfo.connect(depth).connect(drone.gain);
-    const crowd = this.#noiseVoice("bandpass", 900, 0.5, amb.gain);
-    crowd.gain.gain.value = 0.05;
-    const swell = c.createGain();
-    swell.gain.value = 0.03;
-    lfo.connect(swell).connect(crowd.gain.gain);
+    // No standing crowd noise. It was a wide band around 900 Hz, left on
+    // for the whole race, and that is hiss however quiet it is set. The
+    // crowd is still there when it matters — it cheers you over the line
+    // (see cheer()) — which is an event rather than a carpet of static.
     for (const o of [o1, o2, lfo]) o.start();
-    amb.sources.push(o1, o2, lfo, crowd.src);
+    amb.sources.push(o1, o2, lfo);
     return amb;
   }
 

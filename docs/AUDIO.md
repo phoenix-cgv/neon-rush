@@ -85,7 +85,6 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Drift tier-up | `gameplayHud.onTierUp` | A rising major arpeggio. Each tier adds a note and starts higher |
 | Boost full | The boost meter reaching full (on the way up only) | A bright bell-like ding |
 | Landing | Wheels back on the ground after more than 0.3 s in the air | Low thud, heavier the longer you were up |
-| Low-health beep | Damage at 70% or more | A double beep that repeats faster as damage gets worse |
 | Respawn | `respawn` (the race puts your car back on the road) | A rising whoosh with a soft shimmer |
 | Near miss | `near-miss` (a traffic car passes you close and fast) | A quick falling whoosh, louder the closer and faster |
 | Crowd cheer | `car-finished`, you, on the Grand Prix only | Swelling crowd noise, scattered claps and two whoops. Smaller if you did not win |
@@ -174,20 +173,22 @@ and pans left and then right.
 
 ## Design choices per level
 
-**City Track (day).** Calm and bright. A soft traffic hum, a little air, and a
-bird chirp every few seconds. Oncoming and passing traffic whooshes by when it
+**City Track (day).** Calm and bright. A low traffic hum that swells slowly,
+and a bird chirp every few seconds. No layer of high noise anywhere: steady
+broadband hiss is what rain sounds like, and that is how it was heard. Oncoming and passing traffic whooshes by when it
 misses you narrowly.
 
 **Mountain Track (day, exposed).** Inside the tunnel everything gets an echo, so
 the engine and effects sound like they are in a concrete tube. The wind *is* the ambience. Its volume and
 brightness follow the crosswind gust at your position (`Crosswind.intensityAt`)
 and also your speed, so the exposed viaduct howls and the sheltered road
-is a low breeze. Falling rocks are the big sound: a rumble when a boulder lands,
+is a low breeze — kept under a lowpass, so the gust moans rather than hisses. Falling rocks are the big sound: a rumble when a boulder lands,
 scaled by distance, so you hear one before you see where it fell.
 
 **Grand Prix (night race).** More intense on purpose. The music switches to a
 faster, harder cut of the same kit (see "The music"). Underneath is a slow,
-breathing low drone and a distant crowd swell. Each of the five AI cars has its
+breathing low drone. The crowd is heard when it matters — over the line — rather
+than as a constant wash. Each of the five AI cars has its
 own engine voice, louder the closer it is, so a car pulling alongside is heard
 before it is seen. Tucking into a car's slipstream adds a whoosh. Driving onto the grass or gravel adds a low rumble, and crossing the line gives a crowd cheer.
 
