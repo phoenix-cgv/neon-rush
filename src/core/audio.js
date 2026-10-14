@@ -69,6 +69,7 @@ export class GameAudio {
     this.airT = 0;
     this.drill = null; // a testDrift() preview in progress
     this.lastCrash = -1; // when the last crash sounded, and how hard
+    this.lastBoostAt = -1; // when a boost last announced itself
     this.lastCrashK = 0;
     this.musicStyle = "day";
     this.amb = null; // the current level's ambience: { name, gain, stop, update }
@@ -884,6 +885,12 @@ export class GameAudio {
    */
   boostStarted() {
     if (!this.canPlay("boost-started")) return;
+    // However the car's boost is switched, the sound of it starting is a
+    // big layered noise and must not stack: a quarter of a second between
+    // two of them is already faster than anyone taps the button.
+    const now = this.ctx.currentTime;
+    if (now - this.lastBoostAt < 0.25) return void this.#log("boost-started", "(skipped: too soon after the last)");
+    this.lastBoostAt = now;
     this.#log("boost-started");
     // the shove: a short, low thump under everything
     this.#blip({ type: "sine", freq: 110, to: 42, dur: 0.22, vol: 0.5 });

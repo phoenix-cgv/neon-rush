@@ -42,6 +42,23 @@ export const PERSONALITIES = {
   steady: { grip: 0.94, aggression: 0.2, lineOffset: -0.8, wobble: 0.6, reaction: 0.40 },
 };
 
+/**
+ * Is the AI in a boost run? Two thresholds rather than one.
+ *
+ * The drain is five times the refill, so a single threshold ("boost while
+ * the tank is over 25") put the charge straight back under that line
+ * within a frame: the AI flicked boost on and off about a dozen times a
+ * second, which was audible as a stream of boost sounds and worth nothing
+ * to the car. A run starts only with a tank worth spending, and holds
+ * until that tank is genuinely spent.
+ *
+ * @param {boolean} was     whether a run is already under way
+ * @param {number} charge   the tank, 0..CAR.boostCapacity
+ */
+export function wantsBoost(was, charge, { start = 45, stop = 5 } = {}) {
+  return was ? charge > stop : charge > start;
+}
+
 export class AIController {
   /**
    * @param {object} track
@@ -57,6 +74,7 @@ export class AIController {
       handbrake: false, boost: false, pitch: 0, roll: 0,
     };
     this.targetOffset = this.p.lineOffset;
+    this.boosting = false; // mid boost run — see the hysteresis below
     this.blocking = false;
     this.reverseFor = 0; // s left of a nosed-into-the-wall recovery
     this._t = seed * 13.7;
@@ -146,8 +164,11 @@ export class AIController {
 
     // Boost on the exit of a corner, where it is worth most and least
     // likely to put the car in a wall.
+    //
+    // See wantsBoost: two thresholds, so this cannot chatter.
+    this.boosting = wantsBoost(this.boosting, car.boostCharge);
     c.boost =
-      !plan && car.boostCharge > 25 && err > 6 && Math.abs(c.steer) < 0.35 && car.grounded;
+      !plan && this.boosting && err > 6 && Math.abs(c.steer) < 0.35 && car.grounded;
 
     // Stopping in the box: held on the handbrake, not the brake, which at
     // a standstill would select reverse.
