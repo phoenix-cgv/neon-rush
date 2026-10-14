@@ -650,7 +650,7 @@ export class GameAudio {
 
   /** Pointer moves onto a button: a tiny, quiet tick. */
   hover() {
-    this.#play("button-hover", [{ type: "triangle", freq: 1250, dur: 0.04, vol: 0.12 }]);
+    this.#play("button-hover", [{ type: "triangle", freq: 940, dur: 0.04, vol: 0.12 }]);
   }
 
   /** Back / resume / close: two falling notes, the opposite of the rising click feel. */
@@ -825,7 +825,7 @@ export class GameAudio {
     // The crack of the moment of contact: very short, very bright. This is
     // the layer the ear reads as "hard", and it was the one missing — the
     // crunch and the thud alone land as a soft thump however loud.
-    this.#burst({ vol: 0.3 + k * 0.5, from: 11000, to: 2500, dur: 0.035 });
+    this.#burst({ vol: 0.3 + k * 0.5, from: 7500, to: 1800, dur: 0.035 });
     // the crunch, duller and longer the harder it is
     this.#burst({ vol: 0.4 + k * 0.6, from: 3500 - k * 2200, to: 200, dur: 0.15 + k * 0.5 });
     // the thud through the floor, with a sub under it
@@ -910,12 +910,18 @@ export class GameAudio {
     this.#log("pickup");
     // A rising figure rather than one chirp, each note a little louder,
     // so it reads as something being taken in rather than a blip.
-    [88, 93, 100].forEach((m, i) =>
-      this.#blip({ type: "triangle", freq: mtof(m), dur: 0.12, vol: 0.26 + i * 0.05, delay: i * 0.045, detune: 5 })
+    //
+    // An octave and a bit lower than it was. The figure used to run
+    // 1.3-2.6 kHz with a shimmer sweeping to 5.3 kHz over it, which is
+    // squarely in the register the ear finds shrill — and it fires every
+    // few seconds on a lap full of orbs. A C major triad from C5 is warm,
+    // still bright against the engine, and does not pierce. The noise
+    // sparkle that sat on top is gone with it: it lived at 9 kHz.
+    [72, 76, 79].forEach((m, i) =>
+      this.#blip({ type: "triangle", freq: mtof(m), dur: 0.13, vol: 0.26 + i * 0.05, delay: i * 0.045, detune: 5 })
     );
-    // the shimmer it leaves behind
-    this.#blip({ type: "sine", freq: mtof(105), to: mtof(112), dur: 0.5, vol: 0.14, delay: 0.14, detune: 14 });
-    this.#burst({ vol: 0.1, from: 9000, to: 4000, dur: 0.18, delay: 0.05 });
+    // the shimmer it leaves behind, an octave down too
+    this.#blip({ type: "sine", freq: mtof(84), to: mtof(88), dur: 0.5, vol: 0.13, delay: 0.14, detune: 14 });
   }
 
   /** One start lamp lit: a short, flat F1-style beep, the same pitch each time. */
@@ -926,8 +932,8 @@ export class GameAudio {
   /** Lights out: a higher, longer "GO" tone, with a fifth above it for bite. */
   raceStarted() {
     this.#play("race-started", [
-      { type: "square", freq: mtof(93), dur: 0.7, vol: 0.45 },
-      { type: "sawtooth", freq: mtof(100), dur: 0.7, vol: 0.2 },
+      { type: "square", freq: mtof(81), dur: 0.7, vol: 0.45 },
+      { type: "sawtooth", freq: mtof(88), dur: 0.7, vol: 0.2 },
     ]);
   }
 
@@ -976,8 +982,10 @@ export class GameAudio {
   /** Boost tank just filled: a bright bell-like ding. */
   boostFull() {
     this.#play("boost-full", [
-      { type: "sine", freq: 1760, dur: 0.5, vol: 0.35 },
-      { type: "sine", freq: 2637, dur: 0.35, vol: 0.18 },
+      // 880/1319 rather than 1760/2637: this lands moments after a boost
+      // orb, so it was heard as part of the same shrill chirp.
+      { type: "sine", freq: 880, dur: 0.5, vol: 0.32 },
+      { type: "sine", freq: 1319, dur: 0.35, vol: 0.14 },
     ]);
   }
 
@@ -1158,8 +1166,8 @@ export class GameAudio {
     this.#play("new-best-lap", [
       { type: "square", freq: mtof(79), dur: 0.12, vol: 0.3, delay: 0.45 },
       { type: "square", freq: mtof(84), dur: 0.12, vol: 0.3, delay: 0.55 },
-      { type: "triangle", freq: mtof(91), dur: 0.5, vol: 0.35, delay: 0.65 },
-      { type: "sine", freq: mtof(103), dur: 0.45, vol: 0.16, delay: 0.71 },
+      { type: "triangle", freq: mtof(79), dur: 0.5, vol: 0.35, delay: 0.65 },
+      { type: "sine", freq: mtof(91), dur: 0.45, vol: 0.16, delay: 0.71 },
     ]);
   }
 

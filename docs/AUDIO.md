@@ -74,7 +74,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Wrong way | `wrong-way` | Two harsh low beeps, like an alarm |
 | Boost on | `boost-started` | Rising sawtooth sweep, like a turbo |
 | Boost off | `boost-stopped` | Falling sweep, quieter |
-| Pickup | `pickup-collected` | Sparkly chirp that jumps an octave |
+| Pickup | `pickup-collected` | A warm rising triad from C5, with a soft shimmer after it |
 | Win | `race-won` | Short fanfare ending on a held chord |
 | Lose | `race-lost` | Slow descending minor figure |
 | Crash | `crash`, sized by how hard the hit was | Noise crunch plus a low thud. Harder hit means longer, duller, louder |
@@ -83,7 +83,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Squeal chirp | The moment a drift starts | A short sawtooth bark that jumps upward |
 | Engine rev | `race-started` (lights out) | The motor winds up hard and settles back, 1.3 s |
 | Drift tier-up | `gameplayHud.onTierUp` | A rising major arpeggio. Each tier adds a note and starts higher |
-| Boost full | The boost meter reaching full (on the way up only) | A bright bell-like ding |
+| Boost full | The boost meter reaching full (on the way up only) | A bell-like ding, an octave below where it started out |
 | Landing | Wheels back on the ground after more than 0.3 s in the air | Low thud, heavier the longer you were up |
 | Respawn | `respawn` (the race puts your car back on the road) | A rising whoosh with a soft shimmer |
 | Near miss | `near-miss` (a traffic car passes you close and fast) | A quick falling whoosh, louder the closer and faster |
@@ -211,6 +211,11 @@ one fades in, then frees the old one.
   only watches the counter and emits `crash`. Replays are unaffected.
 - **Everything sits behind the toggles.** Sound and Music each have their own bus,
   so a toggle silences everything on it, including the new ambience, rumble and echo.
+- **Nothing lives in the shrill register.** The pickup used to run to
+  2.6 kHz with a shimmer sweeping past 5 kHz, and it fires every few seconds
+  on a lap full of orbs. Sounds that repeat belong low enough to live with:
+  the loudest part of a pickup is now 785 Hz, and there is nothing of any
+  consequence above 3 kHz anywhere.
 - **Effects sit above the music.** Measured, effects are several times louder
   than the music, and the worst case of everything at once stays under full scale.
 
