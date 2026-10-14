@@ -28,6 +28,7 @@ import rockUrl from "../../assets/audio/rock-landing.mp3?url";
 import crashUrl from "../../assets/audio/crash.mp3?url";
 import squealUrl from "../../assets/audio/tyre-squeal.mp3?url";
 import pickupUrl from "../../assets/audio/pickup.mp3?url";
+import voicePodiumUrl from "../../assets/audio/voice-podium.mp3?url";
 
 // `loop` marks the ones that are held rather than struck, so only those
 // pay for the crossfade. Engine clips are short, so they take a shorter
@@ -40,6 +41,7 @@ const FILES = {
   rock: { url: rockUrl },
   crash: { url: crashUrl },
   pickup: { url: pickupUrl },
+  voicePodium: { url: voicePodiumUrl },
 };
 
 export class Sfx {

@@ -2,8 +2,8 @@
 
 Almost everything you hear is **made in code** with the browser's Web Audio
 API. The exceptions are seven recordings — the engine (three loops at
-different revs), the tyre squeal, a crash, a boulder landing and the pickup
-chime — which are generated audio files in `assets/audio/`, loaded by
+different revs), the tyre squeal, a crash, a boulder landing, the pickup
+chime and the podium voice line — which are generated audio files in `assets/audio/`, loaded by
 `src/core/sfx.js`. **Those are the only thing in the audio that needs a
 credits entry**, and they have one.
 
@@ -102,7 +102,7 @@ also play any of them yourself from the console: `__dbg.audio.lapComplete()`,
 | Slipstream whoosh | every frame, from the slipstream value | Noise that swells and brightens as you tuck in behind a car |
 | Rock landing | `rock-landed` | A stone strike, a mid thump, scree still coming down, and the low roll of it away — louder the closer it lands |
 | Rock hit | `rock-hit-car` | Sharp stony crack on top of the normal crash |
-| Result announcement | `car-finished`, you, Grand Prix only | A **spoken** line reading your finishing place back, and "mission accomplished" on the podium |
+| Result announcement | `car-finished`, you, Grand Prix only | On the **podium**, a recorded voice line (`assets/audio/voice-podium.mp3`). Anywhere else the browser's own voice reads the position back, because that changes and no recording can cover it |
 
 Passing a checkpoint makes no sound on purpose: it fires 19 times a lap on the
 Grand Prix, and a ping that often nags rather than informs. Missing one still
@@ -147,8 +147,13 @@ tempo, and the one-bar drum rows are all plain arrays.
 
 ## The announcer
 
-The result of the Grand Prix is read out loud by the browser's own speech
-synthesis (`audio.say`), not by Web Audio. That means it does not pass
+A podium finish is announced by a recorded voice (`voice-podium.mp3`), which
+replaces the spoken line rather than following it — two voices reading the
+same result, one of them a synthesiser, is worse than either alone. Every
+other result is read by the browser's own speech synthesis (`audio.say`),
+because the position changes and one recording cannot cover it.
+
+Speech synthesis is not Web Audio. That means it does not pass
 through the buses, the reverb, the pause muffle or the limiter, so the
 Sound toggle is honoured by hand in `say()`. No voice ships with the
 game and there is no audio file, so there is nothing to credit.

@@ -1364,6 +1364,18 @@ export class GameAudio {
   announceFinish(position) {
     const place = PLACES[position] ?? `in position ${position}`;
     const podium = position >= 1 && position <= 3;
+    // A recorded voice for the podium, where there is one line to say and
+    // a real voice can say it. It REPLACES the spoken line rather than
+    // following it: two voices reading the same result, one of them a
+    // speech synthesiser, is worse than either alone.
+    //
+    // Anywhere else the result has to be read out loud — the position
+    // changes, so no recording can cover it — and the browser's own voice
+    // does that, as it did before.
+    if (podium && this.sound && this.#sample("voicePodium", { vol: 0.95, pan: 0, delay: 1.2 })) {
+      this.#log("announce", `(recorded podium line, position ${position})`);
+      return;
+    }
     // After the crowd, not over it.
     this.say(podium ? `You finished ${place}. Mission accomplished.` : `You finished ${place}.`, { delay: 1.2 });
   }
