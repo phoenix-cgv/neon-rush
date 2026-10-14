@@ -664,7 +664,7 @@ export class GameAudio {
   }
 
   click() {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("click")) return;
     this.#log("click");
     const c = this.ctx;
     const o = c.createOscillator();
@@ -693,13 +693,38 @@ export class GameAudio {
    * a silent log.
    */
   #play(name, notes) {
-    if (!this.ctx) return void this.#log(name, "(skipped: audio not unlocked yet)");
-    if (!this.sound) return void this.#log(name, "(skipped: Sound is off)");
-    // A context can be suspended again after a tab switch or autoplay
-    // policy; scheduling into a suspended clock plays nothing.
-    if (this.ctx.state !== "running") this.ctx.resume?.();
+    if (!this.canPlay(name)) return;
     this.#log(name);
     for (const n of notes) this.#blip(n);
+  }
+
+  /**
+   * Can a sound actually be HEARD right now? Says why not, in the log.
+   *
+   * The suspended case is the one that matters. A browser can leave the
+   * context suspended (autoplay policy, a tab switch, a gesture it did
+   * not count), and anything scheduled into a stopped clock makes no
+   * sound — but this used to resume() and then log and schedule anyway,
+   * so the console read exactly like a game that was playing perfectly
+   * while nothing came out of the speakers. Now it asks to resume and
+   * says plainly that it could not play, which is the difference between
+   * a silent game and a silent game you can diagnose.
+   */
+  canPlay(name) {
+    if (!this.ctx) {
+      this.#log(name, "(skipped: audio not unlocked yet — click the page)");
+      return false;
+    }
+    if (!this.sound) {
+      this.#log(name, "(skipped: Sound is off in Settings)");
+      return false;
+    }
+    if (this.ctx.state !== "running") {
+      this.ctx.resume?.(); // ask again — it may be allowed by now
+      this.#log(name, `(skipped: the browser has audio ${this.ctx.state} — click the page)`);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -791,7 +816,7 @@ export class GameAudio {
    */
   crash(severity = 0.5) {
     const k = clamp01(severity);
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("crash")) return;
     // A scrape along a wall reports a string of tiny hits; sound only the
     // ones that matter, and never more than a few a second.
     const now = this.ctx.currentTime;
@@ -818,7 +843,7 @@ export class GameAudio {
 
   /** A boulder landing somewhere: a deep rumble, louder the closer it is. */
   rockLanded(distance = 60) {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("rock-landed")) return;
     const near = clamp01(1 - distance / 160);
     this.#log("rock-landed", `distance=${Math.round(distance)}m`);
     this.#burst({ vol: 0.15 + near * 0.7, from: 600, to: 50, dur: 1.1 });
@@ -827,7 +852,7 @@ export class GameAudio {
 
   /** The player's car meeting a settled rock: a sharp stony crack over the crash. */
   rockHit() {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("rock-hit-car")) return;
     this.#log("rock-hit-car");
     this.#burst({ vol: 0.8, from: 5000, to: 300, dur: 0.35 });
   }
@@ -860,7 +885,7 @@ export class GameAudio {
    * job of all four and sounded like a test tone.
    */
   boostStarted() {
-    if (!this.ctx || !this.sound) return void this.#log("boost-started", "(skipped)");
+    if (!this.canPlay("boost-started")) return;
     this.#log("boost-started");
     // the shove: a short, low thump under everything
     this.#blip({ type: "sine", freq: 110, to: 42, dur: 0.22, vol: 0.5 });
@@ -874,7 +899,7 @@ export class GameAudio {
 
   /** Boost off: the sweep falling away, and the blow-off hiss after it. */
   boostStopped() {
-    if (!this.ctx || !this.sound) return void this.#log("boost-stopped", "(skipped)");
+    if (!this.canPlay("boost-stopped")) return;
     this.#log("boost-stopped");
     this.#blip({ type: "sawtooth", freq: 620, to: 120, dur: 0.3, vol: 0.16, detune: 10 });
     // the valve letting go: bright, short, and gone
@@ -883,7 +908,7 @@ export class GameAudio {
 
   /** Pickup: a sparkly high chirp that jumps an octave. */
   pickup() {
-    if (!this.ctx || !this.sound) return void this.#log("pickup", "(skipped)");
+    if (!this.canPlay("pickup")) return;
     this.#log("pickup");
     // A rising figure rather than one chirp, each note a little louder,
     // so it reads as something being taken in rather than a blip.
@@ -913,7 +938,7 @@ export class GameAudio {
    * back. Two detuned saws through a lowpass that opens as the revs rise.
    */
   engineRev() {
-    if (!this.ctx || !this.sound) return void (this.ctx && this.#log("engine-rev (skipped: Sound is off)"));
+    if (!this.canPlay("engine-rev")) return;
     this.#log("engine-rev");
     const c = this.ctx;
     const t = c.currentTime + 0.005;
@@ -984,7 +1009,7 @@ export class GameAudio {
 
   /** Touchdown after being airborne: a low thud, heavier the longer you were up. */
   landing(airTime = 0.5) {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("landing")) return;
     const k = clamp01((airTime - 0.25) / 1.5);
     this.#log("landing", `air=${airTime.toFixed(2)}s`);
     this.#burst({ vol: 0.2 + k * 0.5, from: 900, to: 80, dur: 0.18 + k * 0.2 });
@@ -1001,7 +1026,7 @@ export class GameAudio {
 
   /** Respawn: a rising whoosh with a soft shimmer, the car being put back. */
   respawn() {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("respawn")) return;
     this.#log("respawn");
     this.#whoosh({ from: 250, to: 3200, dur: 0.6, vol: 0.55, q: 1.2, swell: 0.7 });
     this.#blip({ type: "sine", freq: mtof(76), to: mtof(88), dur: 0.4, vol: 0.18 });
@@ -1009,7 +1034,7 @@ export class GameAudio {
 
   /** A traffic car whipping past: a quick falling whoosh, louder the closer and faster. */
   nearMiss(side = 3, speed = 20) {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("near-miss")) return;
     const k = clamp01(1 - side / 5.5) * 0.6 + clamp01(speed / 50) * 0.4;
     this.#log("near-miss", `side=${side.toFixed(1)}m closing=${Math.round(speed)}m/s`);
     this.#whoosh({ from: 2200, to: 450, dur: 0.4, vol: 0.12 + k * 0.5, q: 0.9, swell: 0.3 });
@@ -1017,7 +1042,7 @@ export class GameAudio {
 
   /** Crowd at the finish: a swell of noise, claps and two whoops. Bigger for a win. */
   cheer(position = 1) {
-    if (!this.ctx || !this.sound) return;
+    if (!this.canPlay("crowd-cheer")) return;
     const k = position === 1 ? 1 : 0.55;
     this.#log("crowd-cheer", `position=${position}`);
     this.#whoosh({ from: 900, to: 1500, dur: 2.6, vol: 0.4 * k, q: 0.5, swell: 0.25 });

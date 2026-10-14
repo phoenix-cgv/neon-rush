@@ -9,6 +9,12 @@
   />
 
   <title>Neon Rush</title>
+  <!-- An inline tab icon: an orange chevron on the game's own dark. Every
+       page asks the server for /favicon.ico whether one exists or not, and
+       without this that request 404s into the console on every load, which
+       is noise in a console the marker is asked to look at. Inline, so it
+       costs no request and cannot go missing from a build. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e1218'/%3E%3Cpath d='M18 5 L7 18 h7 l-3 9 L25 13 h-7 z' fill='%23e8602c'/%3E%3C/svg%3E">
 
   <style>
     body {

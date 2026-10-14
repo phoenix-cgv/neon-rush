@@ -911,9 +911,29 @@ function showDashboard() {
   document.body.classList.add("dash-open");
   dashboard.show(i);
 }
-// Browsers only allow audio after a gesture: the first click anywhere on
-// the dashboard starts it.
-window.addEventListener("pointerdown", () => { audio.unlock(); applyAssists(); }, { once: true });
+// Browsers only allow audio after a gesture, and one attempt is not
+// enough: a browser can hand back a context that is still SUSPENDED (its
+// own autoplay policy, a gesture it did not count, a tab switched away
+// and back), and a single once-only listener then left the game mute for
+// the rest of the session with no way back. So every gesture — pointer
+// or key — asks again, until the context is genuinely running, and only
+// then does the listener take itself off.
+let assistsApplied = false;
+function offerAudio() {
+  if (!assistsApplied) {
+    applyAssists();
+    assistsApplied = true;
+  }
+  // Kept for the whole session rather than taken off once audio starts: a
+  // context that is running now can be suspended later (a tab switched
+  // away, the output device changed), and a listener that had already
+  // removed itself left the game mute for good. Running is a single
+  // property read, so the steering keys cost nothing.
+  if (audio.ctx?.state === "running") return;
+  audio.unlock();
+}
+window.addEventListener("pointerdown", offerAudio);
+window.addEventListener("keydown", offerAudio);
 let orbit = 0;
 showDashboard();
 bootDone = true;
