@@ -692,6 +692,7 @@ async function buildLevel(name) {
     // Night levels: a moonlit rim on every car's paint, so the field stands
     // out against the dark (CarRig.setRim).
     if (level.lit?.carRim) for (const c of race.cars) c.rig.setRim(...level.lit.carRim);
+    carRig.setCockpit(cameraRig.modeName === "cockpit");
     cameraRig.snapTo(vehicle.state);
   } else {
     // No track: a bare car on the testbed, no race machinery.
@@ -1010,7 +1011,12 @@ function frame(now) {
     return;
   }
 
-  if (input.pressed("camera")) cameraRig.cycle();
+  if (input.pressed("camera")) {
+    cameraRig.cycle();
+    // Sitting in the car means seeing its inside, not the inside of its
+    // paint (see CarRig.setCockpit).
+    carRig?.setCockpit(cameraRig.modeName === "cockpit");
+  }
   if (input.pressed("debug")) Save.set("telemetry", debug.toggle());
   if (input.pressed("map")) {
     Save.set("minimap", minimap.toggle());

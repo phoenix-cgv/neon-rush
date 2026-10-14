@@ -799,8 +799,21 @@ export class GameAudio {
     this.lastCrash = now;
     this.lastCrashK = k;
     this.#log("crash", `severity=${k.toFixed(2)}`);
+    // The crack of the moment of contact: very short, very bright. This is
+    // the layer the ear reads as "hard", and it was the one missing — the
+    // crunch and the thud alone land as a soft thump however loud.
+    this.#burst({ vol: 0.3 + k * 0.5, from: 11000, to: 2500, dur: 0.035 });
+    // the crunch, duller and longer the harder it is
     this.#burst({ vol: 0.4 + k * 0.6, from: 3500 - k * 2200, to: 200, dur: 0.15 + k * 0.5 });
-    this.#blip({ type: "sine", freq: 130 - k * 50, to: 40, dur: 0.2 + k * 0.3, vol: 0.4 + k * 0.5 });
+    // the thud through the floor, with a sub under it
+    this.#blip({ type: "sine", freq: 130 - k * 50, to: 40, dur: 0.2 + k * 0.3, vol: 0.4 + k * 0.5, detune: 0, sub: 0.6 });
+    // a real hit throws pieces: a few metallic ticks scattered after it
+    if (k > 0.45) {
+      const bits = 2 + Math.round(k * 4);
+      for (let i = 0; i < bits; i++) {
+        this.#burst({ vol: 0.1 + k * 0.14, from: 6000 + Math.random() * 4000, to: 1200, dur: 0.03 + Math.random() * 0.05, delay: 0.06 + Math.random() * (0.25 + k * 0.4) });
+      }
+    }
   }
 
   /** A boulder landing somewhere: a deep rumble, louder the closer it is. */
@@ -840,22 +853,46 @@ export class GameAudio {
     ]);
   }
 
-  /** Boost on: a fast upward sweep, like a turbo kicking in. */
+  /**
+   * Boost on: a turbo coming on song, in four layers rather than one
+   * sweep — the shove you feel, the spool you hear, the tone that carries
+   * the pitch, and a crack of ignition on top. One sawtooth sweep did the
+   * job of all four and sounded like a test tone.
+   */
   boostStarted() {
-    this.#play("boost-started", [{ type: "sawtooth", freq: 140, to: 900, dur: 0.4, vol: 0.35 }]);
+    if (!this.ctx || !this.sound) return void this.#log("boost-started", "(skipped)");
+    this.#log("boost-started");
+    // the shove: a short, low thump under everything
+    this.#blip({ type: "sine", freq: 110, to: 42, dur: 0.22, vol: 0.5 });
+    // the spool: noise climbing and opening up
+    this.#whoosh({ from: 320, to: 3200, dur: 0.46, vol: 0.3, q: 0.9, swell: 0.75 });
+    // the tone: the sweep that was already there, now with a sub under it
+    this.#blip({ type: "sawtooth", freq: 150, to: 940, dur: 0.42, vol: 0.26, sub: 0.5, detune: 12 });
+    // ignition, right at the front
+    this.#burst({ vol: 0.3, from: 7000, to: 1800, dur: 0.07 });
   }
 
-  /** Boost off: the same sweep in reverse and quieter, a hiss of lift-off. */
+  /** Boost off: the sweep falling away, and the blow-off hiss after it. */
   boostStopped() {
-    this.#play("boost-stopped", [{ type: "sawtooth", freq: 600, to: 120, dur: 0.28, vol: 0.2 }]);
+    if (!this.ctx || !this.sound) return void this.#log("boost-stopped", "(skipped)");
+    this.#log("boost-stopped");
+    this.#blip({ type: "sawtooth", freq: 620, to: 120, dur: 0.3, vol: 0.16, detune: 10 });
+    // the valve letting go: bright, short, and gone
+    this.#whoosh({ from: 4200, to: 900, dur: 0.3, vol: 0.26, q: 1.1, swell: 0.12, delay: 0.04 });
   }
 
   /** Pickup: a sparkly high chirp that jumps an octave. */
   pickup() {
-    this.#play("pickup", [
-      { type: "sine", freq: mtof(88), to: mtof(100), dur: 0.14, vol: 0.5 },
-      { type: "triangle", freq: mtof(100), dur: 0.14, vol: 0.35, delay: 0.06 },
-    ]);
+    if (!this.ctx || !this.sound) return void this.#log("pickup", "(skipped)");
+    this.#log("pickup");
+    // A rising figure rather than one chirp, each note a little louder,
+    // so it reads as something being taken in rather than a blip.
+    [88, 93, 100].forEach((m, i) =>
+      this.#blip({ type: "triangle", freq: mtof(m), dur: 0.12, vol: 0.26 + i * 0.05, delay: i * 0.045, detune: 5 })
+    );
+    // the shimmer it leaves behind
+    this.#blip({ type: "sine", freq: mtof(105), to: mtof(112), dur: 0.5, vol: 0.14, delay: 0.14, detune: 14 });
+    this.#burst({ vol: 0.1, from: 9000, to: 4000, dur: 0.18, delay: 0.05 });
   }
 
   /** One start lamp lit: a short, flat F1-style beep, the same pitch each time. */

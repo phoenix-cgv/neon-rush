@@ -30,6 +30,20 @@ export class RaceHud {
     this.lapTimes = [];
     this.lastLap = 1;
 
+    // Lap and running time, top centre.
+    //
+    // These used to sit in the top-left block in 11px grey, which is the
+    // quietest corner of the screen and the easiest thing to lose against
+    // a bright track. They are the two numbers a player actually races
+    // against, so they get the middle of the screen, big, on a panel that
+    // holds up over road, sky or neon. Position and the per-lap splits
+    // stay left: they are read between corners, not during one.
+    this.centre = document.createElement("div");
+    this.centre.style.cssText = `position:absolute;top:46px;left:50%;transform:translateX(-50%);
+      display:none;gap:18px;align-items:center;padding:7px 18px;white-space:nowrap;
+      background:rgba(8,12,14,.72);border:1px solid rgba(190,210,215,.22);border-radius:5px;
+      backdrop-filter:blur(3px)`;
+
     // five start lamps
     this.lights = document.createElement("div");
     this.lights.style.cssText = `position:absolute;top:92px;left:50%;transform:translateX(-50%);
@@ -54,7 +68,7 @@ export class RaceHud {
       min-width:min(420px,90vw);max-width:92vw;background:rgba(8,14,16,.88);
       border:1px solid rgba(190,210,215,.35);border-radius:6px;padding:16px 18px;display:none`;
 
-    this.root.append(this.bar, this.lights, this.go, this.results);
+    this.root.append(this.bar, this.centre, this.lights, this.go, this.results);
     document.body.appendChild(this.root);
     this.lastResults = "";
   }
@@ -110,8 +124,34 @@ export class RaceHud {
       (field > 1
         ? `<div style="font:italic 800 22px/1.1 system-ui,sans-serif">Position <span style="font-size:30px;margin-left:8px">${ord(pos)}</span></div>`
         : "") +
-      `<div style="font:italic 600 17px/1.5 system-ui,sans-serif;opacity:.95">Laps ${lap} / ${director.laps}</div>` +
-      `<div style="${small};margin-top:6px"><div>Total Time &nbsp;&nbsp; ${stamp(total)}${director.timeLimit ? ` / ${stamp(director.timeLimit)}` : ""}</div>${rows}</div>`;
+      `<div style="${small};margin-top:6px">${rows}</div>`;
+
+    // The two numbers being raced against, in the middle of the screen.
+    // Held back until the lights go out: before that they are all zeroes
+    // and would only crowd the start lamps directly below.
+    const racing = director.state !== "lights";
+    this.centre.style.display = racing ? "flex" : "none";
+    if (racing) {
+      const label = `font:700 9px/1 ${FONT};letter-spacing:.2em;opacity:.65`;
+      const over = director.timeLimit && total > director.timeLimit - 10;
+      this.centre.innerHTML =
+        `<div style="text-align:center">
+          <div style="${label}">LAP</div>
+          <div style="font:800 21px/1.1 ${FONT};margin-top:3px">${lap}<span style="font-size:13px;opacity:.6">/${director.laps}</span></div>
+        </div>
+        <div style="width:1px;height:28px;background:rgba(190,210,215,.25)"></div>
+        <div style="text-align:center">
+          <div style="${label}">TIME</div>
+          <div style="font:800 21px/1.1 ${FONT};margin-top:3px;font-variant-numeric:tabular-nums;
+            color:${over ? "#ff5a44" : "#fff"}">${stamp(total)}</div>
+        </div>` +
+        (director.timeLimit
+          ? `<div style="text-align:center">
+              <div style="${label}">LIMIT</div>
+              <div style="font:700 15px/1.1 ${FONT};margin-top:5px;opacity:.75;font-variant-numeric:tabular-nums">${stamp(director.timeLimit)}</div>
+            </div>`
+          : "");
+    }
 
     // results
     if (director.state === "finished") {

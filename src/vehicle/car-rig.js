@@ -499,6 +499,89 @@ export class CarRig {
     // The model is used as authored, so it gets no underglow.
     if (!this.usesModel) this.chassisPivot.add(this.glow);
     this.#initScratches(paint);
+    // Everything that makes up the car as seen from OUTSIDE, remembered
+    // so the cockpit view can take it away (see setCockpit). The glow and
+    // the drawn headlights are left out: they belong to the ground and to
+    // other people's view of this car, not to its shell.
+    this.shell = this.chassisPivot.children.filter((o) => o !== this.glow);
+  }
+
+  /**
+   * Cockpit view: swap the car's outside for its inside.
+   *
+   * The camera sits in the cabin for this one, and the body's paint is
+   * double-sided (car-model.js needs that, or thin panels disappear
+   * edge-on), so from in there the shell is simply in the way — all you
+   * can see is the inside of the roof. So the shell comes off and a built
+   * interior goes in: a dash, a binnacle, a wheel and the windscreen
+   * frame, which is what the player expects to be sitting behind.
+   *
+   * Built the first time it is asked for, so the five cars that will
+   * never be sat in never pay for one.
+   */
+  setCockpit(on) {
+    if (on && !this.cockpit) this.#buildCockpit();
+    if (this.cockpit) this.cockpit.visible = on;
+    for (const o of this.shell ?? []) o.visible = !on;
+  }
+
+  #buildCockpit() {
+    const g = new THREE.Group();
+    g.name = "Cockpit";
+    const h = CAR.halfExtents;
+    // Moulded black plastic, and a dulled metal for the wheel's spokes.
+    const trim = new THREE.MeshStandardMaterial({ color: 0x15181c, roughness: 0.85, metalness: 0.05 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x0a0c0f, roughness: 0.95, metalness: 0 });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x6a7076, roughness: 0.35, metalness: 0.8 });
+    const add = (geo, mat, x, y, z, rx = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.rotation.x = rx;
+      g.add(m);
+      return m;
+    };
+
+    // The dash: a top that falls away from the screen, and a face under it.
+    add(new THREE.BoxGeometry(1.9, 0.06, 0.5), trim, 0, -0.04, -0.95, -0.2);
+    add(new THREE.BoxGeometry(1.9, 0.3, 0.06), dark, 0, -0.18, -0.73);
+    // The binnacle in front of the driver, hooding the dials.
+    add(new THREE.BoxGeometry(0.46, 0.16, 0.26), trim, -0.3, 0.04, -0.84, -0.28);
+    // Centre stack, angled toward the driver.
+    add(new THREE.BoxGeometry(0.3, 0.22, 0.05), dark, 0.1, -0.07, -0.82, -0.24);
+
+    // The wheel: a rim and three spokes, tipped back the way a real one is.
+    const wheel = new THREE.Group();
+    wheel.add(new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 8, 24), trim));
+    for (let i = 0; i < 3; i++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.022, 0.012), metal);
+      spoke.position.set(Math.cos((i * 2 * Math.PI) / 3) * 0.075, Math.sin((i * 2 * Math.PI) / 3) * 0.075, 0);
+      spoke.rotation.z = (i * 2 * Math.PI) / 3;
+      wheel.add(spoke);
+    }
+    wheel.add(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.03, 10).rotateX(Math.PI / 2), trim));
+    wheel.position.set(-0.3, -0.11, -0.62);
+    wheel.rotation.x = -0.38; // laid back toward the driver
+    g.add(wheel);
+    this.steeringWheel = wheel; // turned in sync with the front wheels
+
+    // The windscreen frame: a header rail and two pillars, which is most
+    // of what tells the eye it is sitting inside something.
+    add(new THREE.BoxGeometry(1.66, 0.07, 0.1), dark, 0, 0.72, -1.02);
+    for (const sx of [-1, 1]) {
+      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.9, 0.07), dark);
+      pillar.position.set(sx * 0.86, 0.33, -0.93);
+      pillar.rotation.z = sx * 0.14;
+      pillar.rotation.x = -0.2;
+      g.add(pillar);
+    }
+    // Door tops, just in the corner of the eye.
+    for (const sx of [-1, 1]) {
+      add(new THREE.BoxGeometry(0.1, 0.08, 1.0), dark, sx * (h.x + 0.14), -0.08, -0.2);
+    }
+
+    g.visible = false;
+    this.chassisPivot.add(g);
+    this.cockpit = g;
   }
 
   /**
@@ -515,6 +598,9 @@ export class CarRig {
     this.root.quaternion.copy(state.quaternion);
 
     this.steeringGroup.rotation.y = -state.steerAngle;
+    // The wheel in your hands turns with the front ones, and further, the
+    // way a real rack is geared.
+    if (this.steeringWheel) this.steeringWheel.rotation.z = state.steerAngle * 3.2;
 
     for (let i = 0; i < this.wheelMeshes.length; i++) {
       const w = state.wheels[i];

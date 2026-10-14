@@ -323,6 +323,13 @@ export const CAR = {
   tankExtraHold: 6, // s the stretched tank stays after the combo ends
   tankExtraDecay: 20, // then it shrinks (and spills) at this much per second
   boostPassiveRegen: 7, // per second always — so Shift always does something
+  // Once the tank runs dry it stays dry until this much has built back
+  // up. Without it the trickle above put charge in between steps and the
+  // test for "is there any left" passed every single frame, so holding
+  // boost on an empty tank was full boost, for ever. A fifth of a tank
+  // is about three seconds of regen: Shift still does something, just
+  // not everything.
+  boostRearm: 20,
   driftMinSpeed: 15, // m/s below which drifting earns nothing
   boostDownforceBonus: 2.2, // multiplier on downforce while boosting
 };

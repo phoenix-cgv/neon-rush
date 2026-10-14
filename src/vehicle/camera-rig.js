@@ -6,7 +6,7 @@ const _lookAt = new THREE.Vector3();
 const _offset = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 
-const MODES = ["chase", "hood", "chaseWide"];
+const MODES = ["chase", "cockpit", "chaseWide"];
 
 /**
  * Camera rig. The boom hangs off CarRig rather than ChassisPivot, so the
@@ -26,7 +26,11 @@ export class CameraRig {
     this.presets = {
       chase: { offset: new THREE.Vector3(0, 2.4, 7.0), lookAhead: 6, damp: 6, fov: 72 },
       chaseWide: { offset: new THREE.Vector3(0, 4.0, 11.0), lookAhead: 8, damp: 4, fov: 82 },
-      hood: { offset: new THREE.Vector3(0, 0.75, -0.4), lookAhead: 14, damp: 40, fov: 78 },
+      // In the cabin, at the driver's eye: the body's roof is only 0.71
+      // above the centre of mass, so the old "hood" offset of 0.75 sat
+      // outside the car looking over the bonnet. CarRig.setCockpit swaps
+      // the shell for a built interior while this one is selected.
+      cockpit: { offset: new THREE.Vector3(-0.3, 0.3, 0.3), lookAhead: 16, damp: 40, fov: 80 },
     };
   }
 

@@ -221,6 +221,7 @@ export class Vehicle {
     this.steerAngle = 0;
     this.boostCharge = 0;
     this.boosting = false;
+    this.boostDry = false; // the tank has run out and has not built back up yet
     this.driftFactor = 0;
     // drift combo (see CAR.driftTiers)
     this.driftChain = 0; // s of drifting in the current combo
@@ -1230,10 +1231,24 @@ export class Vehicle {
     }
     if (this.boostCharge > cap) this.boostCharge = cap; // the extension has shrunk away
 
-    this.boosting = controls.boost && this.boostCharge > 0 && this.gear === 1;
+    // Empty has to STAY empty for a while.
+    //
+    // The passive trickle above runs every step, so a tank the player has
+    // just drained is never actually at zero by the time anything reads
+    // it: the trickle puts a sliver back, "is there any left" passes, the
+    // drain takes it away again, and holding the button on an empty tank
+    // was full boost for ever (measured: charge 0, boosting true, speed
+    // still climbing). The latch has to be set where the tank is EMPTIED,
+    // below, not where it is read — anywhere earlier and the trickle has
+    // already hidden the moment it ran out.
+    this.boosting = controls.boost && !this.boostDry && this.boostCharge > 0 && this.gear === 1;
     if (this.boosting) {
       this.boostCharge = Math.max(0, this.boostCharge - CAR.boostDrainRate * dt);
+      if (this.boostCharge <= 0) this.boostDry = true; // ran out just now
     }
+    // ...and it only clears once there is a usable amount again, which is
+    // what stops the trickle re-arming it one sliver at a time.
+    if (this.boostCharge >= CAR.boostRearm) this.boostDry = false;
   }
 
   // -------------------------------------------------------------------
@@ -1342,6 +1357,7 @@ export class Vehicle {
       driftGap: this.driftGap,
       tankExtra: this.tankExtra,
       extraHold: this.extraHold,
+      boostDry: this.boostDry,
       s: this.s,
       lateralOffset: this.lateralOffset,
       wasGrounded: this.wasGrounded,
@@ -1380,6 +1396,7 @@ export class Vehicle {
     this.wallAssist = k.wallAssist;
     this.beached = k.beached;
     this.dragScale = k.dragScale;
+    this.boostDry = k.boostDry ?? false;
     this.damage = k.damage ?? 0;
     k.spin.forEach((v, i) => (this.wheels[i].spinAngle = v));
     this.prevPos.set(k.t[0], k.t[1], k.t[2]);
@@ -1400,6 +1417,7 @@ export class Vehicle {
     this.wasTouching = true;
     this.wasScrapingWall = false;
     this.againstWall = false; // so the first wall touch after a reset counts
+    this.boostDry = false; // a car put back on the road starts with a usable tank
     this.inPit = false;
     this.touchingCar = false;
     this.velNow.set(0, 0, 0);
